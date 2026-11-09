@@ -1,7 +1,7 @@
 {
   "id": "openpdf",
   "name": "OpenPDF",
-  "upgradeCode": "EA00C367-7270-4C50-9D8B-A7A5C88AD27F",
+  "upgradeCode": "BFB3E79F-7F88-4875-A50B-B6D531805C5B",
   "sources": [
     "openpdf.wxs",
     "installer-ui.wxs"
