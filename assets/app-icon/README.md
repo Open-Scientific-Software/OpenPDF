@@ -1,34 +1,18 @@
 # OpenPDF app icon
 
-<img src="openpdf-small.svg" alt="OpenPDF app icon: an engraved lion's head on red" width="128">
+<img src="openpdf.svg" alt="OpenPDF app icon: two white PDF pages on a red tile" width="128">
 
-**Creature:** a lion, in a frontal head-and-shoulders portrait, mane running off the bottom of the tile.
+The icon uses the original [layered-pages design](concepts/README.md). The white pages and
+PDF lettering are outlined geometry on a `#B30B00` rounded tile. The vector uses no fonts
+or embedded images. The artwork is licensed under [MIT OR Apache-2.0](LICENSE.txt).
 
-**Style:** an engraving (woodcut-weight line work) portrait in the Crafting Apps "owl template" framing:
-a full-bleed colour field, no frame or roundel, the animal looking at the viewer and filling the tile.
-
-**Palette:** exactly three colours.
-
-| Colour | Hex | Used for |
-|---|---|---|
-| Ink | `#0b0b0c` | line work and the figure's contour |
-| Paper | `#efe9dc` | the figure (the lion's silhouette) |
-| OpenPDF red (app colour) | `#b70228` | the full-bleed field |
-
-**Tile:** `viewBox="0 0 512 512"`, a rounded square with `rx=112` that clips everything. Windows and Linux
-icons use the full-bleed tile. macOS icons put it on Apple's grid (an 824 px body centred on a transparent
-1024 px canvas).
-
-**Provenance:** the PdfCraft project's original drawing, made in ArtCraft (2880 px, keyed to the palette), then
-vectorised (potrace; no filtering or warping).
-Licence: [LICENSE.txt](LICENSE.txt) (`MIT OR Apache-2.0`, like the repo).
+The previous engraved lion icon was original artwork by the PdfCraft project owner.
 
 ## Files
 
 | File | What it is |
 |---|---|
-| `openpdf.svg` | the master vector (traced at 2048 px); every PNG, `.ico` and `.icns` is rendered from it |
-| `openpdf-small.svg` | a lighter vector (traced at 1024 px) for places where size matters, such as this README |
+| `openpdf.svg` | the master vector for the application PNG, `.ico` and `.icns` |
 | `openpdf-1024.png` | 1024 px on Apple's grid; also the runtime Dock icon on macOS |
 | `openpdf.icns` | macOS icon (16–1024 px) |
 | `openpdf.ico` | Windows icon (16–256 px), embedded in `openpdf.exe` by `apps/openpdf/build.rs` |

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/app-icon/hicolor/256x256/apps/io.github.openscientificsoftware.openpdf.png" width="128" height="128" alt="OpenPDF icon: an engraved lion on a red tile">
+  <img src="assets/app-icon/hicolor/256x256/apps/io.github.openscientificsoftware.openpdf.png" width="128" height="128" alt="OpenPDF icon: two white PDF pages on a red tile">
 </p>
 
 <h1 align="center">OpenPDF</h1>

@@ -1,0 +1,5 @@
+OpenPDF layered-pages icon concept and its rendered preview.
+
+Original geometric artwork and outlined lettering created for OpenPDF.
+Licensed under MIT OR Apache-2.0, at your option.
+See ../../../LICENSE-MIT and ../../../LICENSE-APACHE for the full terms.
