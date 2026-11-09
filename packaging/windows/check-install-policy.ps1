@@ -87,8 +87,10 @@ try {
   foreach ($row in (Read-Rows $database 'SELECT `Directory`, `Directory_Parent`, `DefaultDir` FROM `Directory`' 3)) {
     $directories[$row[0]] = @($row[1], $row[2])
   }
+  # DefaultDir can store the target as short|long and append :source.
+  $suiteFolder = (($directories['CraftSuiteFolder'][1] -split ':', 2)[0] -split '\|', 2)[-1]
   if ($directories['INSTALLFOLDER'][0] -ne 'CraftSuiteFolder' -or
-      $directories['CraftSuiteFolder'][1] -ne 'Open Scientific Software') { throw 'Expected the app under the Open Scientific Software folder.' }
+      $suiteFolder -ne 'Open Scientific Software') { throw 'Expected the app under the Open Scientific Software folder.' }
   $programs = $directories['CraftSuiteFolder'][0]
   if ($programs -eq 'ProgramFiles6432Folder') { $programs = $directories[$programs][0] }
   if ($programs -notin 'ProgramFilesFolder', 'ProgramFiles64Folder') {
