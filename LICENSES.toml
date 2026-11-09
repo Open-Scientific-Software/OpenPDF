@@ -16,7 +16,7 @@ sha256 = "cd7032ea33b71427f188e34ffb4aee9d6868a57fd196037c5c8b2be03a2a0352"
 [[document]]
 source = "NOTICE"
 destination = "NOTICE"
-sha256 = "d9ba162ad2bc95d22ab9885065e253bb823bd6795068828e7b39858344b660eb"
+sha256 = "7d1f6d6c894dd80e9f9268cc8eef6be0124fc70274373ad94d163aa102a563f4"
 
 [[document]]
 source = "assets/app-icon/LICENSE-document.txt"
@@ -27,6 +27,11 @@ sha256 = "64a3137e3d5cc41e5b78d2ad8dd9ddddd6588283f9f7b3128aa6a8a50852fb9a"
 source = "assets/app-icon/LICENSE.txt"
 destination = "assets/app-icon/LICENSE.txt"
 sha256 = "7bb19d705ab8abc5943adc4fd25dea4f3efbed2519f47a91cd6684912a2a84bd"
+
+[[document]]
+source = "assets/app-icon/concepts/LICENSE.txt"
+destination = "assets/app-icon/concepts/LICENSE.txt"
+sha256 = "f1920c10efe6636054b445c12f03956a8756bebb4a7385726dee2dd24cffd5f1"
 
 [[document]]
 source = "assets/fonts/OFL-DancingScript.txt"
