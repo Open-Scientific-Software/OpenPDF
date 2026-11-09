@@ -1,6 +1,6 @@
 //! XFA scripting in the engine: a form's scripted events (initialize and calculate on open,
 //! exit, validate and calculate after a field changes, click for buttons) run through
-//! [`pdfcraft_js::xfa`] over the live form tree [`pdfcraft_xfa::form_tree`] builds, and what
+//! [`openpdf_js::xfa`] over the live form tree [`openpdf_xfa::form_tree`] builds, and what
 //! they change or ask for is applied here: values go to the fields (and so to the datasets),
 //! presence and access changes become overrides kept in the PDF, added or removed rows change
 //! the datasets, and any of those lays the form out again.
@@ -8,10 +8,10 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use pdfcraft_js::xfa::{XfaDoc, XfaEffect, XfaEvent, XfaKind, XfaNode, XfaProp, XfaProps};
-use pdfcraft_js::xfa_session::{Script, XfaSession};
-use pdfcraft_xfa::model::{Prop, Props, Template};
-use pdfcraft_xfa::{FormNode, LiveForm, NodeKind, ScriptEvent};
+use openpdf_js::xfa::{XfaDoc, XfaEffect, XfaEvent, XfaKind, XfaNode, XfaProp, XfaProps};
+use openpdf_js::xfa_session::{Script, XfaSession};
+use openpdf_xfa::model::{Prop, Props, Template};
+use openpdf_xfa::{FormNode, LiveForm, NodeKind, ScriptEvent};
 
 use crate::js::JsOutput;
 use crate::js::Request;
@@ -31,10 +31,10 @@ const EVENT_BUDGET_MS: u64 = 5_000;
 
 /// Engine limits for one script: initialize, calculate and validate scripts run without the
 /// user asking (on open, on every change), so they get fewer loop iterations than a click.
-fn limits_for(activity: &str) -> pdfcraft_js::Limits {
+fn limits_for(activity: &str) -> openpdf_js::Limits {
     match activity {
-        "click" | "change" | "exit" | "enter" => pdfcraft_js::Limits::default(),
-        _ => pdfcraft_js::Limits { loop_iterations: 100_000, recursion: 64 },
+        "click" | "change" | "exit" | "enter" => openpdf_js::Limits::default(),
+        _ => openpdf_js::Limits { loop_iterations: 100_000, recursion: 64 },
     }
 }
 
@@ -125,7 +125,7 @@ pub(crate) struct XfaRun<'a> {
     pub page_count: usize,
     pub out: &'a mut JsOutput,
     /// The datasets stream this edit already wrote, replaced in place by later writes.
-    pub datasets: Option<pdfcraft_cos::ObjRef>,
+    pub datasets: Option<openpdf_cos::ObjRef>,
     /// A script ran past its time limit and was abandoned: the form's scripts should stay off.
     pub ran_away: bool,
     /// Whether the viewer highlights form fields, for `app.runtimeHighlight`.
@@ -139,7 +139,7 @@ pub(crate) struct XfaRun<'a> {
 /// The script engine's copies of a form's property trees, by the address of the tree each was
 /// made from: made the first time a script of the form needs one, then shared by every later
 /// script and event of that form. They are kept in the form's template
-/// ([`pdfcraft_xfa::model::TemplateCache`]), so they go with it when the form is closed, and
+/// ([`openpdf_xfa::model::TemplateCache`]), so they go with it when the form is closed, and
 /// the lock is the form's own. Each entry holds a weak reference to its tree, which keeps the
 /// address from being reused while the entry exists; entries whose tree is gone (a tree of a
 /// copy of the template, such as one with a script's overrides applied) are dropped each time
@@ -244,7 +244,7 @@ fn to_js_with(n: &FormNode, copies: &HashMap<usize, Arc<XfaProps>>, depth: usize
         index: n.index,
         children: if depth > 256 { Vec::new() } else { n.children.iter().map(|c| to_js_with(c, copies, depth + 1)).collect() },
         props: copies.get(&(Arc::as_ptr(&n.props) as usize)).cloned().unwrap_or_else(|| Arc::new(convert_props(&n.props))),
-        formatted: n.display_picture.as_deref().and_then(|p| pdfcraft_xfa::formatted_value(p, &n.value)),
+        formatted: n.display_picture.as_deref().and_then(|p| openpdf_xfa::formatted_value(p, &n.value)),
     }
 }
 
@@ -318,9 +318,9 @@ fn count_instances(root: &FormNode, parent_som: &str, name: &str) -> usize {
 }
 
 /// An instance SOM (`…table[0].row[2]`) split into its parent's data path (areas left out,
-/// see [`pdfcraft_xfa::data_path`]) and SOM, its name and its index.
-fn split_instance(tpl: &Template, som: &str) -> Option<(pdfcraft_xfa::DataPath, String, String, usize)> {
-    let mut path = pdfcraft_xfa::data_path(tpl, som);
+/// see [`openpdf_xfa::data_path`]) and SOM, its name and its index.
+fn split_instance(tpl: &Template, som: &str) -> Option<(openpdf_xfa::DataPath, String, String, usize)> {
+    let mut path = openpdf_xfa::data_path(tpl, som);
     let (name, index) = path.pop()?;
     let parent_som = som.rsplit_once('.').map(|(p, _)| p).unwrap_or("").to_string();
     Some((path, parent_som, name, index))
@@ -392,19 +392,19 @@ impl ResetTargets {
 /// A generated field as the runner tracks it: kind, value and on state.
 #[derive(Clone)]
 struct FieldInfo {
-    kind: pdfcraft_forms::FieldKind,
+    kind: openpdf_forms::FieldKind,
     value: Vec<String>,
     on_state: String,
     /// List boxes that take several values (one per line in the data).
     multi: bool,
 }
 
-fn field_infos(doc: &pdfcraft_cos::Document) -> HashMap<String, FieldInfo> {
-    pdfcraft_forms::fields(doc)
+fn field_infos(doc: &openpdf_cos::Document) -> HashMap<String, FieldInfo> {
+    openpdf_forms::fields(doc)
         .into_iter()
         .map(|f| {
             let on_state = f.widgets.first().and_then(|w| w.on_state.clone()).unwrap_or_else(|| "1".into());
-            let multi = f.kind == pdfcraft_forms::FieldKind::List && f.has(pdfcraft_forms::flags::MULTI_SELECT);
+            let multi = f.kind == openpdf_forms::FieldKind::List && f.has(openpdf_forms::flags::MULTI_SELECT);
             (f.name, FieldInfo { kind: f.kind, value: f.value, on_state, multi })
         })
         .collect()
@@ -413,7 +413,7 @@ fn field_infos(doc: &pdfcraft_cos::Document) -> HashMap<String, FieldInfo> {
 /// The data text of a field's value.
 fn data_text(info: &FieldInfo) -> String {
     match info.kind {
-        pdfcraft_forms::FieldKind::CheckBox => {
+        openpdf_forms::FieldKind::CheckBox => {
             if info.value.is_empty() {
                 String::new()
             } else {
@@ -428,7 +428,7 @@ fn data_text(info: &FieldInfo) -> String {
 /// they change is kept in memory (data, field values, overrides) and written once, when the
 /// event ends or the form has to be laid out again.
 struct Runner<'a, 'b> {
-    doc: &'a mut pdfcraft_cos::Document,
+    doc: &'a mut openpdf_cos::Document,
     tpl: &'a Template,
     run: &'a mut XfaRun<'b>,
     clock: Clock,
@@ -443,15 +443,15 @@ struct Runner<'a, 'b> {
     relayout_owed: bool,
     dropped_output: usize,
     truncated_warned: bool,
-    data: Option<pdfcraft_xfa::DataNode>,
-    ov: pdfcraft_xfa::Overrides,
+    data: Option<openpdf_xfa::DataNode>,
+    ov: openpdf_xfa::Overrides,
     ov_dirty: bool,
-    pending: Vec<pdfcraft_xfa::DataOp>,
+    pending: Vec<openpdf_xfa::DataOp>,
     /// Field values to write, by name (the last wins).
     field_changes: std::collections::BTreeMap<String, Vec<String>>,
     by_som: Option<HashMap<String, String>>,
     /// Widget names by the data node they bind to (built with `by_som`).
-    by_path: Option<HashMap<pdfcraft_xfa::DataPath, Vec<String>>>,
+    by_path: Option<HashMap<openpdf_xfa::DataPath, Vec<String>>>,
     fields: Option<HashMap<String, FieldInfo>>,
     /// The live form as last built; dropped when a script changed the form.
     cached: Option<LiveForm>,
@@ -474,9 +474,9 @@ struct Runner<'a, 'b> {
 
 impl<'a, 'b> Runner<'a, 'b> {
     /// A runner for one event on `doc` and its template, its scripts sharing `budget_ms`.
-    fn new(doc: &'a mut pdfcraft_cos::Document, tpl: &'a Template, run: &'a mut XfaRun<'b>, budget_ms: u64) -> Self {
-        let data = pdfcraft_xfa::data_of(doc);
-        let ov = pdfcraft_xfa::overrides(doc);
+    fn new(doc: &'a mut openpdf_cos::Document, tpl: &'a Template, run: &'a mut XfaRun<'b>, budget_ms: u64) -> Self {
+        let data = openpdf_xfa::data_of(doc);
+        let ov = openpdf_xfa::overrides(doc);
         let budget_ms = budget_ms.saturating_mul(u64::from(run.time_scale));
         Runner {
             doc,
@@ -525,14 +525,14 @@ impl<'a, 'b> Runner<'a, 'b> {
     /// Give the object at `som` the value `text` in the data and in the live form (refreshed
     /// in place, as the tree builder would set it; a value changes nothing else, so the tree
     /// is not rebuilt for it).
-    fn value_op(&mut self, som: &str, path: pdfcraft_xfa::DataPath, text: String) {
-        let op = pdfcraft_xfa::DataOp::Value { path, text };
+    fn value_op(&mut self, som: &str, path: openpdf_xfa::DataPath, text: String) {
+        let op = openpdf_xfa::DataOp::Value { path, text };
         self.data.get_or_insert_with(Default::default).apply(&op);
         self.pending.push(op);
         // The value changes in the live form below: the scripts' copy is made again.
         self.js_root = None;
         let refreshed = match self.cached.as_mut() {
-            Some(live) => pdfcraft_xfa::refresh_value(&mut live.root, self.tpl, self.data.as_ref(), som).is_some(),
+            Some(live) => openpdf_xfa::refresh_value(&mut live.root, self.tpl, self.data.as_ref(), som).is_some(),
             None => true,
         };
         if !refreshed {
@@ -542,13 +542,13 @@ impl<'a, 'b> Runner<'a, 'b> {
 
     fn live(&mut self) -> &LiveForm {
         if self.cached.is_none() {
-            let uses = pdfcraft_xfa::page_area_uses(self.doc, self.tpl);
-            let live = pdfcraft_xfa::form_tree_paged(self.tpl, self.data.as_ref(), &self.ov, &uses);
+            let uses = openpdf_xfa::page_area_uses(self.doc, self.tpl);
+            let live = openpdf_xfa::form_tree_paged(self.tpl, self.data.as_ref(), &self.ov, &uses);
             if live.truncated && !self.truncated_warned {
                 self.truncated_warned = true;
                 self.error(format!(
                     "The form has more than {} objects or 20000 scripted events; its scripts see only the first ones",
-                    pdfcraft_xfa::MAX_FORM_NODES
+                    openpdf_xfa::MAX_FORM_NODES
                 ));
             }
             self.cached = Some(live);
@@ -558,10 +558,10 @@ impl<'a, 'b> Runner<'a, 'b> {
 
     fn by_som(&mut self) -> &HashMap<String, String> {
         if self.by_som.is_none() {
-            let by_som = pdfcraft_xfa::fields_by_som(self.doc);
-            let mut by_path: HashMap<pdfcraft_xfa::DataPath, Vec<String>> = HashMap::new();
+            let by_som = openpdf_xfa::fields_by_som(self.doc);
+            let mut by_path: HashMap<openpdf_xfa::DataPath, Vec<String>> = HashMap::new();
             for (som, name) in &by_som {
-                by_path.entry(pdfcraft_xfa::data_path(self.tpl, som)).or_default().push(name.clone());
+                by_path.entry(openpdf_xfa::data_path(self.tpl, som)).or_default().push(name.clone());
             }
             for names in by_path.values_mut() {
                 names.sort();
@@ -573,7 +573,7 @@ impl<'a, 'b> Runner<'a, 'b> {
     }
 
     /// The widgets bound to the data node at `path`, in name order.
-    fn widgets_at(&mut self, path: &pdfcraft_xfa::DataPath) -> Vec<String> {
+    fn widgets_at(&mut self, path: &openpdf_xfa::DataPath) -> Vec<String> {
         self.by_som();
         self.by_path.as_ref().and_then(|m| m.get(path)).cloned().unwrap_or_default()
     }
@@ -615,7 +615,7 @@ impl<'a, 'b> Runner<'a, 'b> {
 
     /// Change the data's structure (and the in-memory copy scripts read): the form is rebuilt
     /// for the next script.
-    fn data_op(&mut self, op: pdfcraft_xfa::DataOp) {
+    fn data_op(&mut self, op: openpdf_xfa::DataOp) {
         self.data.get_or_insert_with(Default::default).apply(&op);
         self.pending.push(op);
         self.invalidate();
@@ -625,11 +625,11 @@ impl<'a, 'b> Runner<'a, 'b> {
     /// that data node (each valued by its own kind: a check box by its on state, a list box by
     /// lines). Returns whether anything changed.
     fn set_value(&mut self, som: &str, value: &str) -> bool {
-        use pdfcraft_forms::FieldKind as K;
-        let path = pdfcraft_xfa::data_path(self.tpl, som);
+        use openpdf_forms::FieldKind as K;
+        let path = openpdf_xfa::data_path(self.tpl, som);
         // A floating field shows the value of its data node in the text that embeds it (XFA 3.3
         // pp. 221–222): a page area's, or one another field shares, as well.
-        let embedded = pdfcraft_xfa::path_is_embedded(self.tpl, &path);
+        let embedded = openpdf_xfa::path_is_embedded(self.tpl, &path);
         let names = self.widgets_at(&path);
         // The data text: the widget at `som` says how its kind writes the value; without one,
         // the first widget bound to the node, else the value itself.
@@ -640,7 +640,7 @@ impl<'a, 'b> Runner<'a, 'b> {
             let Some(info) = self.fields().get(name).cloned() else { continue };
             let new_value: Vec<String> = match info.kind {
                 K::CheckBox => {
-                    if pdfcraft_xfa::data::is_on(value, &info.on_state) || value == info.on_state {
+                    if openpdf_xfa::data::is_on(value, &info.on_state) || value == info.on_state {
                         vec![info.on_state.clone()]
                     } else {
                         Vec::new()
@@ -690,7 +690,7 @@ impl<'a, 'b> Runner<'a, 'b> {
         let mut wrote = false;
         if !self.pending.is_empty() {
             let ops = std::mem::take(&mut self.pending);
-            let r = pdfcraft_xfa::write_data_ops(self.doc, &ops, self.run.datasets).map_err(|e| e.to_string())?;
+            let r = openpdf_xfa::write_data_ops(self.doc, &ops, self.run.datasets).map_err(|e| e.to_string())?;
             if r.stream.is_some() {
                 self.run.datasets = r.stream;
             }
@@ -698,20 +698,20 @@ impl<'a, 'b> Runner<'a, 'b> {
             wrote = true;
         }
         if !self.field_changes.is_empty() {
-            let changes: Vec<pdfcraft_forms::FieldChange> = std::mem::take(&mut self.field_changes)
+            let changes: Vec<openpdf_forms::FieldChange> = std::mem::take(&mut self.field_changes)
                 .into_iter()
-                .map(|(name, value)| pdfcraft_forms::FieldChange { name, value: Some(value), ..Default::default() })
+                .map(|(name, value)| openpdf_forms::FieldChange { name, value: Some(value), ..Default::default() })
                 .collect();
-            pdfcraft_forms::apply_script_changes(self.doc, &changes, &mut pdfcraft_forms::NoScripts).map_err(|e| e.to_string())?;
+            openpdf_forms::apply_script_changes(self.doc, &changes, &mut openpdf_forms::NoScripts).map_err(|e| e.to_string())?;
             self.fields = None;
         }
         if self.ov_dirty {
-            pdfcraft_xfa::set_overrides(self.doc, &self.ov).map_err(|e| e.to_string())?;
+            openpdf_xfa::set_overrides(self.doc, &self.ov).map_err(|e| e.to_string())?;
             self.ov_dirty = false;
         }
         if wrote {
             // What the packet now holds (a value it could not take is reported above).
-            self.data = pdfcraft_xfa::data_of(self.doc);
+            self.data = openpdf_xfa::data_of(self.doc);
             self.invalidate();
         }
         Ok(())
@@ -731,7 +731,7 @@ impl<'a, 'b> Runner<'a, 'b> {
         self.relayouts += 1;
         self.flush()?;
         self.embedded_changed = false;
-        let report = pdfcraft_xfa::rerender(self.doc, self.tpl).map_err(|e| e.to_string())?;
+        let report = openpdf_xfa::rerender(self.doc, self.tpl).map_err(|e| e.to_string())?;
         self.console(report.warnings);
         crate::xfa_redraw(self.doc)?;
         self.console(crate::undrawn_field_warnings(self.doc));
@@ -755,9 +755,9 @@ impl<'a, 'b> Runner<'a, 'b> {
         let unshown: Vec<String> = {
             let live = self.live();
             let mut out = Vec::new();
-            let mut stack: Vec<&pdfcraft_xfa::FormNode> = vec![&live.root];
+            let mut stack: Vec<&openpdf_xfa::FormNode> = vec![&live.root];
             while let Some(n) = stack.pop() {
-                if matches!(n.kind, Some(pdfcraft_xfa::NodeKind::Field | pdfcraft_xfa::NodeKind::ExclGroup))
+                if matches!(n.kind, Some(openpdf_xfa::NodeKind::Field | openpdf_xfa::NodeKind::ExclGroup))
                     && !by_som.contains_key(&n.som)
                     && wanted(&n.som)
                 {
@@ -770,17 +770,17 @@ impl<'a, 'b> Runner<'a, 'b> {
         for som in unshown {
             // A floating field rich text embeds goes back to its default with every row that
             // holds it (below).
-            if pdfcraft_xfa::field_is_embedded(self.tpl, &som) {
+            if openpdf_xfa::field_is_embedded(self.tpl, &som) {
                 continue;
             }
-            let Some(text) = pdfcraft_xfa::reset_default(self.tpl, &som) else { continue };
-            let path = pdfcraft_xfa::data_path(self.tpl, &som);
+            let Some(text) = openpdf_xfa::reset_default(self.tpl, &som) else { continue };
+            let path = openpdf_xfa::data_path(self.tpl, &som);
             self.reset_data(path, text);
         }
         // Names no widget answers to may still name a floating field (below).
         let widgets = !listed.as_ref().is_some_and(Vec::is_empty);
         if widgets {
-            pdfcraft_forms::reset(self.doc, listed.as_deref()).map_err(|e| e.to_string())?;
+            openpdf_forms::reset(self.doc, listed.as_deref()).map_err(|e| e.to_string())?;
         }
         self.fields = None;
         let infos = self.fields().clone();
@@ -790,25 +790,25 @@ impl<'a, 'b> Runner<'a, 'b> {
                 continue;
             }
             let Some(info) = infos.get(name) else { continue };
-            if matches!(info.kind, pdfcraft_forms::FieldKind::PushButton | pdfcraft_forms::FieldKind::Signature) {
+            if matches!(info.kind, openpdf_forms::FieldKind::PushButton | openpdf_forms::FieldKind::Signature) {
                 continue;
             }
-            let path = pdfcraft_xfa::data_path(self.tpl, som);
+            let path = openpdf_xfa::data_path(self.tpl, som);
             self.reset_data(path, data_text(info));
         }
         // A floating field without a widget (a hidden one, as forms place them) goes back to
         // its default too, and the text that embeds it shows that.
-        for (som, default) in pdfcraft_xfa::embedded_fields(self.tpl) {
+        for (som, default) in openpdf_xfa::embedded_fields(self.tpl) {
             if by_som.contains_key(&som) || !wanted(&som) {
                 continue;
             }
             // Every row that holds it, not only the first.
-            let names: Vec<String> = pdfcraft_xfa::data_path(self.tpl, &som).into_iter().map(|(name, _)| name).collect();
-            let paths = self.data.as_ref().map(|d| d.paths_named(&names, pdfcraft_xfa::MAX_FORM_NODES)).unwrap_or_default();
+            let names: Vec<String> = openpdf_xfa::data_path(self.tpl, &som).into_iter().map(|(name, _)| name).collect();
+            let paths = self.data.as_ref().map(|d| d.paths_named(&names, openpdf_xfa::MAX_FORM_NODES)).unwrap_or_default();
             for path in paths {
                 if self.data.as_ref().and_then(|d| d.text_at(&path)).unwrap_or("") != default {
                     self.embedded_changed = true;
-                    self.data_op(pdfcraft_xfa::DataOp::Value { path, text: default.clone() });
+                    self.data_op(openpdf_xfa::DataOp::Value { path, text: default.clone() });
                     self.changes.values += 1;
                 }
             }
@@ -819,10 +819,10 @@ impl<'a, 'b> Runner<'a, 'b> {
 
     /// Put a reset's `text` in the data at `path`, unless it already holds it: a multi-select
     /// list's picks (`value` elements) are compared as its lines (the write replaces them).
-    fn reset_data(&mut self, path: pdfcraft_xfa::DataPath, text: String) {
+    fn reset_data(&mut self, path: openpdf_xfa::DataPath, text: String) {
         if self.data.as_ref().and_then(|d| d.value_at(&path)).unwrap_or_default() != text {
-            self.embedded_changed |= pdfcraft_xfa::path_is_embedded(self.tpl, &path);
-            self.data_op(pdfcraft_xfa::DataOp::Value { path, text });
+            self.embedded_changed |= openpdf_xfa::path_is_embedded(self.tpl, &path);
+            self.data_op(openpdf_xfa::DataOp::Value { path, text });
             self.changes.values += 1;
         }
     }
@@ -885,14 +885,14 @@ impl<'a, 'b> Runner<'a, 'b> {
                     let have = counts.get(&key).copied().unwrap_or(0);
                     if matches!(e, XfaEffect::AddInstance { .. }) {
                         counts.insert(key, have + 1);
-                        self.data_op(pdfcraft_xfa::DataOp::Instances { parent, name, count: (index + 1).max(have + 1) });
+                        self.data_op(openpdf_xfa::DataOp::Instances { parent, name, count: (index + 1).max(have + 1) });
                     } else {
                         // The data holds every shown instance before one is taken out.
                         counts.insert(key, have.saturating_sub(1));
-                        self.data_op(pdfcraft_xfa::DataOp::Instances { parent: parent.clone(), name: name.clone(), count: have });
+                        self.data_op(openpdf_xfa::DataOp::Instances { parent: parent.clone(), name: name.clone(), count: have });
                         let mut path = parent;
                         path.push((name, index));
-                        self.data_op(pdfcraft_xfa::DataOp::Remove(path));
+                        self.data_op(openpdf_xfa::DataOp::Remove(path));
                     }
                     self.changes.rows += 1;
                     relayout = true;
@@ -933,7 +933,7 @@ impl<'a, 'b> Runner<'a, 'b> {
 
     /// Run one event script against the form as it is now. `None`: it was skipped (the
     /// event's budget is spent).
-    fn run(&mut self, ev: &ScriptEvent, new_text: &str) -> Result<Option<pdfcraft_js::xfa::XfaOutcome>, String> {
+    fn run(&mut self, ev: &ScriptEvent, new_text: &str) -> Result<Option<openpdf_js::xfa::XfaOutcome>, String> {
         if self.runs >= MAX_SCRIPTS_PER_EVENT || self.clock.spent() || self.run.ran_away {
             self.skipped += 1;
             return Ok(None);
@@ -1051,8 +1051,8 @@ impl Runner<'_, '_> {
     #[cfg(test)]
     fn check_live(&mut self) {
         let Some(live) = self.cached.as_ref() else { return };
-        let uses = pdfcraft_xfa::page_area_uses(self.doc, self.tpl);
-        let fresh = pdfcraft_xfa::form_tree_paged(self.tpl, self.data.as_ref(), &self.ov, &uses);
+        let uses = openpdf_xfa::page_area_uses(self.doc, self.tpl);
+        let fresh = openpdf_xfa::form_tree_paged(self.tpl, self.data.as_ref(), &self.ov, &uses);
         let (mut have, mut want) = (Vec::new(), Vec::new());
         collect_fields(&live.root, &mut have, 0);
         collect_fields(&fresh.root, &mut want, 0);
@@ -1086,18 +1086,18 @@ fn collect_fields(n: &FormNode, out: &mut Vec<(String, String, String, String)>,
 /// their existing geometry; forms without scripts parse their template only when needed.
 /// `Some` means pages/widgets were rebuilt and the caller must fully refresh its snapshot.
 pub(crate) fn relayout_changed_text(
-    doc: &mut pdfcraft_cos::Document,
+    doc: &mut openpdf_cos::Document,
     cached: Option<&Template>,
-    before: &[pdfcraft_forms::Field],
+    before: &[openpdf_forms::Field],
 ) -> Result<Option<Vec<String>>, String> {
-    if pdfcraft_xfa::existing_layout(doc).is_none() {
+    if openpdf_xfa::existing_layout(doc).is_none() {
         return Ok(None);
     }
     let current = &*doc;
     let mut changed = before
         .iter()
         .filter(|f| {
-            use pdfcraft_forms::FieldKind as K;
+            use openpdf_forms::FieldKind as K;
             matches!(f.kind, K::Text | K::Combo | K::List | K::CheckBox)
         })
         .filter_map(|f| {
@@ -1106,7 +1106,7 @@ pub(crate) fn relayout_changed_text(
             if value_unchanged(current, f, dict.get(b"V")) {
                 return None;
             }
-            dict.get(pdfcraft_xfa::SOM_KEY).and_then(|s| current.resolve(s).as_string().map(|s| s.to_text()))
+            dict.get(openpdf_xfa::SOM_KEY).and_then(|s| current.resolve(s).as_string().map(|s| s.to_text()))
         })
         .peekable();
     if changed.peek().is_none() {
@@ -1114,14 +1114,14 @@ pub(crate) fn relayout_changed_text(
     }
     let template = match cached {
         Some(tpl) => std::borrow::Cow::Borrowed(tpl),
-        None => std::borrow::Cow::Owned(pdfcraft_xfa::template_of(current).map_err(|e| e.to_string())?),
+        None => std::borrow::Cow::Owned(openpdf_xfa::template_of(current).map_err(|e| e.to_string())?),
     };
-    let reflow = changed.any(|som| pdfcraft_xfa::field_grows_with_text(&template, &som) || pdfcraft_xfa::field_is_embedded(&template, &som));
+    let reflow = changed.any(|som| openpdf_xfa::field_grows_with_text(&template, &som) || openpdf_xfa::field_is_embedded(&template, &som));
     drop(changed);
     if !reflow {
         return Ok(None);
     }
-    let report = pdfcraft_xfa::rerender(doc, &template).map_err(|e| e.to_string())?;
+    let report = openpdf_xfa::rerender(doc, &template).map_err(|e| e.to_string())?;
     crate::xfa_redraw(doc)?;
     Ok(Some(report.warnings))
 }
@@ -1130,9 +1130,9 @@ pub(crate) fn relayout_changed_text(
 /// picks are an array, a check box's state a name (Off for none, as the field's value has
 /// none), and of a text field only the first value counts. Compared in place, so an edit costs
 /// no copy of every field's value.
-fn value_unchanged(doc: &pdfcraft_cos::Document, f: &pdfcraft_forms::Field, v: Option<&pdfcraft_cos::Object>) -> bool {
-    use pdfcraft_cos::Object as O;
-    let text = f.kind == pdfcraft_forms::FieldKind::Text;
+fn value_unchanged(doc: &openpdf_cos::Document, f: &openpdf_forms::Field, v: Option<&openpdf_cos::Object>) -> bool {
+    use openpdf_cos::Object as O;
+    let text = f.kind == openpdf_forms::FieldKind::Text;
     let first = f.value.first().map_or("", String::as_str);
     // The value is the one string `is` accepts.
     let one = |is: &dyn Fn(&str) -> bool| if text { is(first) } else { matches!(f.value.as_slice(), [old] if is(old)) };
@@ -1187,7 +1187,7 @@ fn value_unchanged(doc: &pdfcraft_cos::Document, f: &pdfcraft_forms::Field, v: O
 /// say); a viewer runs it after every layout. Every layout:ready script runs, but a field that
 /// numbers pages keeps the number the layout gave each page: the value a script writes to it is
 /// dropped (one value would put the same number on every page).
-pub(crate) fn on_open(doc: &mut pdfcraft_cos::Document, tpl: &Template, run: &mut XfaRun) -> Result<Changes, String> {
+pub(crate) fn on_open(doc: &mut openpdf_cos::Document, tpl: &Template, run: &mut XfaRun) -> Result<Changes, String> {
     let mut r = Runner::new(doc, tpl, run, OPEN_BUDGET_MS);
     // The scripts read the live form (template, data and overrides), not the pages, so the
     // pages are laid out once, after the last of them. Laying a large form out after every
@@ -1206,7 +1206,7 @@ pub(crate) fn on_open(doc: &mut pdfcraft_cos::Document, tpl: &Template, run: &mu
         let mut fields = HashSet::new();
         field_soms(&live.root, &mut fields, 0);
         let numbered: HashSet<String> =
-            ready.iter().filter(|e| fields.contains(&e.som) && pdfcraft_xfa::numbers_pages(&e.script, e.formcalc)).map(|e| e.som.clone()).collect();
+            ready.iter().filter(|e| fields.contains(&e.som) && openpdf_xfa::numbers_pages(&e.script, e.formcalc)).map(|e| e.som.clone()).collect();
         (ready, numbered)
     };
     r.numbered = numbered;
@@ -1223,7 +1223,7 @@ pub(crate) fn on_open(doc: &mut pdfcraft_cos::Document, tpl: &Template, run: &mu
 /// or fails, shows its message; the value stays, as Acrobat marks the field invalid rather
 /// than reverting it. The SOM paths whose exit scripts ran go into `exited`.
 pub(crate) fn on_changes(
-    doc: &mut pdfcraft_cos::Document,
+    doc: &mut openpdf_cos::Document,
     tpl: &Template,
     names: &[String],
     run: &mut XfaRun,
@@ -1262,7 +1262,7 @@ pub(crate) fn on_changes(
 
 /// The form's data changed outside its scripts (a data file imported, a picture chosen): lay
 /// the form out again from the data, then, when `calculate`, run every calculation.
-pub(crate) fn on_data_replaced(doc: &mut pdfcraft_cos::Document, tpl: &Template, calculate: bool, run: &mut XfaRun) -> Result<(), String> {
+pub(crate) fn on_data_replaced(doc: &mut openpdf_cos::Document, tpl: &Template, calculate: bool, run: &mut XfaRun) -> Result<(), String> {
     let mut r = Runner::new(doc, tpl, run, OPEN_BUDGET_MS);
     r.relayout()?;
     if calculate {
@@ -1272,29 +1272,29 @@ pub(crate) fn on_data_replaced(doc: &mut pdfcraft_cos::Document, tpl: &Template,
 }
 
 /// A text value typed into the laid-out XFA date field `name` by another of its edit picture's
-/// patterns, written in the first ([`pdfcraft_xfa::typed_date`]); `None` for anything else.
+/// patterns, written in the first ([`openpdf_xfa::typed_date`]); `None` for anything else.
 /// `tpl` is the template the scripts use, when they run; otherwise it is read from `doc`.
 pub(crate) fn typed_date(
-    doc: &pdfcraft_cos::Document,
+    doc: &openpdf_cos::Document,
     tpl: Option<&Template>,
     name: &str,
-    value: &pdfcraft_forms::FieldValue,
-) -> Option<pdfcraft_forms::FieldValue> {
-    let pdfcraft_forms::FieldValue::Text(text) = value else { return None };
-    let som = pdfcraft_xfa::fields_by_som(doc).into_iter().find_map(|(som, n)| (n == name).then_some(som))?;
+    value: &openpdf_forms::FieldValue,
+) -> Option<openpdf_forms::FieldValue> {
+    let openpdf_forms::FieldValue::Text(text) = value else { return None };
+    let som = openpdf_xfa::fields_by_som(doc).into_iter().find_map(|(som, n)| (n == name).then_some(som))?;
     let read;
     let tpl = match tpl {
         Some(t) => t,
         None => {
-            read = pdfcraft_xfa::template_of(doc).ok()?;
+            read = openpdf_xfa::template_of(doc).ok()?;
             &read
         }
     };
-    pdfcraft_xfa::typed_date(tpl, &som, text).map(pdfcraft_forms::FieldValue::Text)
+    openpdf_xfa::typed_date(tpl, &som, text).map(openpdf_forms::FieldValue::Text)
 }
 
 /// A button's click script (or any event, by SOM path and activity), then calculations.
-pub(crate) fn on_event(doc: &mut pdfcraft_cos::Document, tpl: &Template, som: &str, activity: &str, run: &mut XfaRun) -> Result<(), String> {
+pub(crate) fn on_event(doc: &mut openpdf_cos::Document, tpl: &Template, som: &str, activity: &str, run: &mut XfaRun) -> Result<(), String> {
     let mut r = Runner::new(doc, tpl, run, EVENT_BUDGET_MS);
     let events = r.events_of(som, activity);
     if events.is_empty() {
@@ -1312,7 +1312,7 @@ pub(crate) fn on_event(doc: &mut pdfcraft_cos::Document, tpl: &Template, som: &s
 /// A field gaining (`enter`) or losing (`exit`) focus: its scripts for that activity, then, when
 /// they changed something, the calculations. Returns what changed; nothing (and no error) when
 /// the field has no such script, so a focus change with nothing to run leaves the form alone.
-pub(crate) fn on_focus(doc: &mut pdfcraft_cos::Document, tpl: &Template, som: &str, activity: &str, run: &mut XfaRun) -> Result<Changes, String> {
+pub(crate) fn on_focus(doc: &mut openpdf_cos::Document, tpl: &Template, som: &str, activity: &str, run: &mut XfaRun) -> Result<Changes, String> {
     let mut r = Runner::new(doc, tpl, run, EVENT_BUDGET_MS);
     let events = r.events_of(som, activity);
     if events.is_empty() {
@@ -1335,55 +1335,55 @@ pub(crate) fn on_focus(doc: &mut pdfcraft_cos::Document, tpl: &Template, som: &s
 /// and a field's copies on several pages share one. `None` when the field has no widget
 /// `widget`: the field's own path is only for a widget that records none, so a widget index
 /// out of range never reaches the field (for a radio field, the group).
-pub(crate) fn widget_som(doc: &pdfcraft_cos::Document, field: &pdfcraft_forms::Field, widget: usize) -> Option<String> {
-    let som_of = |obj: pdfcraft_cos::ObjRef| {
+pub(crate) fn widget_som(doc: &openpdf_cos::Document, field: &openpdf_forms::Field, widget: usize) -> Option<String> {
+    let som_of = |obj: openpdf_cos::ObjRef| {
         let object = doc.get(obj);
-        object.as_dict()?.get(pdfcraft_xfa::SOM_KEY).map(|s| doc.resolve(s))?.as_string().map(|s| s.to_text())
+        object.as_dict()?.get(openpdf_xfa::SOM_KEY).map(|s| doc.resolve(s))?.as_string().map(|s| s.to_text())
     };
     let w = field.widgets.get(widget)?;
     som_of(w.obj).or_else(|| som_of(field.obj))
 }
 
 /// Does the live form give SOM path `som` an `activity` script?
-pub(crate) fn has_event(doc: &pdfcraft_cos::Document, tpl: &Template, som: &str, activity: &str) -> bool {
+pub(crate) fn has_event(doc: &openpdf_cos::Document, tpl: &Template, som: &str, activity: &str) -> bool {
     // Page-master copies have a SOM path of their own on each page (`master[1]…`).
-    let uses = pdfcraft_xfa::page_area_uses(doc, tpl);
-    let live = pdfcraft_xfa::form_tree_paged(tpl, pdfcraft_xfa::data_of(doc).as_ref(), &pdfcraft_xfa::overrides(doc), &uses);
+    let uses = openpdf_xfa::page_area_uses(doc, tpl);
+    let live = openpdf_xfa::form_tree_paged(tpl, openpdf_xfa::data_of(doc).as_ref(), &openpdf_xfa::overrides(doc), &uses);
     live.events.iter().any(|e| e.som == som && e.activity == activity)
 }
 
 /// The SOM path of a generated field whose template has a click script.
-pub(crate) fn clickable_som(doc: &pdfcraft_cos::Document, tpl: &Template, field: &pdfcraft_forms::Field) -> Option<String> {
+pub(crate) fn clickable_som(doc: &openpdf_cos::Document, tpl: &Template, field: &openpdf_forms::Field) -> Option<String> {
     scripted_som(doc, tpl, field, "click")
 }
 
 /// The SOM path of a generated field whose template has an `activity` script.
-pub(crate) fn scripted_som(doc: &pdfcraft_cos::Document, tpl: &Template, field: &pdfcraft_forms::Field, activity: &str) -> Option<String> {
+pub(crate) fn scripted_som(doc: &openpdf_cos::Document, tpl: &Template, field: &openpdf_forms::Field, activity: &str) -> Option<String> {
     // The field's own SOM path: each page-master copy has one of its own (`master[1]…`).
     let object = doc.get(field.obj);
-    let som = object.as_dict()?.get(pdfcraft_xfa::SOM_KEY).map(|s| doc.resolve(s))?.as_string()?.to_text();
-    let uses = pdfcraft_xfa::page_area_uses(doc, tpl);
-    let live = pdfcraft_xfa::form_tree_paged(tpl, pdfcraft_xfa::data_of(doc).as_ref(), &pdfcraft_xfa::overrides(doc), &uses);
+    let som = object.as_dict()?.get(openpdf_xfa::SOM_KEY).map(|s| doc.resolve(s))?.as_string()?.to_text();
+    let uses = openpdf_xfa::page_area_uses(doc, tpl);
+    let live = openpdf_xfa::form_tree_paged(tpl, openpdf_xfa::data_of(doc).as_ref(), &openpdf_xfa::overrides(doc), &uses);
     live.events.iter().any(|e| e.som == som && e.activity == activity).then_some(som)
 }
 
 /// The parsed template of a laid-out XFA form, kept for the document's life, when it has
 /// scripts to run (`None` otherwise: nothing about the form is scripted).
-pub(crate) fn template(doc: &pdfcraft_cos::Document) -> Option<Arc<Template>> {
-    pdfcraft_xfa::template_of(doc).ok().filter(pdfcraft_xfa::has_scripts).map(Arc::new)
+pub(crate) fn template(doc: &openpdf_cos::Document) -> Option<Arc<Template>> {
+    openpdf_xfa::template_of(doc).ok().filter(openpdf_xfa::has_scripts).map(Arc::new)
 }
 
-/// Push buttons PdfCraft generated for XFA click scripts carry no PDF action (the script is
+/// Push buttons OpenPDF generated for XFA click scripts carry no PDF action (the script is
 /// XFA's, not Acrobat JavaScript): give them one that runs the script by the field's SOM path.
-pub(crate) fn mark_script_buttons(doc: &pdfcraft_cos::Document, fields: &mut [pdfcraft_forms::Field]) {
+pub(crate) fn mark_script_buttons(doc: &openpdf_cos::Document, fields: &mut [openpdf_forms::Field]) {
     for f in fields.iter_mut() {
-        if f.kind == pdfcraft_forms::FieldKind::PushButton
+        if f.kind == openpdf_forms::FieldKind::PushButton
             && f.button.is_none()
             && std::iter::once(f.obj)
                 .chain(f.widgets.iter().map(|w| w.obj))
-                .any(|r| doc.get(r).as_dict().is_some_and(|d| d.contains(pdfcraft_xfa::CLICK_KEY)))
+                .any(|r| doc.get(r).as_dict().is_some_and(|d| d.contains(openpdf_xfa::CLICK_KEY)))
         {
-            f.button = Some(pdfcraft_forms::af::ButtonAction::Script(String::new()));
+            f.button = Some(openpdf_forms::af::ButtonAction::Script(String::new()));
         }
     }
 }
@@ -1473,13 +1473,13 @@ mod tests {
         let xml = format!(
             r#"<template xmlns="http://www.xfa.org/schema/xfa-template/3.3/"><subform name="form" layout="tb">{fields}</subform></template>"#
         );
-        let (tpl, _) = pdfcraft_xfa::parse(&xml).unwrap();
-        let live = pdfcraft_xfa::form_tree(&tpl, None, &Default::default());
+        let (tpl, _) = openpdf_xfa::parse(&xml).unwrap();
+        let live = openpdf_xfa::form_tree(&tpl, None, &Default::default());
         let a = to_js(&live.root, &tpl);
         let b = to_js(&live.root, &tpl);
         // A tree built again (with a script's overrides) is still the form's: same copies.
-        let copy = pdfcraft_xfa::apply_overrides(&tpl, &Default::default());
-        let c = to_js(&pdfcraft_xfa::form_tree(&copy, None, &Default::default()).root, &tpl);
+        let copy = openpdf_xfa::apply_overrides(&tpl, &Default::default());
+        let c = to_js(&openpdf_xfa::form_tree(&copy, None, &Default::default()).root, &tpl);
         assert_eq!(a.children.len(), 2_000);
         for ((x, y), z) in a.children.iter().zip(&b.children).zip(&c.children) {
             assert!(Arc::ptr_eq(&x.props, &y.props) && Arc::ptr_eq(&x.props, &z.props));
@@ -1496,15 +1496,15 @@ mod tests {
                 r#"<template xmlns="http://www.xfa.org/schema/xfa-template/3.3/"><subform name="form" layout="tb"><field name="{name}"><border><edge/></border></field></subform></template>"#
             )
         };
-        let (closed, _) = pdfcraft_xfa::parse(&xml("a")).unwrap();
-        let (open, _) = pdfcraft_xfa::parse(&xml("b")).unwrap();
-        let live = pdfcraft_xfa::form_tree(&closed, None, &Default::default());
+        let (closed, _) = openpdf_xfa::parse(&xml("a")).unwrap();
+        let (open, _) = openpdf_xfa::parse(&xml("b")).unwrap();
+        let live = openpdf_xfa::form_tree(&closed, None, &Default::default());
         let snapshot = to_js(&live.root, &closed);
         let copy = Arc::downgrade(&snapshot.children[0].props);
         drop(snapshot);
         assert!(copy.upgrade().is_some(), "kept for the form's next snapshot");
         // Another form's snapshot neither keeps nor needs this form's copies.
-        let other = to_js(&pdfcraft_xfa::form_tree(&open, None, &Default::default()).root, &open);
+        let other = to_js(&openpdf_xfa::form_tree(&open, None, &Default::default()).root, &open);
         assert!(!Arc::ptr_eq(&other.children[0].props, &copy.upgrade().unwrap_or_default()));
         drop(live);
         drop(closed);
@@ -1581,14 +1581,14 @@ mod tests {
     #[test]
     fn the_map_does_not_grow_with_trees_that_are_gone() {
         let xml = r#"<template xmlns="http://www.xfa.org/schema/xfa-template/3.3/"><subform name="form" layout="tb"><field name="a"><border><edge/></border></field><field name="b"/></subform></template>"#;
-        let (tpl, _) = pdfcraft_xfa::parse(xml).unwrap();
-        let live = pdfcraft_xfa::form_tree(&tpl, None, &Default::default());
+        let (tpl, _) = openpdf_xfa::parse(xml).unwrap();
+        let live = openpdf_xfa::form_tree(&tpl, None, &Default::default());
         drop(to_js(&live.root, &tpl));
         let own = props_copies(&tpl).map_or(0, |c| c.len());
         assert!(own >= 3, "{own}");
         for _ in 0..500 {
-            let (again, _) = pdfcraft_xfa::parse(xml).unwrap();
-            drop(to_js(&pdfcraft_xfa::form_tree(&again, None, &Default::default()).root, &tpl));
+            let (again, _) = openpdf_xfa::parse(xml).unwrap();
+            drop(to_js(&openpdf_xfa::form_tree(&again, None, &Default::default()).root, &tpl));
         }
         assert_eq!(props_copies(&tpl).map_or(0, |c| c.len()), own);
     }
@@ -1598,7 +1598,7 @@ mod tests {
     /// nothing on the form.
     #[test]
     fn a_click_script_reads_field_properties() {
-        let template = pdfcraft_xfa::fixtures::scripted_template()
+        let template = openpdf_xfa::fixtures::scripted_template()
             .replace(
                 r#"<field name="hello" w="1in" h="0.3in"><ui><button/></ui>"#,
                 r#"<field name="hello" w="1in" h="0.3in"><ui><button/></ui><border><fill><color value="200,200,255"/></fill></border>"#,
@@ -1608,7 +1608,7 @@ mod tests {
                 r#"qty.validate.nullTest = "error"; xfa.host.messageBox([this.ui.oneOfChild.className, this.border.fill.color.value, this.border.presence, qty.ui.oneOfChild.className, qty.validate.message.text.value, qty.validate.nullTest, table.row.occur.max, more.ui.oneOfChild.className, this.isPropertySpecified("border"), qty.isPropertySpecified("border")].join("|"));"#,
             );
         let mut s = crate::Session::new();
-        let id = s.open("props.pdf", None, Arc::new(pdfcraft_xfa::fixtures::shell(&template)), None).unwrap();
+        let id = s.open("props.pdf", None, Arc::new(openpdf_xfa::fixtures::shell(&template)), None).unwrap();
         let _ = s.take_js_output(id);
         let fields =
             |s: &crate::Session| s.get(id).unwrap().form.iter().map(|f| (f.name.clone(), f.value.clone(), f.read_only())).collect::<Vec<_>>();
@@ -1617,14 +1617,14 @@ mod tests {
         assert!(out.error.is_none(), "{out:?}");
         assert_eq!(
             out.alerts,
-            [pdfcraft_js::Message::plain("button|200,200,255|visible|numericEdit|Quantity must be 100 or less|error|-1|checkButton|true|false")]
+            [openpdf_js::Message::plain("button|200,200,255|visible|numericEdit|Quantity must be 100 or less|error|-1|checkButton|true|false")]
         );
         assert!(s.take_js_output(id).errors.is_empty());
         assert_eq!(fields(&s), before, "a property write changes nothing yet");
     }
 
-    fn field(obj: pdfcraft_cos::ObjRef, kind: pdfcraft_forms::FieldKind, value: &[&str]) -> pdfcraft_forms::Field {
-        pdfcraft_forms::Field {
+    fn field(obj: openpdf_cos::ObjRef, kind: openpdf_forms::FieldKind, value: &[&str]) -> openpdf_forms::Field {
+        openpdf_forms::Field {
             name: "f".into(),
             obj,
             kind,
@@ -1639,28 +1639,28 @@ mod tests {
             quadding: 0,
             tooltip: None,
             widgets: Vec::new(),
-            actions: pdfcraft_forms::af::Actions::default(),
+            actions: openpdf_forms::af::Actions::default(),
             button: None,
         }
     }
 
     /// A field dictionary whose `/V` is `v`, with a SOM path.
-    fn field_dict(doc: &mut pdfcraft_cos::Document, v: Option<pdfcraft_cos::Object>) -> pdfcraft_cos::ObjRef {
-        let mut d = pdfcraft_cos::Dict::new();
+    fn field_dict(doc: &mut openpdf_cos::Document, v: Option<openpdf_cos::Object>) -> openpdf_cos::ObjRef {
+        let mut d = openpdf_cos::Dict::new();
         if let Some(v) = v {
             d.set(b"V".to_vec(), v);
         }
-        d.set(pdfcraft_xfa::SOM_KEY.to_vec(), pdfcraft_cos::Object::String(pdfcraft_cos::PdfString::text("form[0].f[0]")));
+        d.set(openpdf_xfa::SOM_KEY.to_vec(), openpdf_cos::Object::String(openpdf_cos::PdfString::text("form[0].f[0]")));
         doc.add(d)
     }
 
     #[test]
     fn changed_values_are_found_in_place() {
-        use pdfcraft_cos::{Object as O, PdfString};
-        use pdfcraft_forms::FieldKind as K;
+        use openpdf_cos::{Object as O, PdfString};
+        use openpdf_forms::FieldKind as K;
         let s = |t: &str| O::String(PdfString::text(t));
-        let mut doc = pdfcraft_cos::Document::new_empty();
-        let same = |doc: &mut pdfcraft_cos::Document, kind, old: &[&str], v: Option<O>| {
+        let mut doc = openpdf_cos::Document::new_empty();
+        let same = |doc: &mut openpdf_cos::Document, kind, old: &[&str], v: Option<O>| {
             let r = field_dict(doc, v);
             let dict = doc.get(r);
             value_unchanged(doc, &field(r, kind, old), dict.as_dict().and_then(|d| d.get(b"V")))
@@ -1701,18 +1701,18 @@ mod tests {
 
     #[test]
     fn unchanged_values_return_before_the_template_is_read() {
-        use pdfcraft_cos::{Object as O, PdfString};
-        use pdfcraft_forms::FieldKind as K;
+        use openpdf_cos::{Object as O, PdfString};
+        use openpdf_forms::FieldKind as K;
         // Laid out, but with no XFA packets: reading the template fails.
-        let mut doc = pdfcraft_cos::Document::new_empty();
-        let mut acro = pdfcraft_cos::Dict::new();
-        acro.set(pdfcraft_xfa::LAYOUT_KEY.to_vec(), pdfcraft_cos::Dict::new());
+        let mut doc = openpdf_cos::Document::new_empty();
+        let mut acro = openpdf_cos::Dict::new();
+        acro.set(openpdf_xfa::LAYOUT_KEY.to_vec(), openpdf_cos::Dict::new());
         let acro = doc.add(acro);
         let root = doc.root().unwrap_or_else(|| panic!("no catalog"));
         let mut catalog = doc.get(root).as_dict().cloned().unwrap_or_default();
         catalog.set(b"AcroForm".to_vec(), O::Ref(acro));
         doc.set(root, catalog);
-        assert!(pdfcraft_xfa::existing_layout(&doc).is_some());
+        assert!(openpdf_xfa::existing_layout(&doc).is_some());
         let text = field_dict(&mut doc, Some(O::String(PdfString::text("same"))));
         let list = field_dict(&mut doc, Some(O::Array(vec![O::String(PdfString::text("a")), O::String(PdfString::text("b"))])));
         let check = field_dict(&mut doc, Some(O::name("Yes")));

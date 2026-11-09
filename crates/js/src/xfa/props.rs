@@ -70,7 +70,7 @@ pub(crate) const NODE_MEMBERS: &[&str] =
 // - which `<items>` a field's `items` reaches when it has a shown and a saved list:
 //   [`FIELD_ITEMS_INDEX`];
 // - `items.nodes` lists the entries as the template lists them ([`list_entries`]). The list
-//   state `HNode::items` is the hook for PdfCraft's choice-list methods (`addItem`,
+//   state `HNode::items` is the hook for OpenPDF's choice-list methods (`addItem`,
 //   `clearItems`, from the Series 1 work, not on main yet), which will set it; nothing sets it
 //   until then, so reads follow the template;
 // - `caption.className` and `caption.value.oneOfChild.className`: the element's tag
@@ -855,7 +855,7 @@ pub(crate) fn node_color(h: &XHost, node: usize, path: &str) -> String {
 /// one serves every side, two alternate (0, 1, 0, 1), three reuse the second for the fourth
 /// (0, 1, 2, 1). `None` past the four sides, and when none is
 /// listed (the side is a default one). The layout picks edges and corners with the same
-/// pattern (`drawn_side` in `pdfcraft_xfa`, which this crate doesn't depend on); tests on both
+/// pattern (`drawn_side` in `openpdf_xfa`, which this crate doesn't depend on); tests on both
 /// sides pin it.
 fn drawn_index(listed: usize, index: usize) -> Option<usize> {
     match listed {

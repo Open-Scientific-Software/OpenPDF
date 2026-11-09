@@ -26,13 +26,13 @@ impl Session {
     /// Edit a PDF ▸ Edit text: make the grouped text on `page` (0-based) editable, as one undoable
     /// [`Edit::PrepareText`], and say what it prepared, which fonts' maps it repaired and which
     /// groups it left as they were (and why). The counts are this edit's own, not a preview's.
-    pub fn prepare_text(&mut self, id: DocId, page: usize) -> Result<pdfcraft_edit::text::forms::Preparation, EditError> {
+    pub fn prepare_text(&mut self, id: DocId, page: usize) -> Result<openpdf_edit::text::forms::Preparation, EditError> {
         self.apply_reporting(id, Edit::PrepareText { page })?
             .ok_or_else(|| EditError::Invalid("preparing grouped text gave no result; the document was not changed".into()))
     }
 
     /// [`Session::apply`], giving back what an [`Edit::PrepareText`] did (`None` for other edits).
-    fn apply_reporting(&mut self, id: DocId, edit: Edit) -> Result<Option<pdfcraft_edit::text::forms::Preparation>, EditError> {
+    fn apply_reporting(&mut self, id: DocId, edit: Edit) -> Result<Option<openpdf_edit::text::forms::Preparation>, EditError> {
         let now = self.now();
         let today = self.today();
         let js_off = self.js_off;
@@ -61,7 +61,7 @@ impl Session {
         // in the paper's colour and draw the new text in the ink's.
         let edit = match edit {
             Edit::EditTextBlock { page, block, text, mut style } => {
-                let plain = style == pdfcraft_edit::BlockStyle::default();
+                let plain = style == openpdf_edit::BlockStyle::default();
                 // Only invisible text is sampled; the blocks are usually cached from opening it.
                 if style.cover.is_none()
                     && let Some(info) = doc.info.pages.get(page)
@@ -82,7 +82,7 @@ impl Session {
             other => other,
         };
         // Nothing to bake: leave undo history and the dirty flag alone.
-        if matches!(&edit, Edit::FlattenFillSign) && !pdfcraft_annot::has_visible_fill_sign(&editor.cos) {
+        if matches!(&edit, Edit::FlattenFillSign) && !openpdf_annot::has_visible_fill_sign(&editor.cos) {
             return Ok(None);
         }
         let mut next = editor.cos.clone();
@@ -104,8 +104,8 @@ impl Session {
         // Redaction removed what its own interpreter places under the marks. The marks were drawn
         // over the page as the renderer shows it, so the renderer has the last word.
         if let Edit::ApplyRedactions { pages } = &edit {
-            let marks: Vec<pdfcraft_redact::Mark> =
-                pdfcraft_redact::marks(&editor.cos).into_iter().filter(|m| pages.as_ref().is_none_or(|p| p.contains(&m.page))).collect();
+            let marks: Vec<openpdf_redact::Mark> =
+                openpdf_redact::marks(&editor.cos).into_iter().filter(|m| pages.as_ref().is_none_or(|p| p.contains(&m.page))).collect();
             guard(|| shown_under_redactions(&next, &marks, &cx.redaction_overlays, &doc.info.pages, doc.password.as_deref()))
                 .unwrap_or_else(|m| Err(EditError::Invalid(format!("{} failed unexpectedly ({m}); the document was not changed", edit.label()))))?;
         }
@@ -214,7 +214,7 @@ impl Session {
         if !signed && deletes_pages(&edit) {
             next.require_full_save();
         }
-        let rewrites = |c: &pdfcraft_cos::Document| c.full_save_required() || c.encryption_changed();
+        let rewrites = |c: &openpdf_cos::Document| c.full_save_required() || c.encryption_changed();
         if signed && ((rewrites(&next) && !rewrites(&editor.cos)) || (next.is_modified() && next.revisions().is_empty())) {
             return Err(EditError::SignedRewrite(edit.label().to_string()));
         }
@@ -222,7 +222,7 @@ impl Session {
         // Places applied redactions left that still hold the removed text, and what became of
         // the PDF/A or PDF/UA identification in the XMP they removed: said, not silent.
         notices.extend(cx.redaction_elsewhere.filter(|e| e.total() > 0 || e.unsearched).map(EditNotice::RedactionElsewhere));
-        if cx.redaction_identification != pdfcraft_redact::Identification::default() {
+        if cx.redaction_identification != openpdf_redact::Identification::default() {
             notices.push(EditNotice::RedactionIdentification(cx.redaction_identification));
         }
         let previous = std::mem::replace(&mut editor.cos, next);
@@ -385,7 +385,7 @@ impl Session {
             for (field, value) in info_fields(&mut doc.info, &editor.cos) {
                 *field = value;
             }
-            doc.info.custom = pdfcraft_organize::custom_info(&editor.cos);
+            doc.info.custom = openpdf_organize::custom_info(&editor.cos);
             doc.info.file_size = bytes.len();
             #[cfg(test)]
             check_refresh_panic();
@@ -403,7 +403,7 @@ impl Session {
             doc.bytes = bytes;
             return Ok(());
         }
-        let mut form = pdfcraft_forms::fields(&editor.cos);
+        let mut form = openpdf_forms::fields(&editor.cos);
         xfa::mark_script_buttons(&editor.cos, &mut form);
         let form = Arc::new(form);
         match scope {
@@ -424,7 +424,7 @@ impl Session {
                 for f in &mut doc.info.fields {
                     if let Some(ff) = by_name.get(f.name.as_str()) {
                         f.value = match ff.kind {
-                            pdfcraft_forms::FieldKind::CheckBox | pdfcraft_forms::FieldKind::Radio => {
+                            openpdf_forms::FieldKind::CheckBox | openpdf_forms::FieldKind::Radio => {
                                 Some(ff.value.first().cloned().unwrap_or_else(|| "Off".into()))
                             }
                             _ if ff.value.is_empty() => None,
@@ -500,7 +500,7 @@ impl Session {
             editor.cos.bytes().clone()
         };
         // The edit must still leave a file the viewer can open; anything else rolls back above.
-        pdfcraft_render::check_pages(bytes.clone(), doc.password.as_deref(), doc.info.pages.len()).map_err(|e| EditError::Reopen(e.to_string()))?;
+        openpdf_render::check_pages(bytes.clone(), doc.password.as_deref(), doc.info.pages.len()).map_err(|e| EditError::Reopen(e.to_string()))?;
         let (touches_added, touches_marks) = Self::content_refresh_lists(edit);
         if touches_added || touches_marks {
             doc.marker_scan = OnceLock::new();
@@ -591,7 +591,7 @@ impl Session {
         doc.info = info;
         doc.config.print_layers = print_preview_layers(Some(&editor.cos), &doc.info.layers);
         doc.fonts_stale = false;
-        let mut form = pdfcraft_forms::fields(&editor.cos);
+        let mut form = openpdf_forms::fields(&editor.cos);
         xfa::mark_script_buttons(&editor.cos, &mut form);
         doc.form = Arc::new(form);
         if invalidate_markers {
@@ -621,7 +621,7 @@ fn take_xfa_output(doc: &mut Document, out: js::JsOutput, ran_away: bool) {
 }
 
 /// What `edit`, taking `prev` to `next`, wants said: never silent (AGENTS.md §4).
-fn edit_notices(edit: &Edit, prev: &pdfcraft_cos::Document, next: &pdfcraft_cos::Document) -> Vec<EditNotice> {
+fn edit_notices(edit: &Edit, prev: &openpdf_cos::Document, next: &openpdf_cos::Document) -> Vec<EditNotice> {
     // What it drew with `?` (a value or comment text its font can't draw, stored as typed).
     let mut notices: Vec<EditNotice> = if matches!(scope_of(edit), Scope::Form | Scope::Comments | Scope::Full) {
         guard(|| undrawn_notices(prev, next)).unwrap_or_default().into_iter().map(EditNotice::Undrawn).collect()
@@ -630,7 +630,7 @@ fn edit_notices(edit: &Edit, prev: &pdfcraft_cos::Document, next: &pdfcraft_cos:
     };
     // Pages whose own white backdrop Remove background couldn't turn back on.
     if matches!(edit, Edit::RemoveMarks { kind: MarkKind::Background }) {
-        let pages = guard(|| pdfcraft_edit::backdrops_left_off(next)).unwrap_or_default();
+        let pages = guard(|| openpdf_edit::backdrops_left_off(next)).unwrap_or_default();
         if !pages.is_empty() {
             notices.push(EditNotice::BackdropsLeftOff { pages });
         }

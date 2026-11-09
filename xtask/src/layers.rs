@@ -27,7 +27,7 @@ impl Class {
     }
 }
 
-/// Every workspace crate (package name without the `pdfcraft-` prefix) and its layer.
+/// Every workspace crate (package name without the `openpdf-` prefix) and its layer.
 pub const TABLE: &[(&str, Class)] = &[
     // L0 foundation (standalone, publishable)
     ("geom", Class::Standalone(0)),
@@ -87,7 +87,7 @@ pub const TABLE: &[(&str, Class)] = &[
     ("testkit", Class::Testkit),
     ("oracle", Class::Testkit),
     // L8 apps + tooling
-    ("pdfcraft", Class::Exempt),
+    ("openpdf", Class::Exempt),
     ("cli", Class::Exempt),
     ("web", Class::Exempt),
     ("ocr-worker", Class::Exempt),
@@ -115,7 +115,7 @@ pub const UI_CRATES: &[&str] = &["egui", "eframe", "winit", "egui_kittest", "cra
 pub const UI_MIN_LAYER: u8 = 7;
 
 pub fn short_name(pkg: &str) -> &str {
-    pkg.strip_prefix("pdfcraft-").unwrap_or(pkg)
+    pkg.strip_prefix("openpdf-").unwrap_or(pkg)
 }
 
 pub fn classify(pkg: &str) -> Option<Class> {
@@ -286,79 +286,79 @@ mod tests {
     #[test]
     fn current_graph_shape_passes() {
         let g = [
-            c("pdfcraft-geom", &[]),
-            c("pdfcraft-render", &[("hayro", Normal, false), ("lopdf", Normal, false)]),
-            c("pdfcraft-engine", &[("pdfcraft-render", Normal, true)]),
-            c("pdfcraft-ui-egui", &[("pdfcraft-engine", Normal, true), ("egui", Normal, false), ("egui_kittest", Dev, false)]),
-            c("pdfcraft", &[("pdfcraft-ui-egui", Normal, true)]),
+            c("openpdf-geom", &[]),
+            c("openpdf-render", &[("hayro", Normal, false), ("lopdf", Normal, false)]),
+            c("openpdf-engine", &[("openpdf-render", Normal, true)]),
+            c("openpdf-ui-egui", &[("openpdf-engine", Normal, true), ("egui", Normal, false), ("egui_kittest", Dev, false)]),
+            c("openpdf", &[("openpdf-ui-egui", Normal, true)]),
         ];
         assert!(check(&g).is_empty(), "{:?}", check(&g));
     }
 
     #[test]
     fn upward_and_sideways_edges_flagged() {
-        let v = check(&[c("pdfcraft-model", &[("pdfcraft-engine", Normal, true)])]);
+        let v = check(&[c("openpdf-model", &[("openpdf-engine", Normal, true)])]);
         assert!(matches!(v[..], [Violation::Upward { from: 2, to: 6, .. }]));
         // forms -> js must go through the ActionRunner trait, never directly.
-        let v = check(&[c("pdfcraft-forms", &[("pdfcraft-js", Normal, true)])]);
+        let v = check(&[c("openpdf-forms", &[("openpdf-js", Normal, true)])]);
         assert!(matches!(v[..], [Violation::Upward { from: 3, to: 3, .. }]));
     }
 
     #[test]
     fn listed_sideways_edges_allowed() {
-        assert!(check(&[c("pdfcraft-redact", &[("pdfcraft-edit", Normal, true)])]).is_empty());
-        assert!(!check(&[c("pdfcraft-edit", &[("pdfcraft-redact", Normal, true)])]).is_empty());
+        assert!(check(&[c("openpdf-redact", &[("openpdf-edit", Normal, true)])]).is_empty());
+        assert!(!check(&[c("openpdf-edit", &[("openpdf-redact", Normal, true)])]).is_empty());
     }
 
     #[test]
     fn cos_may_use_only_its_listed_foundation() {
-        assert!(check(&[c("pdfcraft-cos", &[("pdfcraft-filters", Normal, true), ("pdfcraft-crypt", Normal, true)])]).is_empty());
-        let v = check(&[c("pdfcraft-cos", &[("pdfcraft-arlington", Normal, true)])]);
+        assert!(check(&[c("openpdf-cos", &[("openpdf-filters", Normal, true), ("openpdf-crypt", Normal, true)])]).is_empty());
+        let v = check(&[c("openpdf-cos", &[("openpdf-arlington", Normal, true)])]);
         assert!(matches!(v[..], [Violation::StandaloneHasWorkspaceDep { .. }]));
-        let v = check(&[c("pdfcraft-filters", &[("pdfcraft-geom", Normal, true)])]);
+        let v = check(&[c("openpdf-filters", &[("openpdf-geom", Normal, true)])]);
         assert!(matches!(v[..], [Violation::StandaloneHasWorkspaceDep { .. }]));
     }
 
     #[test]
     fn ui_crates_below_l7_flagged() {
         for dep in ["egui", "eframe", "winit", "rfd", "wgpu", "wgpu-core", "egui_dock", "craft-ui"] {
-            let v = check(&[c("pdfcraft-engine", &[(dep, Normal, false)])]);
+            let v = check(&[c("openpdf-engine", &[(dep, Normal, false)])]);
             assert!(matches!(v[..], [Violation::UiBelowL7 { layer: 6, .. }]), "{dep}");
         }
-        assert!(check(&[c("pdfcraft-platform", &[("winit", Normal, false)])]).is_empty());
-        assert!(check(&[c("pdfcraft-ui-egui", &[("craft-ui", Normal, false)])]).is_empty());
+        assert!(check(&[c("openpdf-platform", &[("winit", Normal, false)])]).is_empty());
+        assert!(check(&[c("openpdf-ui-egui", &[("craft-ui", Normal, false)])]).is_empty());
     }
 
     #[test]
     fn test_support_only_as_dev_dependency() {
-        let v = check(&[c("pdfcraft-cos", &[("pdfcraft-testkit", Normal, true)])]);
+        let v = check(&[c("openpdf-cos", &[("openpdf-testkit", Normal, true)])]);
         assert!(!v.is_empty());
-        assert!(check(&[c("pdfcraft-render", &[("pdfcraft-oracle", Dev, true)])]).is_empty());
-        let v = check(&[c("pdfcraft-render", &[("pdfcraft-oracle", Normal, true)])]);
+        assert!(check(&[c("openpdf-render", &[("openpdf-oracle", Dev, true)])]).is_empty());
+        let v = check(&[c("openpdf-render", &[("openpdf-oracle", Normal, true)])]);
         assert!(matches!(v[..], [Violation::TestkitAsNormalDep { .. }]));
 
         // A standalone crate may use test support in its own tests: a dev-dependency is not part
         // of the graph the standalone rule protects. `cos` is where the qpdf oracle is needed.
-        assert!(check(&[c("pdfcraft-cos", &[("pdfcraft-oracle", Dev, true)])]).is_empty());
-        assert!(check(&[c("pdfcraft-geom", &[("pdfcraft-testkit", Dev, true)])]).is_empty());
+        assert!(check(&[c("openpdf-cos", &[("openpdf-oracle", Dev, true)])]).is_empty());
+        assert!(check(&[c("openpdf-geom", &[("openpdf-testkit", Dev, true)])]).is_empty());
         // ...but only as a dev-dependency, and only for test support. Product crates are still
         // off-limits to a standalone crate however they are depended on.
-        let v = check(&[c("pdfcraft-cos", &[("pdfcraft-oracle", Normal, true)])]);
+        let v = check(&[c("openpdf-cos", &[("openpdf-oracle", Normal, true)])]);
         assert!(matches!(v[..], [Violation::StandaloneHasWorkspaceDep { .. }]), "{v:?}");
-        let v = check(&[c("pdfcraft-cos", &[("pdfcraft-model", Dev, true)])]);
+        let v = check(&[c("openpdf-cos", &[("openpdf-model", Dev, true)])]);
         assert!(matches!(v[..], [Violation::StandaloneHasWorkspaceDep { .. }]), "{v:?}");
     }
 
     #[test]
     fn unregistered_crate_is_error() {
-        let v = check(&[c("pdfcraft-mystery", &[])]);
-        assert!(matches!(&v[..], [Violation::Unregistered { krate }] if krate == "pdfcraft-mystery"));
+        let v = check(&[c("openpdf-mystery", &[])]);
+        assert!(matches!(&v[..], [Violation::Unregistered { krate }] if krate == "openpdf-mystery"));
     }
 
     #[test]
     fn apps_exempt() {
-        for app in ["pdfcraft", "pdfcraft-cli", "pdfcraft-web", "pdfcraft-ocr-worker", "xtask"] {
-            assert!(check(&[c(app, &[("egui", Normal, false), ("pdfcraft-ui-egui", Normal, true)])]).is_empty());
+        for app in ["openpdf", "openpdf-cli", "openpdf-web", "openpdf-ocr-worker", "xtask"] {
+            assert!(check(&[c(app, &[("egui", Normal, false), ("openpdf-ui-egui", Normal, true)])]).is_empty());
         }
     }
 }

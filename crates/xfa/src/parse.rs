@@ -307,7 +307,7 @@ const MAX_PROP_DEPTH: usize = 8;
 /// Most attributes kept on one element.
 const MAX_PROP_ATTRS: usize = 64;
 /// Longest validation or calculation script kept for scripts to read, in bytes: the script
-/// engine's own limit on a script (`pdfcraft_js`'s `MAX_SCRIPT_BYTES`), past which it would not run anyway.
+/// engine's own limit on a script (`openpdf_js`'s `MAX_SCRIPT_BYTES`), past which it would not run anyway.
 const MAX_VALIDATE_SCRIPT_BYTES: usize = 256 * 1024;
 /// The warning when an object's properties passed a limit.
 pub const PROPS_CUT_WARNING: &str = "an object has more property elements, attributes or text than scripts are given; the rest are left out";

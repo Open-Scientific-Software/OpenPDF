@@ -8,12 +8,12 @@
 use std::sync::{Arc, Mutex};
 
 use egui::{Align, Layout, RichText};
-use pdfcraft_engine::optimize::{Compatibility, Compression, ImageSettings, MonoCompression, MonoSettings, Preset, QUALITIES, Settings};
-use pdfcraft_engine::optimizer::{OptimizeStage, Optimized};
-use pdfcraft_engine::{DocId, EditError, Hidden, OptimizeReport};
+use openpdf_engine::optimize::{Compatibility, Compression, ImageSettings, MonoCompression, MonoSettings, Preset, QUALITIES, Settings};
+use openpdf_engine::optimizer::{OptimizeStage, Optimized};
+use openpdf_engine::{DocId, EditError, Hidden, OptimizeReport};
 
 use crate::theme::{self, Tokens};
-use crate::{PdfCraftApp, widgets};
+use crate::{OpenPDFApp, widgets};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OptimizeTab {
@@ -303,7 +303,7 @@ pub(crate) fn body(ui: &mut egui::Ui, d: &mut OptimizeDraft, t: &Tokens) -> (boo
 
 /// Audit Space Usage: how the file's bytes are spent now, by kind of content (not what
 /// optimizing would save).
-pub(crate) fn audit_body(ui: &mut egui::Ui, rows: &[pdfcraft_engine::optimize::SpaceUse], t: &Tokens) -> bool {
+pub(crate) fn audit_body(ui: &mut egui::Ui, rows: &[openpdf_engine::optimize::SpaceUse], t: &Tokens) -> bool {
     ui.label(RichText::new(tl!("Space Audit")).font(crate::theme::semibold(18.0)));
     ui.add_space(4.0);
     audit_table(ui, rows, t);
@@ -315,7 +315,7 @@ pub(crate) fn audit_body(ui: &mut egui::Ui, rows: &[pdfcraft_engine::optimize::S
 
 /// The audit's explanation and its table: bytes and share of the file per kind of content.
 /// Shared by the Optimizer's Audit Space Usage and Properties ▸ Space Audit.
-pub(crate) fn audit_table(ui: &mut egui::Ui, rows: &[pdfcraft_engine::optimize::SpaceUse], t: &Tokens) {
+pub(crate) fn audit_table(ui: &mut egui::Ui, rows: &[openpdf_engine::optimize::SpaceUse], t: &Tokens) {
     use egui::{TextWrapMode, WidgetText};
     ui.label(RichText::new(tl!("What takes up the space in this file, by kind of content.")).color(t.text_muted));
     ui.add_space(8.0);
@@ -328,7 +328,7 @@ pub(crate) fn audit_table(ui: &mut egui::Ui, rows: &[pdfcraft_engine::optimize::
     for r in rows.iter().filter(|r| r.bytes > 0) {
         // "Patterns" also names the redaction search patterns ("模式"); the audit's PDF
         // graphics objects need their own key.
-        let category = if r.category == pdfcraft_engine::optimize::SpaceCategory::Patterns {
+        let category = if r.category == openpdf_engine::optimize::SpaceCategory::Patterns {
             tl!("Patterns (graphics objects)")
         } else {
             tl!(r.category.label())
@@ -362,7 +362,7 @@ pub(crate) fn audit_table(ui: &mut egui::Ui, rows: &[pdfcraft_engine::optimize::
     });
 }
 
-impl PdfCraftApp {
+impl OpenPDFApp {
     /// Measure the active document's space use, unless `space_audit` already describes it as
     /// it is now. With no document the audit is empty.
     pub(crate) fn refresh_space_audit(&mut self) {
@@ -426,8 +426,8 @@ impl PdfCraftApp {
         #[cfg(not(target_arch = "wasm32"))]
         if self.run_inline {
             work();
-        } else if let Err(e) = std::thread::Builder::new().name("pdfcraft-optimize".into()).spawn(move || {
-            pdfcraft_engine::optimize::give_way_to_other_programs();
+        } else if let Err(e) = std::thread::Builder::new().name("openpdf-optimize".into()).spawn(move || {
+            openpdf_engine::optimize::give_way_to_other_programs();
             work();
         }) {
             // No worker: report the failure instead of waiting for a result that never comes.
@@ -500,7 +500,7 @@ mod tests {
         let progress = Arc::new(Mutex::new(OptimizeProgress { stage: OptimizeStage::Images { done: 3, total: 10 }, ..Default::default() }));
         let p = progress.clone();
         let mut h = Harness::builder().with_size(egui::vec2(1200.0, 800.0)).build_eframe(move |_cc| {
-            let mut app = PdfCraftApp::new();
+            let mut app = OpenPDFApp::new();
             app.set_option("language", "en").unwrap();
             app.open_bytes("notes.txt", None, b"hello".to_vec()).unwrap();
             let (_, doc) = app.active_ids().unwrap();
@@ -510,7 +510,7 @@ mod tests {
         });
         // 1.5 s (kittest steps a quarter second): the bar has eased in, the toast still shows.
         h.run_steps(6);
-        if let Ok(path) = std::env::var("PDFCRAFT_OPTIMIZE_PROGRESS_SHOT") {
+        if let Ok(path) = std::env::var("OPENPDF_OPTIMIZE_PROGRESS_SHOT") {
             h.render().unwrap().save(path).unwrap();
         }
         h.get_by_label("Optimizing… image 4 of 10");
@@ -533,7 +533,7 @@ mod tests {
 
     #[test]
     fn the_progress_card_says_what_is_happening() {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         assert_eq!(stage_label(OptimizeStage::default()), "Optimizing… reading the pages");
         assert_eq!(stage_label(OptimizeStage::Reading { done: 11, total: 51 }), "Optimizing… reading page 12 of 51");
@@ -543,7 +543,7 @@ mod tests {
 
     #[test]
     fn a_second_run_is_refused_while_one_is_going() {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("notes.txt", None, b"hello".to_vec()).unwrap();
         let (_, doc) = app.active_ids().unwrap();
@@ -554,7 +554,7 @@ mod tests {
 
     #[test]
     fn optimize_and_enhance_scanned_file_do_not_run_at_once() {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("notes.txt", None, b"hello".to_vec()).unwrap();
         let (_, doc) = app.active_ids().unwrap();

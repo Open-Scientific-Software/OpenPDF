@@ -71,7 +71,7 @@ fn places_apply_leaves_that_still_hold_the_removed_text_are_counted_and_kept() {
     assert_eq!(held(&doc), before, "counting changes nothing");
     let catalog = doc.get(doc.root().unwrap()).as_dict().cloned().unwrap();
     assert!(catalog.contains(b"Outlines") && catalog.contains(b"Names"));
-    assert_eq!(annots_of(&doc, &pdfcraft_model::pages(&doc)[0].dict).len(), 6, "the comments stay");
+    assert_eq!(annots_of(&doc, &openpdf_model::pages(&doc)[0].dict).len(), 6, "the comments stay");
 }
 
 /// Removed text that is unrelated to every place counts nothing.

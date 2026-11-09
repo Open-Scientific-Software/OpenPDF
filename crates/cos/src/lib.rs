@@ -1,8 +1,8 @@
-//! pdfcraft-cos — the PDF object layer (L1, standalone with `pdfcraft-filters`).
+//! openpdf-cos — the PDF object layer (L1, standalone with `openpdf-filters`).
 //!
 //! Parses the COS object graph lazily and tolerantly, keeps edits in a copy-on-write overlay
 //! (cheap snapshots for undo), and writes documents back either incrementally (original bytes
-//! untouched) or as a full, garbage-collected rewrite. The PDF object graph *is* PdfCraft's
+//! untouched) or as a full, garbage-collected rewrite. The PDF object graph *is* OpenPDF's
 //! document model (plan/architecture.md §5, ADR-0010).
 //!
 //! Done: every cross-reference form (tables, streams, hybrid `/XRefStm`), object streams, repair
@@ -26,10 +26,10 @@ pub use budget::{DecodeBudget, ImageBudget, MAX_PAGE_DECODED, MAX_PAGE_FORMS, MA
 pub use bytes::Bytes;
 pub use document::{Document, ReadState, Revision, SourceIdentity, XrefEntry};
 pub use object::{Dict, MAX_DECODED, MAX_JBIG2_GLOBALS, Name, ObjRef, Object, PdfString, Stream, TextChars};
-pub use parser::{Lexer, is_whitespace, parse_indirect};
-pub use pdfcraft_crypt::{
+pub use openpdf_crypt::{
     Algorithm, Auth, Method as CryptMethod, NewEncryption, Permissions, SecurityHandler, effective_password, pdfdoc_byte, pdfdoc_char,
 };
+pub use parser::{Lexer, is_whitespace, parse_indirect};
 pub use writer::{SaveOptions, civil_from_days, new_file_id, pdf_date, reachable_objects, serialize, write_full, write_incremental};
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq)]

@@ -31,7 +31,7 @@ pub(crate) struct HNode {
     /// See [`XfaNode::props`]; instances a script adds share their first instance's.
     pub(crate) props: std::sync::Arc<super::XfaProps>,
     /// A choice list's entries as a script's list methods leave them, one list per `<items>`;
-    /// `None` while they are as the template lists them. The hook for PdfCraft's choice-list
+    /// `None` while they are as the template lists them. The hook for OpenPDF's choice-list
     /// methods (`addItem`, `clearItems`; the Series 1 work, not on main yet), which will set it so
     /// that the `items` property reads (see [`super::props::list_entries`]) agree with them.
     /// Nothing sets it yet, so reads follow the template.

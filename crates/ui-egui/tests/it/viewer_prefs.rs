@@ -4,9 +4,9 @@
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
-use pdfcraft_ui_egui::PdfCraftApp;
-use pdfcraft_ui_egui::canvas::Fit;
-use pdfcraft_ui_egui::viewer_prefs::HiddenInterface;
+use openpdf_ui_egui::OpenPDFApp;
+use openpdf_ui_egui::canvas::Fit;
+use openpdf_ui_egui::viewer_prefs::HiddenInterface;
 
 /// Two 200 × 300 pages; `catalog` is added to the catalog dictionary.
 fn fixture(catalog: &str) -> Vec<u8> {
@@ -34,9 +34,9 @@ fn fixture(catalog: &str) -> Vec<u8> {
 const HIDE_ALL: &str = "/ViewerPreferences << /HideToolbar true /HideMenubar true /HideWindowUI true >>";
 
 /// A plain document in the first tab and `files` after it, the last one active.
-fn harness(setup: impl FnOnce(&mut PdfCraftApp) + 'static, files: &'static [&'static str]) -> Harness<'static, PdfCraftApp> {
+fn harness(setup: impl FnOnce(&mut OpenPDFApp) + 'static, files: &'static [&'static str]) -> Harness<'static, OpenPDFApp> {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         setup(&mut app);
         for (i, catalog) in files.iter().enumerate() {
@@ -48,7 +48,7 @@ fn harness(setup: impl FnOnce(&mut PdfCraftApp) + 'static, files: &'static [&'st
     h
 }
 
-fn settle(h: &mut Harness<'static, PdfCraftApp>) {
+fn settle(h: &mut Harness<'static, OpenPDFApp>) {
     for _ in 0..3000 {
         h.run_steps(2);
         if !h.state().render_pending() {
@@ -61,7 +61,7 @@ fn settle(h: &mut Harness<'static, PdfCraftApp>) {
 
 /// Which of the toolbar (the command search), the menu (the menu bar's File menu) and the window
 /// controls (the rail's fit button) are on screen.
-fn shown(h: &Harness<'static, PdfCraftApp>) -> (bool, bool, bool) {
+fn shown(h: &Harness<'static, OpenPDFApp>) -> (bool, bool, bool) {
     (
         h.query_by_label("Find tools and commands").is_some(),
         h.query_by(|n| n.role() == egui::accesskit::Role::MenuItem && n.label().as_deref() == Some("File")).is_some(),
@@ -106,7 +106,7 @@ fn a_document_that_hides_the_interface_opens_without_it_and_f8_brings_it_back() 
 #[test]
 fn a_reloaded_document_keeps_its_interface() {
     let mut h = harness(|_| {}, &["/ViewerPreferences << /HideToolbar true >>"]);
-    let reload = |h: &mut Harness<'static, PdfCraftApp>| {
+    let reload = |h: &mut Harness<'static, OpenPDFApp>| {
         let info = h.state().session.get(h.state().views[0].id).unwrap().info.clone();
         h.state_mut().views[0].document_replaced(&info);
         h.run_steps(3);
@@ -125,7 +125,7 @@ fn a_reloaded_document_keeps_its_interface() {
 
 #[test]
 fn each_preference_hides_its_own_part() {
-    let top = |h: &Harness<'static, PdfCraftApp>| h.state().views[0].viewport_rect().top();
+    let top = |h: &Harness<'static, OpenPDFApp>| h.state().views[0].viewport_rect().top();
     let mut h = harness(|_| {}, &["/ViewerPreferences << /HideToolbar true >>"]);
     assert_eq!(shown(&h), (false, true, true), "HideToolbar");
     // Shown and hidden again, F8 hides only what the document asked for.
@@ -154,7 +154,7 @@ fn each_preference_hides_its_own_part() {
 fn hiding_the_window_controls_leaves_the_document_the_whole_width() {
     // The document also asks for the page thumbnails panel, which is hidden with the rest.
     let mut h = harness(|_| {}, &["/PageMode /UseThumbs /ViewerPreferences << /HideWindowUI true >>"]);
-    let width = |h: &Harness<'static, PdfCraftApp>| h.state().views[0].viewport_rect().width();
+    let width = |h: &Harness<'static, OpenPDFApp>| h.state().views[0].viewport_rect().width();
     assert!(width(&h) > 1390.0, "{}", width(&h));
     h.key_press(egui::Key::F8);
     settle(&mut h);
@@ -191,7 +191,7 @@ fn hiding_the_interface_is_never_saved() {
 
 /// The fit a document with `catalog` opens at, with the user's defaults (fit width).
 fn opening_fit(catalog: &str, own_view: bool) -> Fit {
-    let mut app = PdfCraftApp::new();
+    let mut app = OpenPDFApp::new();
     app.always_default_view = own_view;
     app.open_bytes("x.pdf", None, fixture(catalog)).unwrap();
     app.views[0].fit
@@ -212,7 +212,7 @@ fn one_page_at_a_time_opens_at_fit_page() {
     }
     // A zoom the document names wins.
     assert_eq!(opening_fit("/PageLayout /SinglePage /OpenAction [3 0 R /FitH 300]", false), Fit::Width);
-    let mut app = PdfCraftApp::new();
+    let mut app = OpenPDFApp::new();
     app.open_bytes("x.pdf", None, fixture("/PageLayout /SinglePage /OpenAction [3 0 R /XYZ 0 300 2]")).unwrap();
     assert_eq!((app.views[0].fit, app.views[0].zoom), (Fit::None, 2.0));
 }
@@ -221,8 +221,8 @@ fn one_page_at_a_time_opens_at_fit_page() {
 /// layout opens at.
 #[test]
 fn a_remembered_zoom_wins_over_the_layouts_fit_page() {
-    let path = std::env::temp_dir().join(format!("pdfcraft-viewer-prefs-last-view-{}.pdf", std::process::id())).to_string_lossy().into_owned();
-    let mut app = PdfCraftApp::new();
+    let path = std::env::temp_dir().join(format!("openpdf-viewer-prefs-last-view-{}.pdf", std::process::id())).to_string_lossy().into_owned();
+    let mut app = OpenPDFApp::new();
     let json_path = serde_json::to_string(&path).unwrap();
     app.restore(&format!(r#"{{"last_views": [{{"path": {json_path}, "page": 1, "zoom": "62.5%", "display": "single"}}]}}"#));
     assert!(app.restore_last_view);
@@ -232,7 +232,7 @@ fn a_remembered_zoom_wins_over_the_layouts_fit_page() {
 }
 
 /// The last `InnerSize` and `OuterPosition` asked for over `frames` frames.
-fn window_commands(h: &mut Harness<'static, PdfCraftApp>, frames: usize) -> (Option<egui::Vec2>, Option<egui::Pos2>) {
+fn window_commands(h: &mut Harness<'static, OpenPDFApp>, frames: usize) -> (Option<egui::Vec2>, Option<egui::Pos2>) {
     let (mut size, mut at) = (None, None);
     for _ in 0..frames {
         h.run_steps(1);
@@ -247,7 +247,7 @@ fn window_commands(h: &mut Harness<'static, PdfCraftApp>, frames: usize) -> (Opt
     (size, at)
 }
 
-fn on_monitor(h: &mut Harness<'static, PdfCraftApp>) {
+fn on_monitor(h: &mut Harness<'static, OpenPDFApp>) {
     let vp = h.input_mut().viewports.entry(egui::ViewportId::ROOT).or_default();
     vp.monitor_size = Some(egui::vec2(1920.0, 1080.0));
     vp.inner_rect = Some(egui::Rect::from_min_size(egui::pos2(50.0, 70.0), egui::vec2(1400.0, 900.0)));
@@ -256,9 +256,9 @@ fn on_monitor(h: &mut Harness<'static, PdfCraftApp>) {
 
 /// A harness whose window is on a 1920 × 1080 monitor, with one document opened in the first
 /// frames.
-fn windowed(files: &'static [&'static str]) -> Harness<'static, PdfCraftApp> {
+fn windowed(files: &'static [&'static str]) -> Harness<'static, OpenPDFApp> {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app
     });
@@ -299,7 +299,7 @@ fn center_window_centres_the_window_on_the_monitor() {
 
 #[test]
 fn a_maximized_window_or_a_second_tab_is_left_alone() {
-    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| PdfCraftApp::new());
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| OpenPDFApp::new());
     on_monitor(&mut h);
     h.input_mut().viewports.entry(egui::ViewportId::ROOT).or_default().maximized = Some(true);
     h.run_steps(2);

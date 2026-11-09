@@ -1,8 +1,8 @@
 //! Printer marks and the page boxes: the marks must show inside the crop box, and running
 //! again must not move the trim box or grow the page.
 
-use pdfcraft_cos::{Dict, Document, Object};
-use pdfcraft_edit::{PrinterMarks, add_printer_marks};
+use openpdf_cos::{Dict, Document, Object};
+use openpdf_edit::{PrinterMarks, add_printer_marks};
 
 fn rect(r: [f64; 4]) -> Object {
     Object::Array(r.iter().map(|v| Object::Real(*v)).collect())
@@ -28,7 +28,7 @@ fn page_with(boxes: &[(&[u8], [f64; 4])]) -> Document {
 }
 
 fn page_box(doc: &Document, key: &[u8]) -> Option<Vec<f64>> {
-    let page = pdfcraft_model::pages(doc).first().cloned()?;
+    let page = openpdf_model::pages(doc).first().cloned()?;
     let a = page.dict.get(key).map(|o| doc.resolve(o))?;
     Some(a.as_array()?.iter().filter_map(|v| doc.resolve(v).as_f64()).collect())
 }
@@ -96,7 +96,7 @@ fn printer_marks_refuse_numbers_out_of_range() {
 fn printer_marks_use_the_all_separation() {
     let mut doc = page_with(&[(b"MediaBox", [0.0, 0.0, 612.0, 792.0])]);
     add_printer_marks(&mut doc, &[0], &PrinterMarks::default(), false).unwrap();
-    let page = pdfcraft_model::pages(&doc).swap_remove(0);
+    let page = openpdf_model::pages(&doc).swap_remove(0);
     let res = doc.resolve(page.dict.get(b"Resources").unwrap());
     let res = res.as_dict().unwrap();
     assert!(res.get(b"Font").is_some());

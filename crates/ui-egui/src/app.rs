@@ -24,13 +24,13 @@ pub(crate) use files::same_file;
 use frame::migrate_panel_state;
 pub(crate) use prefs::{MAX_AUTHOR_CHARS, date_text_for_pdf};
 
-impl Default for PdfCraftApp {
+impl Default for OpenPDFApp {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl PdfCraftApp {
+impl OpenPDFApp {
     /// The window's title and, on the web, the page's, from the active document (#3640). Done in
     /// `logic` too, which also runs while the window or browser tab is hidden: a document opened
     /// then (a `?file=` download finishing) still names the page an embedding host reads.
@@ -44,7 +44,7 @@ impl PdfCraftApp {
         let mark = if dirty { " •" } else { "" };
         let titled = |name: Option<String>| {
             name.or_else(|| self.combine_showing().then(|| tl!("Combine files").to_owned()))
-                .map_or_else(|| "PdfCraft".to_owned(), |name| format!("{name}{mark} — PdfCraft"))
+                .map_or_else(|| "OpenPDF".to_owned(), |name| format!("{name}{mark} — OpenPDF"))
         };
         let title = titled(front.and_then(|i| crate::canvas::tab_label(self, i)));
         // The web page's title is what an embedding host reads to tell which file opened, so it
@@ -126,7 +126,7 @@ impl PdfCraftApp {
             fill_text_color: [0.0; 3],
             fill_text_border: 0.0,
             fill_text_border_color: None,
-            fill_text_border_shape: pdfcraft_engine::BorderShape::Rectangle,
+            fill_text_border_shape: openpdf_engine::BorderShape::Rectangle,
             fill_text_default: fill_sign::TextBorder::NONE,
             dialog: None,
             updates: updates::Updates::default(),
@@ -345,7 +345,7 @@ impl PdfCraftApp {
             link_draft: None,
             text_style: content_ui::default_style(),
             replace_draft: None,
-            number_draft: NumberDraft { from: 1, to: 1, style: pdfcraft_engine::LabelStyle::Decimal, prefix: String::new(), start: 1 },
+            number_draft: NumberDraft { from: 1, to: 1, style: openpdf_engine::LabelStyle::Decimal, prefix: String::new(), start: 1 },
             word_count_draft: word_count_ui::Draft::default(),
             printer_marks_draft: Default::default(),
             convert_colours_draft: Default::default(),
@@ -425,12 +425,12 @@ impl PdfCraftApp {
 
     /// Pin a tool group to Home. Returns true if newly pinned.
     pub fn pin_tool(&mut self, id: &str) -> bool {
-        if pdfcraft_engine::catalog::group(id).is_none() {
+        if openpdf_engine::catalog::group(id).is_none() {
             return false;
         }
         if !self.is_tool_pinned(id) {
             self.pinned_tools.push(id.to_string());
-            if let Some(g) = pdfcraft_engine::catalog::group(id) {
+            if let Some(g) = openpdf_engine::catalog::group(id) {
                 self.notify_fmt("Pinned {tool} to Home", &[("tool", tl!(g.label))]);
             }
             return true;
@@ -442,7 +442,7 @@ impl PdfCraftApp {
     pub fn unpin_tool(&mut self, id: &str) {
         if let Some(pos) = self.pinned_tools.iter().position(|t| t == id) {
             self.pinned_tools.remove(pos);
-            if let Some(g) = pdfcraft_engine::catalog::group(id) {
+            if let Some(g) = openpdf_engine::catalog::group(id) {
                 self.notify_fmt("Unpinned {tool} from Home", &[("tool", tl!(g.label))]);
             }
         }
@@ -459,7 +459,7 @@ impl PdfCraftApp {
     }
 }
 
-impl eframe::App for PdfCraftApp {
+impl eframe::App for OpenPDFApp {
     /// While files are dragged over the window the system sends no pointer moves, so egui
     /// would keep the place the pointer entered at: tell it where the pointer really is, so the
     /// page grid can show (and use) the gap under it.
@@ -487,7 +487,7 @@ impl eframe::App for PdfCraftApp {
             let minimized = self.ctx.as_ref().is_some_and(|c| c.input(|i| i.viewport().minimized == Some(true)));
             self.window_state.keep(storage, minimized);
         }
-        storage.set_string("pdfcraft", self.persist());
+        storage.set_string("openpdf", self.persist());
     }
 
     /// Starts an update that waits for the exit. On macOS the process ends before the app is dropped.
@@ -515,7 +515,7 @@ impl eframe::App for PdfCraftApp {
     }
 }
 
-impl PdfCraftApp {
+impl OpenPDFApp {
     fn logic_unguarded(&mut self, ctx: &egui::Context) {
         #[cfg(test)]
         self.injected_panic(crate::frame_guard::FramePart::Logic);
@@ -529,7 +529,7 @@ impl PdfCraftApp {
         self.apply_status_captions(lang);
         // Form date fields name months in the date language (Preferences ▸ Date format), which
         // follows the interface language until one is picked (#5303).
-        pdfcraft_engine::dates::use_form_date_language(self.session.date_language().unwrap_or(lang.code()));
+        openpdf_engine::dates::use_form_date_language(self.session.date_language().unwrap_or(lang.code()));
         #[cfg(not(target_arch = "wasm32"))]
         {
             if let Some(worker) = &self.open_worker {

@@ -1,4 +1,4 @@
-//! pdfcraft-edit — page content editing (L4). Today: page marks, Acrobat's Header & footer,
+//! openpdf-edit — page content editing (L4). Today: page marks, Acrobat's Header & footer,
 //! Watermark, Background and Bates numbering (execution plan M7.6).
 //!
 //! **Atomic page-mark operations.** Adding or replacing headers/footers, watermarks and backgrounds
@@ -22,8 +22,8 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
-use pdfcraft_cos::{Dict, Document, ObjRef, Object, Stream};
-use pdfcraft_fonts::helvetica_width;
+use openpdf_cos::{Dict, Document, ObjRef, Object, Stream};
+use openpdf_fonts::helvetica_width;
 
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum EditError {
@@ -33,7 +33,7 @@ pub enum EditError {
     #[error("{0}")]
     Invalid(String),
     #[error("{0}")]
-    Cos(#[from] pdfcraft_cos::CosError),
+    Cos(#[from] openpdf_cos::CosError),
 }
 
 pub type Rgb = [f64; 3];

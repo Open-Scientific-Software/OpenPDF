@@ -1,4 +1,4 @@
-//! Appearance streams (§12.5.5) for the comment types PdfCraft creates, execution plan M5.2.
+//! Appearance streams (§12.5.5) for the comment types OpenPDF creates, execution plan M5.2.
 //!
 //! [`build`] draws a normal appearance (`/AP /N`) from the annotation dictionary and the
 //! objects it points at, so the same code serves new comments and restyled ones. Drawings are in page space with
@@ -8,24 +8,24 @@
 //! itself; for the other values, callers that hold the document follow references first
 //! (`draw::with_direct_values`).
 //!
-//! The note icons are PdfCraft's own drawings (AGENTS.md §1). Text boxes use a standard text
+//! The note icons are OpenPDF's own drawings (AGENTS.md §1). Text boxes use a standard text
 //! font with WinAnsi encoding: Helvetica, or the face their `/DA` or `/DS` asks for
 //! ([`crate::text_style`]), and draw Thai from the craft-fonts Thai face as Type 3 glyphs
-//! (`pdfcraft_fonts::shaped_text`, the writer Add text uses); lines break at that face's
+//! (`openpdf_fonts::shaped_text`, the writer Add text uses); lines break at that face's
 //! standard-14 widths and the Thai face's shaped advances (no other font program is bundled).
 
-use pdfcraft_cos::{Dict, Object, PdfString, Stream};
-use pdfcraft_fonts::shaped_text;
-use pdfcraft_fonts::{first_undrawable, literal, win_ansi, wrap_with};
+use openpdf_cos::{Dict, Object, PdfString, Stream};
+use openpdf_fonts::shaped_text;
+use openpdf_fonts::{first_undrawable, literal, win_ansi, wrap_with};
 
 /// The width of `text` at `size` as appearances draw it: Helvetica, with Thai shaped in the Thai
 /// face that text boxes draw it with.
 pub fn text_width(text: &str, size: f64) -> f64 {
-    text_width_in(pdfcraft_fonts::Std14::Helvetica, text, size)
+    text_width_in(openpdf_fonts::Std14::Helvetica, text, size)
 }
 
 /// [`text_width`] in the standard `face` a text box draws its other text in.
-pub fn text_width_in(face: pdfcraft_fonts::Std14, text: &str, size: f64) -> f64 {
+pub fn text_width_in(face: openpdf_fonts::Std14, text: &str, size: f64) -> f64 {
     shaped_text::thai_width(text, size, |s, size| face.text_width(s, size))
 }
 
@@ -62,7 +62,7 @@ pub fn arrow_size(w: f64) -> f64 {
 }
 
 /// Nominal radius of a cloudy border's bumps for a line of width `w` (intensity 1). ISO 32000-2
-/// Table 169 leaves the size open; this is the size PdfCraft's polygon clouds already had, so
+/// Table 169 leaves the size open; this is the size OpenPDF's polygon clouds already had, so
 /// squares, circles and text boxes match them.
 pub fn cloud_radius(w: f64) -> f64 {
     6.0 + 1.5 * w.max(0.0)
@@ -301,14 +301,14 @@ fn nums(d: &Dict, key: &[u8]) -> Option<Vec<f64>> {
 }
 
 /// The usable `/QuadPoints` quads, by the rule redaction apply reads them with
-/// ([`pdfcraft_geom::quad_points::usable_quads`]): a malformed or non-finite quad is not drawn (it
+/// ([`openpdf_geom::quad_points::usable_quads`]): a malformed or non-finite quad is not drawn (it
 /// would write `NaN` into the stream) and the others still are. The array and its entries are
 /// resolved first, as the other readers resolve them, so an indirect quad is drawn too. `None`
 /// when none is usable.
 fn quads(context: &AppearanceContext<'_>) -> Option<Vec<[f64; 8]>> {
     let doc = context.doc;
     let q =
-        pdfcraft_geom::quad_points::usable_quads(doc.resolve(context.dict.get(b"QuadPoints")?).as_array()?.iter().map(|x| doc.resolve(x).as_f64()));
+        openpdf_geom::quad_points::usable_quads(doc.resolve(context.dict.get(b"QuadPoints")?).as_array()?.iter().map(|x| doc.resolve(x).as_f64()));
     (!q.is_empty()).then_some(q)
 }
 
@@ -452,7 +452,7 @@ pub fn parse_da(d: &Dict) -> (Rgb, f64) {
 
 /// How opaque a comment's parts are drawn, 0–1: its line or border (`/CA`); its fill or
 /// background (`/ca`, which PDF 2.0 gives the non-stroking operations; without it, as the line);
-/// and a text box's text (`/PCTextOpacity`, PdfCraft's own; without it, as the fill, since text
+/// and a text box's text (`/PCTextOpacity`, OpenPDF's own; without it, as the fill, since text
 /// is filled too). A comment with only `/CA` is drawn at that opacity throughout, as before.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PartOpacity {
@@ -566,12 +566,12 @@ pub fn undrawable_text(d: &Dict) -> Option<(&'static str, char)> {
 
 /// `/Font` resources naming `/Helv`: standard Helvetica with WinAnsiEncoding.
 pub(crate) fn helvetica_resource() -> Object {
-    Object::Dict(font_resources(pdfcraft_fonts::Std14::Helvetica))
+    Object::Dict(font_resources(openpdf_fonts::Std14::Helvetica))
 }
 
 /// `/Font` resources naming one standard face with WinAnsiEncoding, under the resource name
 /// [`crate::text_style::resource_name`] gives it (`/Helv` for Helvetica).
-fn font_resources(face: pdfcraft_fonts::Std14) -> Dict {
+fn font_resources(face: openpdf_fonts::Std14) -> Dict {
     let mut font = Dict::new();
     font.set(b"Type".to_vec(), Object::name("Font"));
     font.set(b"Subtype".to_vec(), Object::name("Type1"));
@@ -658,13 +658,13 @@ impl AppearanceDrawing {
 
 /// Draw the normal appearance of an annotation, or `None` if this subtype/variant isn't supported.
 /// Text the standard fonts can't draw comes out as `?`: [`undrawable_text`] says which, and
-/// [`crate::set_appearance`] marks the annotation with it (`pdfcraft_fonts::UNDRAWN_MARK`).
+/// [`crate::set_appearance`] marks the annotation with it (`openpdf_fonts::UNDRAWN_MARK`).
 pub fn build(doc: &Document, d: &Dict) -> Option<Stream> {
     build_on_page(doc, d, None)
 }
 
 /// [`build`] for an annotation on a page whose visible region is `page` (`Page::crop` in
-/// pdfcraft-model): a text markup, line, polyline, polygon or ink annotation whose points reach
+/// openpdf-model): a text markup, line, polyline, polygon or ink annotation whose points reach
 /// past its `/Rect` is drawn through them as far as the page shows ([`point_reach`]), and its
 /// appearance's `/BBox` says how far ([`widened_rect`]). Without a page it is drawn within `/Rect`.
 pub(crate) fn build_on_page(doc: &Document, d: &Dict, page: Option<[f64; 4]>) -> Option<Stream> {
@@ -753,7 +753,7 @@ fn drawn_points(doc: &Document, d: &Dict) -> Option<(Vec<f64>, f64)> {
             if entries.len() / 8 > MAX_MARKUP_QUADS {
                 return None;
             }
-            let quads = pdfcraft_geom::quad_points::usable_quads(entries.iter().map(|x| doc.resolve(x).as_f64()));
+            let quads = openpdf_geom::quad_points::usable_quads(entries.iter().map(|x| doc.resolve(x).as_f64()));
             if quads.is_empty() {
                 return None;
             }
@@ -894,7 +894,7 @@ fn draw_body(context: &AppearanceContext<'_>, drawing: &mut AppearanceDrawing) -
 }
 
 fn finish_appearance(context: &AppearanceContext<'_>, mut drawing: AppearanceDrawing) -> Option<Stream> {
-    // PdfCraft measurement captions are kept separate from the comment's free-form text.
+    // OpenPDF measurement captions are kept separate from the comment's free-form text.
     // A restyle regenerates the path and its value together.
     let mut out = drawing.content.into_bytes();
     out.extend(drawing.tail);
@@ -1330,13 +1330,13 @@ fn draw_stamp(context: &AppearanceContext<'_>, mut drawing: AppearanceDrawing) -
         let mut stream = form(bbox, &content, res);
         if (image || line.is_some()) && turn != 0 {
             // The page's view matrix without its offset: display axes in user space.
-            let m = pdfcraft_model::view_matrix_for(turn, [0.0; 4]);
+            let m = openpdf_model::view_matrix_for(turn, [0.0; 4]);
             let matrix = [m[0], m[1], m[2], m[3], 0.0, 0.0];
             stream.dict.set(b"Matrix".to_vec(), Object::Array(matrix.iter().map(|x| Object::Real(*x)).collect()));
         }
         return Some(stream);
     }
-    // Only PdfCraft's own Fill & Sign marks are drawn here.
+    // Only OpenPDF's own Fill & Sign marks are drawn here.
     let name = d.name(b"Name")?;
     let col = stroke.unwrap_or([0.0; 3]);
     // A mark or stamp placed on a turned page is drawn upright in its displayed box, then
@@ -1355,7 +1355,7 @@ fn draw_stamp(context: &AppearanceContext<'_>, mut drawing: AppearanceDrawing) -
     };
     let turned = |mut stream: Stream| {
         if turn != 0 {
-            let m = pdfcraft_model::view_matrix_for(turn, rect);
+            let m = openpdf_model::view_matrix_for(turn, rect);
             stream.dict.set(b"Matrix".to_vec(), Object::Array(m.iter().copied().map(Object::Real).collect()));
         }
         stream
@@ -1383,7 +1383,7 @@ fn draw_stamp(context: &AppearanceContext<'_>, mut drawing: AppearanceDrawing) -
         }
         b"PCLine" => c.push_str(&format!("{}{} w 1 J\n{}", rg_stroke(col), n(h.clamp(0.5, 2.0)), path(crate::FillMark::Line))),
         other => {
-            // Only stamps PdfCraft made: others keep their own artwork.
+            // Only stamps OpenPDF made: others keep their own artwork.
             if !matches!(d.get(b"PCStamp"), Some(Object::Bool(true))) {
                 return None;
             }
@@ -1441,7 +1441,7 @@ fn shaped_border(
     Some(rect)
 }
 
-fn draw_free_text(context: &AppearanceContext<'_>, mut drawing: AppearanceDrawing, dr_face: Option<pdfcraft_fonts::Std14>) -> Option<Stream> {
+fn draw_free_text(context: &AppearanceContext<'_>, mut drawing: AppearanceDrawing, dr_face: Option<openpdf_fonts::Std14>) -> Option<Stream> {
     let d = context.dict;
     let parts = context.parts;
     let rect = context.rect;
@@ -1468,7 +1468,7 @@ fn draw_free_text(context: &AppearanceContext<'_>, mut drawing: AppearanceDrawin
         if dw < 1.0 || dh < 1.0 {
             return None;
         }
-        ([0.0, 0.0, dw, dh], Some(pdfcraft_model::view_matrix_for(turn, rect)))
+        ([0.0, 0.0, dw, dh], Some(openpdf_model::view_matrix_for(turn, rect)))
     };
     let full = rect;
     let mut rect = rect;
@@ -1562,7 +1562,7 @@ fn draw_free_text(context: &AppearanceContext<'_>, mut drawing: AppearanceDrawin
         rg(text_color)
     ));
     let mut out = c.into_bytes();
-    let lines = pdfcraft_fonts::wrap_with(&text, size, width, |s, size| text_width_in(face, s, size));
+    let lines = openpdf_fonts::wrap_with(&text, size, width, |s, size| text_width_in(face, s, size));
     let mut y = rect[3] - pad - size * reach(&lines)[0];
     if round {
         y -= ((rect[3] - rect[1] - 2.0 * pad - text_lines_height(&lines, size)) / 2.0).max(0.0);

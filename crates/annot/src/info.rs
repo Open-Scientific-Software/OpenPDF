@@ -9,7 +9,7 @@ use super::{AnnotError, Dict, Document, ObjRef, Object, PdfString, appearance};
 // ── reading ─────────────────────────────────────────────────────────────────────────────────
 
 /// One comment as the viewer lists it (the same fields and rules as
-/// `pdfcraft_render::Annotation`), read straight from the object graph. The engine uses it to
+/// `openpdf_render::Annotation`), read straight from the object graph. The engine uses it to
 /// refresh the comment list after a comment edit without re-inspecting the whole document.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Summary {
@@ -35,7 +35,7 @@ pub struct Summary {
     pub intent: Option<String>,
     /// A Fill & Sign mark ([`is_fill_sign`]).
     pub fill_sign: bool,
-    /// The NoRotate flag (`/F` bit 5), as `pdfcraft_render::Annotation::no_rotate`.
+    /// The NoRotate flag (`/F` bit 5), as `openpdf_render::Annotation::no_rotate`.
     pub no_rotate: bool,
     /// A line's two ends (`/L`), the corners of connected lines, a polygon or a cloud
     /// (`/Vertices`), or a callout's arrow point and knee (`/CL` without its end, which follows
@@ -50,7 +50,7 @@ pub struct Summary {
 impl Summary {
     /// A subordinate of a group (`/RT /Group` with an `/IRT` to a listed comment, ISO 32000-2
     /// §12.5.6.2): part of its primary's comment, not a reply. As
-    /// `pdfcraft_render::Annotation::is_group_member`, which also drops a looping `/IRT`.
+    /// `openpdf_render::Annotation::is_group_member`, which also drops a looping `/IRT`.
     pub fn is_group_member(&self) -> bool {
         self.grouped && self.parent.is_some()
     }
@@ -121,7 +121,7 @@ pub fn is_comment_subtype(subtype: &str) -> bool {
     !matches!(subtype, "Link" | "Widget" | "Popup" | "Screen" | "Movie" | "RichMedia" | "3D" | "PrinterMark" | "TrapNet" | "Watermark")
 }
 
-/// Where a reference to a reference (`5 0 obj 6 0 R endobj`) ends, as `pdfcraft_render::inspect`
+/// Where a reference to a reference (`5 0 obj 6 0 R endobj`) ends, as `openpdf_render::inspect`
 /// follows it, within a few steps (a cycle stops there).
 fn final_ref(doc: &Document, mut r: ObjRef) -> ObjRef {
     for _ in 0..8 {
@@ -137,7 +137,7 @@ fn final_ref(doc: &Document, mut r: ObjRef) -> ObjRef {
 /// `/IRT` reference (ISO 32000-2 §12.5.6.2, Table 172). The group's primary is the `/IRT`
 /// annotation, and the subordinate's own text, author, colour, dates and pop-up are ignored.
 /// `/RT` is `R` by default, and a value other than `Group` reads as `R` too. Keep in step with
-/// `pdfcraft_render::inspect`.
+/// `openpdf_render::inspect`.
 pub fn is_group_subordinate(d: &Dict) -> bool {
     d.name(b"RT") == Some(b"Group") && d.reference(b"IRT").is_some()
 }
@@ -195,10 +195,10 @@ pub fn summaries(doc: &Document) -> Vec<Summary> {
                 .map(|o| doc.resolve(o))
                 .map(|a| {
                     let entries = a.as_array().into_iter().flatten().map(|x| doc.resolve(x).as_f64());
-                    pdfcraft_geom::quad_points::usable_quads(entries).into_iter().map(|q| q.map(|v| v as f32)).collect()
+                    openpdf_geom::quad_points::usable_quads(entries).into_iter().map(|q| q.map(|v| v as f32)).collect()
                 })
                 .unwrap_or_default();
-            // Keep in step with `pdfcraft_render::inspect`: a callout gives its points only with a
+            // Keep in step with `openpdf_render::inspect`: a callout gives its points only with a
             // readable text box, without which they can't be changed either.
             let callout = (subtype == "FreeText").then(|| callout_line(doc, d).zip(callout_text_box(doc, d))).flatten();
             let points = match subtype.as_str() {
@@ -217,7 +217,7 @@ pub fn summaries(doc: &Document) -> Vec<Summary> {
             let parent = d.get(b"IRT").and_then(Object::as_ref).and_then(|r| slots.get(&final_ref(doc, r)).copied());
             // A group is one page's, as Acrobat reads it: a subordinate whose primary is on
             // another page is a comment of its own (keep in step with
-            // `pdfcraft_render::link_replies`).
+            // `openpdf_render::link_replies`).
             let grouped = d.name(b"RT") == Some(b"Group");
             let cross_page = grouped && parent.is_some_and(|(p, _)| p != page);
             let (parent, in_reply_to) = if cross_page { (None, None) } else { (parent, in_reply_to) };
@@ -227,7 +227,7 @@ pub fn summaries(doc: &Document) -> Vec<Summary> {
                 subtype,
                 author: text_value(doc, d, b"T"),
                 // Acrobat ends lines with CR, which the interface would draw as nothing (keep in
-                // step with `pdfcraft_render::inspect`).
+                // step with `openpdf_render::inspect`).
                 contents: text_value(doc, d, b"Contents").map(|s| s.replace("\r\n", "\n").replace('\r', "\n")),
                 modified: text_value(doc, d, b"M"),
                 name: text_value(doc, d, b"NM"),

@@ -1,7 +1,7 @@
 //! The page information line keeps accented letters: WinAnsi bytes from 0x80 up must reach the
 //! content stream as escapes, not be replaced with U+FFFD.
 
-use pdfcraft_edit::PrinterMarks;
+use openpdf_edit::PrinterMarks;
 
 #[test]
 fn accented_label_is_written_as_winansi_escapes() {

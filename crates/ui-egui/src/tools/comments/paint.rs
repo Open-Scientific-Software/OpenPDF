@@ -174,7 +174,7 @@ fn paint_points(painter: &egui::Painter, cx: &PageCx<'_>, view: &DocView, a: &An
             && let Some(toward) = points.last()
         {
             let tb = cx.rect_to_user(cx.adjusted_rect(a, cv.gesture.as_ref(), pointer, shift, view.pending_edit.as_ref()));
-            line.push(cx.to_screen(pdfcraft_engine::callout_attach(tb, *toward)));
+            line.push(cx.to_screen(openpdf_engine::callout_attach(tb, *toward)));
         }
         painter.add(if a.subtype == "Polygon" { egui::Shape::closed_line(line, stroke) } else { egui::Shape::line(line, stroke) });
     }
@@ -215,8 +215,8 @@ fn paint_gesture(painter: &egui::Painter, cx: &PageCx<'_>, view: &DocView) {
 
 /// One copied comment's outline on screen (`at` maps a user-space point, moved to where the
 /// bundle hangs), in the comment's colour.
-fn paint_outline(painter: &egui::Painter, outline: &pdfcraft_engine::CommentOutline, at: &dyn Fn([f64; 2]) -> Pos2) {
-    use pdfcraft_engine::CommentOutline as O;
+fn paint_outline(painter: &egui::Painter, outline: &openpdf_engine::CommentOutline, at: &dyn Fn([f64; 2]) -> Pos2) {
+    use openpdf_engine::CommentOutline as O;
     let color = |c: &Option<[f64; 3]>| {
         c.map(|[r, g, b]| Color32::from_rgb((r.clamp(0.0, 1.0) * 255.0) as u8, (g.clamp(0.0, 1.0) * 255.0) as u8, (b.clamp(0.0, 1.0) * 255.0) as u8))
             .unwrap_or(SELECT_BLUE)

@@ -1,7 +1,7 @@
 //! Redaction tools: mark areas, text, patterns or whole pages for redaction, apply the marks
 //! (removing what they cover for good) or clear them.
 
-use pdfcraft_engine::{
+use openpdf_engine::{
     Edit, HIDDEN, Hidden, NewAnnotation, REDACT_MAX_WORDS, REDACT_VALIDATORS, REDACTION_CODE_SETS, RedactPattern, RedactRegex, RedactValidator,
     RedactionCodeSet, Shape, Style, find_pattern, rect_quad, redact_word_list, redacted_file_name,
 };
@@ -211,10 +211,10 @@ impl Automation {
             "unsearched": left.unsearched,
         });
         // What became of a PDF/A or PDF/UA claim in the document XMP the scrub removed.
-        let claim = |c: pdfcraft_engine::RedactionClaim| match c {
-            pdfcraft_engine::RedactionClaim::None => "none",
-            pdfcraft_engine::RedactionClaim::Kept => "kept",
-            pdfcraft_engine::RedactionClaim::Lost => "lost",
+        let claim = |c: openpdf_engine::RedactionClaim| match c {
+            openpdf_engine::RedactionClaim::None => "none",
+            openpdf_engine::RedactionClaim::Kept => "kept",
+            openpdf_engine::RedactionClaim::Lost => "lost",
         };
         let id = self.doc(a)?.redaction_identification().unwrap_or_default();
         out["identification"] = json!({ "pdfa": claim(id.pdfa), "pdfua": claim(id.pdfua) });

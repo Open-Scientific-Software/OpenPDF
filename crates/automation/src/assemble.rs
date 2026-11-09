@@ -12,7 +12,7 @@ impl Automation {
                 ("Untitled.pdf".to_string(), self.session.create_blank(w, h, n).map_err(failed)?)
             }
             "images" => {
-                let resolution = a.opt_num("dpi")?.map_or(pdfcraft_engine::ImageResolution::Embedded, pdfcraft_engine::ImageResolution::Dpi);
+                let resolution = a.opt_num("dpi")?.map_or(openpdf_engine::ImageResolution::Embedded, openpdf_engine::ImageResolution::Dpi);
                 let mut images = Vec::new();
                 for p in a.strs("paths")? {
                     let path = self.resolve(p, false)?;
@@ -32,15 +32,15 @@ impl Automation {
                     (None, Some(p)) => {
                         let path = self.resolve(p, false)?;
                         let t = read_input(&path)?;
-                        (path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(), pdfcraft_engine::decode_text(&t))
+                        (path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(), openpdf_engine::decode_text(&t))
                     }
                     (None, None) => return Err(ToolError::InvalidArgs("text needs `text` or `path`".into())),
                 };
                 // The page font is Helvetica/WinAnsi, or the bundled Inter face for Latin, Greek and
                 // Cyrillic letters WinAnsi lacks: text neither can draw is refused (with its line)
-                // by `pdfcraft_create::from_text`, as for every other caller.
+                // by `openpdf_create::from_text`, as for every other caller.
                 let bytes = self.session.create_from_text(&title, &text).map_err(|e| match e {
-                    pdfcraft_engine::EditError::Create(pdfcraft_engine::CreateError::Invalid(m)) => ToolError::InvalidArgs(m),
+                    openpdf_engine::EditError::Create(openpdf_engine::CreateError::Invalid(m)) => ToolError::InvalidArgs(m),
                     e => failed(e),
                 })?;
                 (format!("{title}.pdf"), bytes)
@@ -53,7 +53,7 @@ impl Automation {
     }
 
     pub(crate) fn page_transition_set(&mut self, a: &Args) -> Result<Value> {
-        use pdfcraft_engine::{Transition, TransitionSpec};
+        use openpdf_engine::{Transition, TransitionSpec};
         let n = self.doc(a)?.info.pages.len();
         let pages = match a.opt_ints("pages")? {
             Some(_) => self.pages(a, "pages")?,
@@ -105,7 +105,7 @@ impl Automation {
     }
 
     pub(crate) fn page_set_box(&mut self, a: &Args) -> Result<Value> {
-        use pdfcraft_engine::{BoxSpec, PageBox};
+        use openpdf_engine::{BoxSpec, PageBox};
         let doc = self.doc(a)?;
         let n = doc.info.pages.len();
         let pages = match a.opt_ints("pages")? {
@@ -163,7 +163,7 @@ impl Automation {
         let bytes = read_input(&path)?;
         let pages = a.opt_ints("pages")?.map(|p| one_based(&p)).transpose()?;
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        self.apply(a, Edit::InsertPagesFrom { name, bytes: Arc::new(bytes), pages, at, field_conflicts: pdfcraft_organize::FieldConflicts::Rename })
+        self.apply(a, Edit::InsertPagesFrom { name, bytes: Arc::new(bytes), pages, at, field_conflicts: openpdf_organize::FieldConflicts::Rename })
     }
 
     /// Write freshly created bytes to `out` and/or open them as a new document.
@@ -201,7 +201,7 @@ impl Automation {
             Some(_) => return Err(ToolError::InvalidArgs("pages must list a range (or null) for each path".into())),
         };
         // Each file is read, converted and copied in turn, so a long list holds one file at a time.
-        let sources = paths.into_iter().zip(ranges).map(|(p, range)| -> std::result::Result<pdfcraft_engine::CombineSource, ToolError> {
+        let sources = paths.into_iter().zip(ranges).map(|(p, range)| -> std::result::Result<openpdf_engine::CombineSource, ToolError> {
             let path = self.resolve(p, false)?;
             let bytes = read_input(&path)?;
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -227,7 +227,7 @@ impl Automation {
                 Ok((kind, stem, pdf))
             });
             out.push(match converted {
-                Ok((pdfcraft_engine::SourceKind::Pdf, ..)) => json!({ "path": p, "skipped": "already a PDF" }),
+                Ok((openpdf_engine::SourceKind::Pdf, ..)) => json!({ "path": p, "skipped": "already a PDF" }),
                 Ok((_, stem, pdf)) => {
                     let target = unused(&dir, &stem);
                     write_atomic(&target, &pdf)?;
@@ -301,8 +301,8 @@ impl Automation {
             Some(_) => return Err(ToolError::InvalidArgs("groups must list a number (or null) for each path".into())),
         };
         let field_conflicts = match a.opt_str("field_conflicts")? {
-            None | Some("rename") => pdfcraft_organize::FieldConflicts::Rename,
-            Some("merge") => pdfcraft_organize::FieldConflicts::Merge,
+            None | Some("rename") => openpdf_organize::FieldConflicts::Rename,
+            Some("merge") => openpdf_organize::FieldConflicts::Merge,
             Some(other) => {
                 return Err(ToolError::InvalidArgs(format!("field_conflicts must be \"rename\" or \"merge\", not {other:?}")));
             }
@@ -381,14 +381,14 @@ impl Automation {
             self.session.split_by_size(id, (mb * 1_048_576.0) as usize).map_err(failed)?
         } else {
             let by = match (a.opt_int("every")?, a.opt_ints("before")?) {
-                (Some(n), None) if n > 0 => pdfcraft_organize::SplitBy::PageCount(n as usize),
-                (None, Some(b)) => pdfcraft_organize::SplitBy::Before(one_based(&b)?),
+                (Some(n), None) if n > 0 => openpdf_organize::SplitBy::PageCount(n as usize),
+                (None, Some(b)) => openpdf_organize::SplitBy::Before(one_based(&b)?),
                 _ if bookmarks => {
                     titles = self.session.bookmark_splits(id);
                     if titles.is_empty() {
                         return Err(failed("the document has no top-level bookmarks"));
                     }
-                    pdfcraft_organize::SplitBy::Before(titles.iter().map(|t| t.0).collect())
+                    openpdf_organize::SplitBy::Before(titles.iter().map(|t| t.0).collect())
                 }
                 _ => return Err(ToolError::InvalidArgs("every must be a positive page count".into())),
             };

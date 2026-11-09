@@ -1,7 +1,7 @@
 //! `doc_info` reports a PDF portfolio (`/Collection`, ISO 32000-2 §7.11.6): the attachment it
 //! presents first and how its file list first shows.
 
-use pdfcraft_automation::{Automation, Content};
+use openpdf_automation::{Automation, Content};
 use serde_json::{Value, json};
 
 /// Call tool `name` and return its JSON result.

@@ -1,7 +1,7 @@
 //! Printing tools: list printers, and print (or save the print-ready PDF) with Acrobat's Print
 //! dialog options.
 
-use pdfcraft_engine::print::{self, Binding, BookletSubset, Content, Layout, Orientation, PAPERS, PageOrder, SizeMode, Subset, spool};
+use openpdf_engine::print::{self, Binding, BookletSubset, Content, Layout, Orientation, PAPERS, PageOrder, SizeMode, Subset, spool};
 use serde_json::{Value, json};
 
 use crate::{Args, Automation, Result, ToolError, failed, write_atomic};
@@ -100,12 +100,12 @@ impl Automation {
             None => (0..n).collect(),
         };
         let target = match a.opt_str("to")?.unwrap_or("gray") {
-            "gray" | "grayscale" => pdfcraft_engine::ColourTarget::Gray,
-            "rgb" => pdfcraft_engine::ColourTarget::Rgb,
-            "cmyk" => pdfcraft_engine::ColourTarget::Cmyk,
+            "gray" | "grayscale" => openpdf_engine::ColourTarget::Gray,
+            "rgb" => openpdf_engine::ColourTarget::Rgb,
+            "cmyk" => openpdf_engine::ColourTarget::Cmyk,
             other => return Err(ToolError::InvalidArgs(format!("unknown target {other:?} (gray, rgb, cmyk)"))),
         };
-        let settings = pdfcraft_engine::ConvertColours {
+        let settings = openpdf_engine::ConvertColours {
             target,
             preserve_black: a.opt_bool("preserve_black")?.unwrap_or(true),
             images: a.opt_bool("images")?.unwrap_or(true),
@@ -120,7 +120,7 @@ impl Automation {
         let declared = self.doc(a)?.standards();
         let pdfa = declared.pdfa.map(|(part, level)| format!("PDF/A-{part}{}", level.to_lowercase()));
         let loses: Vec<String> = pdfa.into_iter().chain(declared.output_intents.iter().map(|i| format!("output intent {i}"))).collect();
-        let r = self.apply(a, pdfcraft_engine::Edit::ConvertColours { pages, settings })?;
+        let r = self.apply(a, openpdf_engine::Edit::ConvertColours { pages, settings })?;
         Ok(json!({
             "colours": found.colours,
             "images": found.images,

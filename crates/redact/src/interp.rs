@@ -20,11 +20,11 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use pdfcraft_content::{Matrix, Op, Pieces, contains, num, overlaps, serialize_ops, string};
-use pdfcraft_cos::{CosError, DecodeBudget, Dict, Document, ImageBudget, MAX_PAGE_FORMS, ObjRef, Object, Stream};
+use openpdf_content::{Matrix, Op, Pieces, contains, num, overlaps, serialize_ops, string};
+use openpdf_cos::{CosError, DecodeBudget, Dict, Document, ImageBudget, MAX_PAGE_FORMS, ObjRef, Object, Stream};
 
 use crate::{RedactError, Report, image, page_streams, tags};
-use pdfcraft_fonts::pdf::Metrics;
+use openpdf_fonts::pdf::Metrics;
 
 mod layers;
 mod prune;
@@ -45,7 +45,7 @@ pub(crate) const MAX_DEPTH: usize = 50;
 
 // A form a reader still shows must be walkable here, or a redaction removes content that is
 // visible; the build says so rather than a test, so the two limits cannot drift apart.
-const _: () = assert!(MAX_DEPTH >= pdfcraft_edit::text::MAX_FORM_DEPTH);
+const _: () = assert!(MAX_DEPTH >= openpdf_edit::text::MAX_FORM_DEPTH);
 /// Bounds on the removed text collected for the metadata check (#2448).
 const MAX_RUNS: usize = 100_000;
 const MAX_RUN_BYTES: usize = 64 * 1024;
@@ -140,7 +140,7 @@ pub(crate) struct Output {
     /// in force: the operation must fail closed rather than leave that text under the mark.
     pub vertical: bool,
     /// The content holds an inline image the renderer reads no image for
-    /// ([`pdfcraft_content::Parsed::ambiguous_images`]): what this scope placed after it may not
+    /// ([`openpdf_content::Parsed::ambiguous_images`]): what this scope placed after it may not
     /// be what the page shows, so a redaction must not trust it.
     pub ambiguous: bool,
     pub tag_changes: Vec<(ObjRef, ObjRef, HashSet<i64>, HashSet<i64>)>,

@@ -2,8 +2,8 @@
 //! is converted as a copy for the pages being converted, and the resource dictionary they
 //! share is not changed.
 
-use pdfcraft_cos::{Document, ObjRef, Object, Stream};
-use pdfcraft_edit::{ColourTarget, ConvertColours, convert_colours};
+use openpdf_cos::{Document, ObjRef, Object, Stream};
+use openpdf_edit::{ColourTarget, ConvertColours, convert_colours};
 use std::sync::Arc;
 
 /// A document of `objs` (object k is `k + 1 0 obj`; object 1 is the catalog). A `{stream:...}`
@@ -59,7 +59,7 @@ fn two_pages() -> Document {
 }
 
 fn form_of(doc: &Document, page: usize, name: &[u8]) -> ObjRef {
-    let p = pdfcraft_model::pages(doc).swap_remove(page);
+    let p = openpdf_model::pages(doc).swap_remove(page);
     let res = doc.resolve(p.dict.get(b"Resources").unwrap());
     let xo = doc.resolve(res.as_dict().unwrap().get(b"XObject").unwrap());
     xo.as_dict().unwrap().get(name).and_then(Object::as_ref).unwrap()

@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use pdfcraft_engine::Session;
+use openpdf_engine::Session;
 
 /// A list whose `item` row (20pt, 36 to a page) repeats without bound, `data` rows in its
 /// datasets, and a button that adds `add` rows in one click.
@@ -31,10 +31,10 @@ fn form(add: usize, data_rows: usize) -> Vec<u8> {
 {datasets}
 </xdp:xdp>"#
     );
-    pdfcraft_xfa::fixtures::shell(&xdp)
+    openpdf_xfa::fixtures::shell(&xdp)
 }
 
-fn rows(s: &Session, id: pdfcraft_engine::DocId) -> usize {
+fn rows(s: &Session, id: openpdf_engine::DocId) -> usize {
     s.get(id).map_or(0, |d| d.form.iter().filter(|f| f.name.starts_with("qty")).count())
 }
 
@@ -70,7 +70,7 @@ fn positioned_table(max: &str) -> Vec<u8> {
 <xfa:datasets xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/"><xfa:data><form><page><table>{data}</table></page></form></xfa:data></xfa:datasets>
 </xdp:xdp>"#
     );
-    pdfcraft_xfa::fixtures::shell(&xdp)
+    openpdf_xfa::fixtures::shell(&xdp)
 }
 
 #[test]

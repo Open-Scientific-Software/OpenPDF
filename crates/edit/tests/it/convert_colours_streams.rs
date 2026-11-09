@@ -2,8 +2,8 @@
 //! dictionary (its `/PCMark` among it), unchanged streams stay as they are, the colour space
 //! set in one stream holds in the next, and a page with an unreadable stream is left alone.
 
-use pdfcraft_cos::{Document, ObjRef, Object, Stream};
-use pdfcraft_edit::{ColourTarget, ConvertColours, convert_colours};
+use openpdf_cos::{Document, ObjRef, Object, Stream};
+use openpdf_edit::{ColourTarget, ConvertColours, convert_colours};
 use std::sync::Arc;
 
 /// A document of `objs` (object k is `k + 1 0 obj`; object 1 is the catalog). A `{stream:...}`
@@ -41,7 +41,7 @@ fn stream_text(doc: &Document, r: ObjRef) -> String {
 
 /// The page's `/Contents` references.
 fn contents(doc: &Document, page: usize) -> Vec<ObjRef> {
-    let p = pdfcraft_model::pages(doc).swap_remove(page);
+    let p = openpdf_model::pages(doc).swap_remove(page);
     match &*doc.resolve(p.dict.get(b"Contents").unwrap()) {
         Object::Array(a) => a.iter().filter_map(Object::as_ref).collect(),
         _ => p.dict.get(b"Contents").and_then(Object::as_ref).into_iter().collect(),

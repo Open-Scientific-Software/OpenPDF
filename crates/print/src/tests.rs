@@ -243,7 +243,7 @@ fn custom_pages_per_sheet_never_overfill_the_grid() {
     assert!(matches!(layout(&sizes, &settings(vec![0], grid(0))), Err(PrintError::Invalid(_))));
     // The imposed PDF has one page per sheet.
     let out = impose(&fixture(7), &settings((0..7).collect(), Layout::multiple(3))).unwrap();
-    assert_eq!(pdfcraft_model::pages(&Document::open(Arc::new(out)).unwrap()).len(), 3);
+    assert_eq!(openpdf_model::pages(&Document::open(Arc::new(out)).unwrap()).len(), 3);
 }
 
 #[test]
@@ -282,7 +282,7 @@ fn imposing_lists_the_pages_once() {
     let out = impose(&doc, &settings((0..n).collect(), Layout::multiple(2))).unwrap();
     let listed = PAGES_LISTED.with(|c| c.get());
     assert!(listed <= 2 * n, "{listed} pages listed to print {n}");
-    assert_eq!(pdfcraft_model::pages(&Document::open(Arc::new(out)).unwrap()).len(), n / 2);
+    assert_eq!(openpdf_model::pages(&Document::open(Arc::new(out)).unwrap()).len(), n / 2);
 }
 
 #[test]
@@ -325,7 +325,7 @@ fn imposed_pdf_has_the_sheets_and_honours_comments_and_forms() {
     let doc = fixture(3);
     let out = impose(&doc, &settings(vec![0, 1, 2], Layout::multiple(2))).unwrap();
     let printed = Document::open(Arc::new(out.clone())).unwrap();
-    let pages = pdfcraft_model::pages(&printed);
+    let pages = openpdf_model::pages(&printed);
     assert_eq!(pages.len(), 2);
     assert_eq!(pages[0].crop(&printed), [0.0, 0.0, 792.0, 612.0]);
     // The source pages are form XObjects holding their content.
@@ -405,10 +405,10 @@ fn a_job_names_its_title_and_owner_to_the_spooler() {
 
     let named = args_for("Q3 report: a/b=\"c\".pdf", None);
     assert_eq!(option(&named, "PMJobName").as_deref(), Some("Q3_report__a_b__c_.pdf"), "what lp can't be given becomes _");
-    assert_eq!(option(&named, "PMJobOwner").as_deref(), Some("PdfCraft"), "no owner known: the filter still gets one");
+    assert_eq!(option(&named, "PMJobOwner").as_deref(), Some("OpenPDF"), "no owner known: the filter still gets one");
 
     for nothing_left in ["", "   ", "見積書", "/:=\""] {
-        assert_eq!(option(&args_for(nothing_left, Some("")), "PMJobName").as_deref(), Some("PdfCraft"), "{nothing_left:?}");
+        assert_eq!(option(&args_for(nothing_left, Some("")), "PMJobName").as_deref(), Some("OpenPDF"), "{nothing_left:?}");
     }
     assert_eq!(option(&args_for("見積書2.pdf", None), "PMJobName").as_deref(), Some("___2.pdf"), "a part of it is kept");
     let long = option(&args_for(&format!("a{}", "é".repeat(200)), None), "PMJobName").unwrap_or_default();
@@ -419,8 +419,8 @@ fn a_job_names_its_title_and_owner_to_the_spooler() {
         assert_eq!(option(&args_for(title, None), "PMJobName").as_deref(), Some(name), "{title:?}");
     }
     for boolean in ["true", "TRUE", "false", "False"] {
-        assert_eq!(option(&args_for(boolean, Some(boolean)), "PMJobName").as_deref(), Some("PdfCraft"), "{boolean:?}");
-        assert_eq!(option(&args_for(boolean, Some(boolean)), "PMJobOwner").as_deref(), Some("PdfCraft"), "{boolean:?}");
+        assert_eq!(option(&args_for(boolean, Some(boolean)), "PMJobName").as_deref(), Some("OpenPDF"), "{boolean:?}");
+        assert_eq!(option(&args_for(boolean, Some(boolean)), "PMJobOwner").as_deref(), Some("OpenPDF"), "{boolean:?}");
     }
     assert_eq!(option(&args_for("true.pdf", None), "PMJobName").as_deref(), Some("true.pdf"), "only the bare word is a boolean");
 }
@@ -450,7 +450,7 @@ fn a_job_keeps_the_title_and_owner_it_already_sets() {
 #[test]
 fn a_submitted_job_reaches_lp_named() {
     const TEST: &str = "tests::a_submitted_job_reaches_lp_named";
-    if let Ok(way) = std::env::var("PDFCRAFT_SUBMIT_TO_STAND_IN") {
+    if let Ok(way) = std::env::var("OPENPDF_SUBMIT_TO_STAND_IN") {
         let job = Job { title: "memo.pdf".into(), ..Job::default() };
         let sent = match way.as_str() {
             "submit" => spool::submit(b"%PDF-1.7", &job),
@@ -460,7 +460,7 @@ fn a_submitted_job_reaches_lp_named() {
         return;
     }
     use std::os::unix::fs::PermissionsExt as _;
-    let dir = std::env::temp_dir().join(format!("pdfcraft-lp-stand-in-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("openpdf-lp-stand-in-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
     let lp = dir.join("lp");
     let recorded = dir.join("args");
@@ -473,7 +473,7 @@ fn a_submitted_job_reaches_lp_named() {
         let this = std::env::current_exe().expect("this test binary");
         let child = std::process::Command::new(this)
             .args(["--exact", TEST, "--nocapture"])
-            .env("PDFCRAFT_SUBMIT_TO_STAND_IN", way)
+            .env("OPENPDF_SUBMIT_TO_STAND_IN", way)
             .env("PATH", &dir)
             .env("USER", "sam")
             .output()
@@ -679,7 +679,7 @@ fn printer_options_come_from_the_ppd() {
 }
 
 /// A driver option's current choice is read from `lpoptions`, and a job passes `lp` only the
-/// driver options that are well-formed PPD keywords, never the ones PdfCraft sets itself.
+/// driver options that are well-formed PPD keywords, never the ones OpenPDF sets itself.
 #[test]
 fn printer_option_defaults_and_job_arguments() {
     let current =
@@ -751,8 +751,8 @@ fn a_job_that_names_its_orientation_keeps_it() {
 mod cups_options {
     use crate::spool;
 
-    const RECORD: &str = "PDFCRAFT_LPOPTIONS_TEST_RECORD";
-    const ANSWER: &str = "PDFCRAFT_LPOPTIONS_TEST_ANSWER";
+    const RECORD: &str = "OPENPDF_LPOPTIONS_TEST_RECORD";
+    const ANSWER: &str = "OPENPDF_LPOPTIONS_TEST_ANSWER";
     /// Generous: these tests are about what is read, not how long it takes.
     const LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -802,7 +802,7 @@ mod cups_options {
         for _ in 0..32 {
             let mut nonce = [0; 16];
             random.read_exact(&mut nonce).unwrap();
-            let path = std::env::temp_dir().join(format!("pdfcraft-cups-options-{:032x}", u128::from_be_bytes(nonce)));
+            let path = std::env::temp_dir().join(format!("openpdf-cups-options-{:032x}", u128::from_be_bytes(nonce)));
             // Atomic creation, private permissions from the outset; never reuse an existing
             // path (including a symlink) in the shared temporary directory.
             match std::fs::DirBuilder::new().mode(0o700).create(&path) {
@@ -1056,15 +1056,15 @@ fn text_direction_is_read_from_text_and_form_matrices() {
 fn imposed_pages_preserve_large_user_unit_matrices() {
     let (unit, mode) = (75000.0, SizeMode::Fit);
     let mut doc = fixture(1);
-    let page = pdfcraft_model::pages(&doc)[0].obj;
+    let page = openpdf_model::pages(&doc)[0].obj;
     doc.update_dict(page, |d| d.set(b"UserUnit".to_vec(), Object::Real(unit))).unwrap();
     let out = impose(&doc, &Settings { content: Content::Document, ..settings(vec![0], Layout::Size(mode)) }).unwrap();
     let printed = Document::open(Arc::new(out)).unwrap();
-    let page = &pdfcraft_model::pages(&printed)[0];
+    let page = &openpdf_model::pages(&printed)[0];
     let contents = printed.resolve(page.dict.get(b"Contents").unwrap());
     let Object::Stream(stream) = &*contents else { panic!("sheet content") };
     let bytes = stream.decoded().unwrap();
-    let parsed = pdfcraft_content::parse(&bytes);
+    let parsed = openpdf_content::parse(&bytes);
     assert_eq!(parsed.skipped, 0);
     let cms: Vec<_> = parsed.ops.iter().filter(|op| op.is("cm")).collect();
     assert_eq!(cms.len(), 2, "placement and source-to-display matrices");
@@ -1104,7 +1104,7 @@ fn imposed_pages_preserve_large_user_unit_matrices() {
 /// `output_within` (#1818): the bounded wait every platform's `lpoptions` call goes through.
 #[cfg(not(target_arch = "wasm32"))]
 mod bounded_commands {
-    const MODE: &str = "PDFCRAFT_COMMAND_TEST_MODE";
+    const MODE: &str = "OPENPDF_COMMAND_TEST_MODE";
 
     /// The child process stands in for a command: it answers, or it never does.
     #[test]
@@ -1200,7 +1200,7 @@ fn repeated_content_references_share_one_decode_budget() {
     let stream = doc.add(Stream::flate(Dict::new(), &vec![b' '; 1 << 20]));
     let page: Dict = [(b"Contents".to_vec(), Object::Array(vec![Object::Ref(stream); 300]))].into_iter().collect();
     let data = decoded_contents(&doc, &page, &mut DecodeBudget::page());
-    assert!(data.is_none_or(|d| d.len() <= pdfcraft_cos::MAX_PAGE_DECODED + 300));
+    assert!(data.is_none_or(|d| d.len() <= openpdf_cos::MAX_PAGE_DECODED + 300));
 }
 
 /// 20 draws of a form that draws the next form 20 times, four levels down: 168,420 form
@@ -1230,7 +1230,7 @@ fn text_direction_stops_at_the_form_budget() {
     let res = form_fanout(&mut doc);
     let mut score = 0;
     text_direction(&doc, "/X Do ".repeat(20).as_bytes(), &res, Matrix::IDENTITY, 0, &mut score, &mut DecodeBudget::page());
-    assert!(score > 0 && score <= pdfcraft_cos::MAX_PAGE_FORMS as i64, "score {score}");
+    assert!(score > 0 && score <= openpdf_cos::MAX_PAGE_FORMS as i64, "score {score}");
 }
 
 /// A form refused by the spent budget is left out; the text drawn after it still counts.
@@ -1356,13 +1356,13 @@ fn contents_pieces_join_with_a_space_across_a_trailing_comment() {
 
     let form_strings = |imposed: Vec<u8>| -> Vec<Vec<u8>> {
         let out = Document::open(Arc::new(imposed)).unwrap();
-        let page = &pdfcraft_model::pages(&out)[0];
+        let page = &openpdf_model::pages(&out)[0];
         let res = out.resolve(page.dict.get(b"Resources").unwrap()).as_dict().cloned().unwrap();
         let xo = out.resolve(res.get(b"XObject").unwrap()).as_dict().cloned().unwrap();
         let form_obj = out.resolve(xo.get(b"P0").unwrap());
         let Object::Stream(form) = &*form_obj else { panic!("form stream") };
         let body = form.decoded().unwrap();
-        pdfcraft_content::parse(&body)
+        openpdf_content::parse(&body)
             .ops
             .into_iter()
             .filter(|op| op.op == b"Tj")
@@ -1389,7 +1389,7 @@ fn contents_pieces_join_with_a_space_across_a_trailing_comment() {
 #[test]
 fn missing_print_dlls_are_named() {
     use crate::spool::{PRINT_DLLS, missing_print_dll_in};
-    let dir = std::env::temp_dir().join(format!("pdfcraft-print-dlls-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("openpdf-print-dlls-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     assert_eq!(missing_print_dll_in(&dir), Some(PRINT_DLLS[0]));
@@ -1408,11 +1408,11 @@ fn missing_print_dlls_are_named() {
 #[test]
 fn printing_without_the_print_dlls_is_refused_before_the_spooler() {
     use crate::spool::{PRINT_DLLS, PRINTER_BACKEND_CALLS, SYSTEM32_FOR_TEST, printers, submit, submit_with_progress};
-    let dir = std::env::temp_dir().join(format!("pdfcraft-print-no-dlls-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("openpdf-print-no-dlls-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     SYSTEM32_FOR_TEST.with(|d| *d.borrow_mut() = Some(dir.clone()));
-    let job = crate::spool::Job { printer: Some("PdfCraft test: no such printer".into()), ..Default::default() };
+    let job = crate::spool::Job { printer: Some("OpenPDF test: no such printer".into()), ..Default::default() };
     let named = |r: Result<String, crate::PrintError>| match r {
         Err(crate::PrintError::Spool(m)) => m.contains(PRINT_DLLS[0]),
         _ => false,
@@ -1432,10 +1432,10 @@ fn printing_without_the_print_dlls_is_refused_before_the_spooler() {
 #[test]
 fn a_page_form_without_annotations_shares_the_pages_indirect_resources() {
     let mut doc = fixture(2);
-    let pages = pdfcraft_model::pages(&doc);
+    let pages = openpdf_model::pages(&doc);
     let res = doc.add(Object::Dict([(b"Font".to_vec(), Object::Dict(Dict::new()))].into_iter().collect()));
     doc.update_dict(pages[1].obj, |d| d.set(b"Resources".to_vec(), Object::Ref(res))).unwrap();
-    let pages = pdfcraft_model::pages(&doc);
+    let pages = openpdf_model::pages(&doc);
     let form = imposition::page_form(&mut doc, &pages, 1, Content::default(), &mut Default::default()).unwrap();
     let Object::Stream(s) = &*doc.get(form) else { panic!("form stream") };
     assert_eq!(s.dict.get(b"Resources"), Some(&Object::Ref(res)));

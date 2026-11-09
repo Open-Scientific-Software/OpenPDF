@@ -15,7 +15,7 @@ pub fn run_xfa(script: &str, event: &XfaEvent, doc: &XfaDoc, root: &XfaNode, lim
     {
         std::thread::scope(|scope| {
             let spawned = std::thread::Builder::new()
-                .name("pdfcraft-xfa-js".into())
+                .name("openpdf-xfa-js".into())
                 .stack_size(crate::SCRIPT_STACK)
                 .spawn_scoped(scope, || run_here(script, event, doc, Arc::new(root.clone()), false, limits, &|| {}));
             match spawned {
@@ -38,7 +38,7 @@ pub fn run_xfa_within(script: &str, event: &XfaEvent, doc: &XfaDoc, root: XfaNod
         return XfaOutcome { error: Some(why), ..Default::default() };
     }
     let (script, event, doc) = (script.to_string(), event.clone(), doc.clone());
-    run_within("pdfcraft-xfa-js", timeout, move |started| run_here(&script, &event, &doc, Arc::new(root), false, limits, started))
+    run_within("openpdf-xfa-js", timeout, move |started| run_here(&script, &event, &doc, Arc::new(root), false, limits, started))
 }
 
 /// Longest the script engine may take to be ready for a script (its thread and context, and

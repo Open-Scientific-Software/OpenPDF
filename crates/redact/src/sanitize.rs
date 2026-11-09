@@ -4,13 +4,13 @@
 //! categories; [`sanitize`] removes all of them. Every removal makes the next save a full
 //! rewrite, so the earlier revision (which still holds the data) leaves the file.
 
-use pdfcraft_content::Matrix;
-use pdfcraft_cos::{Dict, Document, ObjRef, Object};
+use openpdf_content::Matrix;
+use openpdf_cos::{Dict, Document, ObjRef, Object};
 
 use crate::interp::{Mode, Scope, process};
 use crate::{RedactError, Report, annots_of, listed_annotations, page_streams, page_streams_within};
 
-/// The categories of Acrobat's Remove Hidden Information panel that PdfCraft handles.
+/// The categories of Acrobat's Remove Hidden Information panel that OpenPDF handles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Hidden {
     /// Document information (`/Info`) and XMP metadata streams.
@@ -463,7 +463,7 @@ fn collect_owned(o: &Object, role: Held, key: &[u8], depth: usize, found: &mut d
 /// A comment as the comments list sees it, less file attachments (removed with Attachments) and
 /// redaction marks.
 fn is_comment(subtype: &[u8]) -> bool {
-    !matches!(subtype, b"FileAttachment" | b"Redact") && pdfcraft_annot::is_comment_subtype(&String::from_utf8_lossy(subtype))
+    !matches!(subtype, b"FileAttachment" | b"Redact") && openpdf_annot::is_comment_subtype(&String::from_utf8_lossy(subtype))
 }
 
 /// The layers that are off in the default configuration: listed off (or not listed on, under
@@ -630,11 +630,11 @@ fn content_pass(doc: &mut Document, text: bool, layers: bool, write: bool) -> Re
     let mut retired_properties = Vec::new();
     // The page tree is read once, and again only after a page's rewrite (pinning its inherited
     // resources can change its ancestors), not once per page: a scan of many pages stays linear.
-    let mut pages = pdfcraft_model::pages(doc);
+    let mut pages = openpdf_model::pages(doc);
     let n = pages.len();
     for pi in 0..n {
         let Some(page) = pages.get(pi).cloned() else { break };
-        let mut budget = pdfcraft_cos::DecodeBudget::page();
+        let mut budget = openpdf_cos::DecodeBudget::page();
         let Ok((list, data)) = page_streams_within(doc, &page.dict, pi, &mut budget) else {
             if write {
                 return Err(RedactError::Unreadable(pi + 1));
@@ -647,7 +647,7 @@ fn content_pass(doc: &mut Document, text: bool, layers: bool, write: bool) -> Re
         let resources = page.dict.get(b"Resources").and_then(|r| doc.resolve(r).as_dict().cloned()).unwrap_or_default();
         let mut report = Report::default();
         let mode = if write { Mode::Apply } else { Mode::Verify };
-        let mut images = pdfcraft_cos::ImageBudget::new(doc);
+        let mut images = openpdf_cos::ImageBudget::new(doc);
         let mut scope = Scope::new(&[], mode, &mut report, budget, &mut images);
         if text {
             let c = page.crop(doc);
@@ -681,7 +681,7 @@ fn content_pass(doc: &mut Document, text: bool, layers: bool, write: bool) -> Re
             dict.remove(b"Length");
             // The source text of an added item (Edit ▸ Add content) would keep what was removed.
             dict.remove(b"PCAdded");
-            new_list[i] = Object::Ref(doc.add(Object::Stream(pdfcraft_cos::Stream::flate(dict, &bytes))));
+            new_list[i] = Object::Ref(doc.add(Object::Stream(openpdf_cos::Stream::flate(dict, &bytes))));
             changed = true;
         }
         if changed || !out.xobjects.is_empty() || !out.replaced.is_empty() {
@@ -712,11 +712,11 @@ fn content_pass(doc: &mut Document, text: bool, layers: bool, write: bool) -> Re
             let (changed_ids, empty_ids) = crate::tags::touched(
                 doc,
                 &resources,
-                pdfcraft_content::Pieces::join(&data).data(),
-                pdfcraft_content::Pieces::join(&page_content).data(),
+                openpdf_content::Pieces::join(&data).data(),
+                openpdf_content::Pieces::join(&page_content).data(),
             );
             crate::tags::clean(doc, page.obj, None, &changed_ids, &empty_ids)?;
-            pages = pdfcraft_model::pages(doc);
+            pages = openpdf_model::pages(doc);
         }
         for (old, new, changed, empty) in out.tag_changes {
             crate::tags::clean(doc, page.obj, Some((old, new)), &changed, &empty)?;
@@ -746,7 +746,7 @@ pub fn scan_only(doc: &Document, which: &[Hidden]) -> Vec<(Hidden, usize)> {
     let annots_read = std::cell::OnceCell::<Vec<Dict>>::new();
     let annots = || {
         annots_read.get_or_init(|| {
-            pdfcraft_model::pages(doc).iter().flat_map(|p| annots_of(doc, &p.dict)).filter_map(|a| doc.resolve(&a).as_dict().cloned()).collect()
+            openpdf_model::pages(doc).iter().flat_map(|p| annots_of(doc, &p.dict)).filter_map(|a| doc.resolve(&a).as_dict().cloned()).collect()
         })
     };
     let count_sub = |s: &[u8]| annots().iter().filter(|a| a.name(b"Subtype") == Some(s)).count();
@@ -781,7 +781,7 @@ pub fn scan_only(doc: &Document, which: &[Hidden]) -> Vec<(Hidden, usize)> {
                 }
                 Hidden::Comments => annots().iter().filter(|a| is_comment(a.name(b"Subtype").unwrap_or(b""))).count(),
                 Hidden::FormFields => {
-                    let n = pdfcraft_forms::fields(doc).len();
+                    let n = openpdf_forms::fields(doc).len();
                     if n > 0 {
                         n
                     } else if cat.contains(b"AcroForm") {
@@ -867,7 +867,7 @@ fn drop_page_annotations(doc: &mut Document, which: &[Hidden], fields: bool) -> 
     };
     // The annotations to remove, on every page first, so a pop-up listed on another page than
     // its parent goes with it.
-    let pages = pdfcraft_model::pages(doc);
+    let pages = openpdf_model::pages(doc);
     let removed: std::collections::HashSet<ObjRef> = pages
         .iter()
         .flat_map(|p| annots_of(doc, &p.dict))
@@ -929,13 +929,13 @@ pub(crate) fn remove_counted(
     let listed_before = if annotations { listed_annotations(doc) } else { std::collections::HashSet::new() };
     if fields {
         // Fields without appearances get one first, so their values stay visible.
-        for f in pdfcraft_forms::fields(doc) {
+        for f in openpdf_forms::fields(doc) {
             if f.widgets.iter().any(|w| !doc.get(w.obj).as_dict().is_some_and(|d| d.contains(b"AP"))) {
-                pdfcraft_forms::redraw_field(doc, &f.name)?;
+                openpdf_forms::redraw_field(doc, &f.name)?;
             }
         }
-        let n = pdfcraft_model::pages(doc).len();
-        pdfcraft_edit::flatten(doc, &(0..n).collect::<Vec<_>>(), false, true)?;
+        let n = openpdf_model::pages(doc).len();
+        openpdf_edit::flatten(doc, &(0..n).collect::<Vec<_>>(), false, true)?;
         doc.update_dict(root, |d| {
             d.remove(b"AcroForm");
         })?;

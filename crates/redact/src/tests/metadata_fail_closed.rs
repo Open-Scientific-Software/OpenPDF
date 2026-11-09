@@ -33,7 +33,7 @@ fn catalog_has_xmp(doc: &Document) -> bool {
 }
 
 fn page_has_xmp(doc: &Document) -> bool {
-    pdfcraft_model::pages(doc)[0].dict.contains(b"Metadata")
+    openpdf_model::pages(doc)[0].dict.contains(b"Metadata")
 }
 
 /// Mark the line at y 100 across the page and apply.

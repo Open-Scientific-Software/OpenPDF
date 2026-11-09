@@ -269,7 +269,7 @@ fn request_sharper(
 
 pub(super) fn organize_grid(
     view: &mut DocView,
-    doc: &pdfcraft_engine::Document,
+    doc: &openpdf_engine::Document,
     unobstructed: bool,
     show_page_edge_shadows: bool,
     invert_middle: bool,

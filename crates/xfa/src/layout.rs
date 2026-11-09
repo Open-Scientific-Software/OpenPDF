@@ -57,7 +57,7 @@ const MAX_DRAW_CHARS: usize = 1 << 20;
 /// p. 786), so this only bounds the work of a hostile or runaway form: a long list or table
 /// is laid out whole up to here, and the rows past it are reported ([`Layouter::warn_truncated`]).
 /// It matches the largest `occur` count the parser reads and the most rows one script run may
-/// add (`MAX_ADDED` in pdfcraft-js). Laying out and listing the fields grows faster than the
+/// add (`MAX_ADDED` in openpdf-js). Laying out and listing the fields grows faster than the
 /// row count (one text field a row: 1,000 rows open in about 3 s in a debug build, 2,000 in
 /// about 13 s), so a much larger bound would let one list stall the app. The layout budgets
 /// ([`MAX_MEASURES`], [`MAX_ITEMS`], [`MAX_PAGES`]) still bound the form as a whole, however

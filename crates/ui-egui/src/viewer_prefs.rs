@@ -30,7 +30,7 @@ impl HiddenInterface {
     pub const ALL: Self = Self { toolbar: true, menubar: true, window_ui: true };
 
     /// What a document's viewer preferences ask to hide.
-    pub fn asked_by(v: &pdfcraft_engine::InitialView) -> Self {
+    pub fn asked_by(v: &openpdf_engine::InitialView) -> Self {
         Self { toolbar: v.hide_toolbar, menubar: v.hide_menubar, window_ui: v.hide_window_ui }
     }
 
@@ -82,7 +82,7 @@ impl TabInterface {
 /// on screen is known only once it is laid out).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PendingWindow {
-    pub doc: pdfcraft_engine::DocId,
+    pub doc: openpdf_engine::DocId,
     pub fit: bool,
     pub center: bool,
     /// Frames left to wait for the document to be laid out before giving up.
@@ -174,7 +174,7 @@ fn usable(v: Vec2) -> bool {
     v.x.is_finite() && v.y.is_finite() && v.x >= 1.0 && v.y >= 1.0
 }
 
-impl crate::PdfCraftApp {
+impl crate::OpenPDFApp {
     /// The window and interface preferences of the document opening in tab `index`
     /// ([`Self::apply_initial_view`] has applied its navigation, layout, zoom and page).
     ///
@@ -187,8 +187,8 @@ impl crate::PdfCraftApp {
     /// - `FitWindow`, `CenterWindow` wait for the page to be laid out
     ///   ([`Self::window_preferences_frame`]), and only for the window's only document: a
     ///   document opened in a tab beside others doesn't resize or move their window.
-    pub(crate) fn apply_viewer_preferences(&mut self, index: usize, v: &pdfcraft_engine::InitialView, activate: bool) {
-        use pdfcraft_engine::{InitialLayout as L, Magnification as M};
+    pub(crate) fn apply_viewer_preferences(&mut self, index: usize, v: &openpdf_engine::InitialView, activate: bool) {
+        use openpdf_engine::{InitialLayout as L, Magnification as M};
         let own_view = self.always_default_view;
         let only_document = self.views.len() == 1 && !self.combine_tab.open;
         let Some(view) = self.views.get_mut(index) else { return };
@@ -220,7 +220,7 @@ impl crate::PdfCraftApp {
     }
 
     fn notify_interface_hidden(&mut self) {
-        let key = pdfcraft_engine::commands::command(TOGGLE).and_then(|c| c.shortcut).map(|s| s.label(cfg!(target_os = "macos"))).unwrap_or_default();
+        let key = openpdf_engine::commands::command(TOGGLE).and_then(|c| c.shortcut).map(|s| s.label(cfg!(target_os = "macos"))).unwrap_or_default();
         self.notify_fmt("This document hides the toolbars and panels. Press {key} to show them.", &[("key", &key)]);
     }
 

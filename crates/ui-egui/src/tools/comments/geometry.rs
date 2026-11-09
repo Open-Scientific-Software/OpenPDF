@@ -30,7 +30,7 @@ pub(super) fn reshapable(a: &Annotation) -> bool {
         && !a.intent.as_deref().is_some_and(|i| i.ends_with("Dimension"))
 }
 
-/// A callout whose text box and leader line PdfCraft can read.
+/// A callout whose text box and leader line OpenPDF can read.
 pub(super) fn is_callout(a: &Annotation) -> bool {
     a.subtype == "FreeText" && a.text_box.is_some()
 }
@@ -45,19 +45,19 @@ pub(super) fn frame(a: &Annotation, rotation: u16) -> [f32; 4] {
 /// A callout's points while one is dragged to `to`. Its knee moves along its knee line only
 /// (Acrobat: "The knee line can be resized in one direction only; horizontal knee lines can be
 /// resized horizontally only; vertical knee lines can be resized vertically only", Acrobat DC Help,
-/// 11/28/2019, p. 357), and no nearer the box than [`pdfcraft_engine::CALLOUT_KNEE_LINE`]
+/// 11/28/2019, p. 357), and no nearer the box than [`openpdf_engine::CALLOUT_KNEE_LINE`]
 /// (Acrobat Pro DC, a 2021 Continuous release, lays a knee dragged into the box out again at that
 /// distance). Its arrow point moves freely, with Shift held to 45° from the knee.
 pub(super) fn callout_reshaped(points: &[[f64; 2]], text_box: [f32; 4], i: usize, to: [f64; 2], shift: bool) -> Vec<[f64; 2]> {
     let tb = text_box.map(f64::from);
-    let gap = pdfcraft_engine::CALLOUT_KNEE_LINE;
+    let gap = openpdf_engine::CALLOUT_KNEE_LINE;
     match (i, points.get(1)) {
         (1, Some(knee)) => {
-            let to = match pdfcraft_engine::callout_side(tb, *knee) {
-                pdfcraft_engine::CalloutSide::Left => [to[0].min(tb[0] - gap), knee[1]],
-                pdfcraft_engine::CalloutSide::Right => [to[0].max(tb[2] + gap), knee[1]],
-                pdfcraft_engine::CalloutSide::Top => [knee[0], to[1].max(tb[3] + gap)],
-                pdfcraft_engine::CalloutSide::Bottom => [knee[0], to[1].min(tb[1] - gap)],
+            let to = match openpdf_engine::callout_side(tb, *knee) {
+                openpdf_engine::CalloutSide::Left => [to[0].min(tb[0] - gap), knee[1]],
+                openpdf_engine::CalloutSide::Right => [to[0].max(tb[2] + gap), knee[1]],
+                openpdf_engine::CalloutSide::Top => [knee[0], to[1].max(tb[3] + gap)],
+                openpdf_engine::CalloutSide::Bottom => [knee[0], to[1].min(tb[1] - gap)],
             };
             let mut out = points.to_vec();
             if let Some(k) = out.get_mut(1) {
@@ -94,7 +94,7 @@ pub(super) fn point_handle(cx: &PageCx<'_>, a: &Annotation, p: Pos2) -> Option<u
 /// next end or corner of a line, arrow, connected lines, polygon or cloud.
 pub(crate) fn held(last: Option<&[f64; 2]>, to: [f64; 2], shift: bool) -> [f64; 2] {
     match last {
-        Some(l) if shift => pdfcraft_engine::measure::snap::ortho(*l, to),
+        Some(l) if shift => openpdf_engine::measure::snap::ortho(*l, to),
         _ => to,
     }
 }
@@ -200,7 +200,7 @@ pub(crate) fn caret_snap(text: &PageText, vx: f32, vy: f32) -> Option<([f32; 2],
     if !(slack.is_finite() && slack > 0.0) || vx < x0 - slack || vx > x1 + slack || vy < y0 - slack || vy > y1 + slack {
         return None;
     }
-    // The em box runs from 0.2 em below the baseline to 0.8 em above it (`pdfcraft_render`'s
+    // The em box runs from 0.2 em below the baseline to 0.8 em above it (`openpdf_render`'s
     // text extraction); `quad` is its bottom edge in the writing direction, then its top edge
     // backwards. Take the side of the box the click is nearer to: its foot and head.
     let [q0, q1, q2, q3] = g.quad;
@@ -226,13 +226,13 @@ pub fn snug_text_box_rect(at: [f64; 2], text: &str, size: f64, rotation: i64) ->
 }
 
 fn sized_text_box_rect(at: [f64; 2], text: &str, size: f64, rotation: i64, min_width: f64) -> [f64; 4] {
-    use pdfcraft_engine::annot_text::{text_width, wrap};
+    use openpdf_engine::annot_text::{text_width, wrap};
     let pad = 2.0;
     let longest = text.lines().map(|l| text_width(l, size)).fold(0.0, f64::max);
     let w = (longest + 2.0 * pad + 4.0).clamp(min_width, 300.0);
     let lines = wrap(text, size, w - 2.0 * pad).len().max(1);
     let h = lines as f64 * size * 1.2 + 2.0 * pad + 2.0;
-    pdfcraft_engine::text_box_at(rotation, at, w, h).unwrap_or([at[0], at[1] - h, at[0] + w, at[1]])
+    openpdf_engine::text_box_at(rotation, at, w, h).unwrap_or([at[0], at[1] - h, at[0] + w, at[1]])
 }
 
 /// The box dragged between user-space points `a` and `b`: its displayed top-left corner (user
@@ -249,7 +249,7 @@ pub(super) fn drawn_box(page: &PageInfo, a: [f64; 2], b: [f64; 2]) -> ([f64; 2],
 /// appearance lays it out. When the text needs more lines the box grows down, and moves up to stay
 /// on the page; text that cannot fit even so keeps the drawn height and is clipped.
 pub fn drawn_text_box_rect(page: &PageInfo, at: [f64; 2], size: [f64; 2], text: &str, font_size: f64, border: f64) -> [f64; 4] {
-    use pdfcraft_engine::annot_text::wrap;
+    use openpdf_engine::annot_text::wrap;
     let pad = 2.0 + border.max(0.0);
     let [w, drawn] = size;
     let lines = wrap(text, font_size, (w - 2.0 * pad).max(1.0)).len().max(1);
@@ -258,7 +258,7 @@ pub fn drawn_text_box_rect(page: &PageInfo, at: [f64; 2], size: [f64; 2], text: 
     let bottom = f64::from(page.height);
     let (top, h) = if needed <= drawn || needed > bottom { (vy, drawn) } else { (vy.min(bottom - needed).max(0.0), needed) };
     let at = page.view_to_user(vx as f32, top as f32).map(f64::from);
-    pdfcraft_engine::text_box_at(i64::from(page.rotation), at, w, h).unwrap_or([at[0], at[1] - h, at[0] + w, at[1]])
+    openpdf_engine::text_box_at(i64::from(page.rotation), at, w, h).unwrap_or([at[0], at[1] - h, at[0] + w, at[1]])
 }
 
 /// The `/Rotate` of `page` (0 when it is unknown).

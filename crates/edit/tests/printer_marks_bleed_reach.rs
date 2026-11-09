@@ -1,7 +1,7 @@
 //! Bleed marks start at the bleed box, so the room made for the marks counts the bleed too.
 
-use pdfcraft_cos::{Dict, Document, Object};
-use pdfcraft_edit::{PrinterMarks, add_printer_marks};
+use openpdf_cos::{Dict, Document, Object};
+use openpdf_edit::{PrinterMarks, add_printer_marks};
 
 fn rect(r: [f64; 4]) -> Object {
     Object::Array(r.iter().map(|v| Object::Real(*v)).collect())
@@ -26,7 +26,7 @@ fn page_with(boxes: &[(&[u8], [f64; 4])]) -> Document {
 }
 
 fn page_box(doc: &Document, key: &[u8]) -> Option<Vec<f64>> {
-    let page = pdfcraft_model::pages(doc).first().cloned()?;
+    let page = openpdf_model::pages(doc).first().cloned()?;
     let a = page.dict.get(key).map(|o| doc.resolve(o))?;
     Some(a.as_array()?.iter().filter_map(|v| doc.resolve(v).as_f64()).collect())
 }

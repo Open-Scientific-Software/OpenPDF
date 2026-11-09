@@ -12,7 +12,7 @@ const MAX_STYLE_LEVELS: usize = 9;
 
 /// bookmark_from_text_styles' `levels`: one style per bookmark level, the first level 1, each
 /// `{ font, size, bold, italic }` as text_styles lists them.
-pub(crate) fn text_style_levels(a: &Args) -> Result<Vec<pdfcraft_engine::text_style_bookmarks::TextStyle>> {
+pub(crate) fn text_style_levels(a: &Args) -> Result<Vec<openpdf_engine::text_style_bookmarks::TextStyle>> {
     let levels =
         a.get("levels").and_then(Value::as_array).ok_or_else(|| ToolError::InvalidArgs("levels must list a style for each bookmark level".into()))?;
     if levels.is_empty() || levels.len() > MAX_STYLE_LEVELS {
@@ -32,12 +32,12 @@ pub(crate) fn text_style_levels(a: &Args) -> Result<Vec<pdfcraft_engine::text_st
                 Some(Value::Bool(b)) => Ok(*b),
                 Some(_) => Err(bad(&format!("{key} must be true or false"))),
             };
-            Ok(pdfcraft_engine::text_style_bookmarks::TextStyle { font: font.to_string(), size, bold: flag("bold")?, italic: flag("italic")? })
+            Ok(openpdf_engine::text_style_bookmarks::TextStyle { font: font.to_string(), size, bold: flag("bold")?, italic: flag("italic")? })
         })
         .collect()
 }
 
-pub(crate) fn parse_style_ranges(value: Option<&Value>) -> Result<Vec<pdfcraft_engine::RangeStyle>> {
+pub(crate) fn parse_style_ranges(value: Option<&Value>) -> Result<Vec<openpdf_engine::RangeStyle>> {
     let Some(value) = value else { return Ok(Vec::new()) };
     let values = value.as_array().filter(|v| v.len() <= 1024).ok_or_else(|| Args::wrong("ranges", "an array of at most 1024 style objects"))?;
     values
@@ -62,15 +62,15 @@ pub(crate) fn parse_style_ranges(value: Option<&Value>) -> Result<Vec<pdfcraft_e
             let family = a
                 .opt_str("font")?
                 .map(|f| match f {
-                    "helvetica" => Ok(pdfcraft_engine::FontFamily::Helvetica),
-                    "times" => Ok(pdfcraft_engine::FontFamily::Times),
-                    "courier" => Ok(pdfcraft_engine::FontFamily::Courier),
+                    "helvetica" => Ok(openpdf_engine::FontFamily::Helvetica),
+                    "times" => Ok(openpdf_engine::FontFamily::Times),
+                    "courier" => Ok(openpdf_engine::FontFamily::Courier),
                     _ => Err(Args::wrong("font", "helvetica, times or courier")),
                 })
                 .transpose()?
                 .map(|f| -> Result<_> { Ok((f, a.opt_bool("bold")?.unwrap_or(false), a.opt_bool("italic")?.unwrap_or(false))) })
                 .transpose()?;
-            Ok(pdfcraft_engine::RangeStyle {
+            Ok(openpdf_engine::RangeStyle {
                 range: start..end,
                 family,
                 resource: a.opt_str("font_resource")?.map(str::to_owned),
@@ -157,15 +157,15 @@ pub(crate) fn document_attachment_keys(doc: &Document) -> Vec<String> {
         .attachments
         .iter()
         .filter_map(|x| match &x.source {
-            pdfcraft_render::AttachmentSource::Document { key } => Some(key.clone()),
-            pdfcraft_render::AttachmentSource::Annotation { .. } => None,
+            openpdf_render::AttachmentSource::Document { key } => Some(key.clone()),
+            openpdf_render::AttachmentSource::Annotation { .. } => None,
         })
         .collect()
 }
 
 /// Bookmark rows in listing order as JSON: a row holds the rows that follow it on the page at the
 /// next level down in `children`, and paths and pages are 1-based.
-pub(crate) fn nest_rows(rows: &[pdfcraft_engine::BookmarkRow], pages: &[pdfcraft_render::PageInfo]) -> Vec<Value> {
+pub(crate) fn nest_rows(rows: &[openpdf_engine::BookmarkRow], pages: &[openpdf_render::PageInfo]) -> Vec<Value> {
     // The open rows, outermost first, with their depth and the children gathered so far.
     let mut open: Vec<(usize, Value, Vec<Value>)> = Vec::new();
     let mut roots = Vec::new();
@@ -201,8 +201,8 @@ pub(crate) fn nest_rows(rows: &[pdfcraft_engine::BookmarkRow], pages: &[pdfcraft
 /// like every `rect`: the destination type (`XYZ`, `Fit`, `FitH`, `FitV`, `FitR`) and its
 /// position, `null` where the destination leaves it unspecified (`/XYZ null null null` keeps the
 /// reader's position and zoom). `None` for a destination without a type.
-pub(crate) fn destination(view: &pdfcraft_render::DestView, page: &pdfcraft_render::PageInfo) -> Option<Value> {
-    use pdfcraft_render::DestView;
+pub(crate) fn destination(view: &openpdf_render::DestView, page: &openpdf_render::PageInfo) -> Option<Value> {
+    use openpdf_render::DestView;
     let points = |left: Option<f32>, top: Option<f32>| {
         let [x, y] = page.dest_fraction(left, top, 0);
         let round = |v: f32| f64::from((v * 100.0).round() / 100.0);
@@ -303,8 +303,8 @@ pub(crate) fn info(d: &Document) -> Value {
         // destination, null without one.
         "open_destination": i.open_dest.as_ref().map(|(p, view)| json!({ "page": page1(*p), "destination": i.pages.get(*p).and_then(|pg| destination(view, pg)) })),
         // XFA forms: "static" (the PDF's own fields work; the XFA data is ignored) or "dynamic"
-        // (laid out from the template by PdfCraft, see xfa_layout; placeholder pages when that failed).
-        "xfa": i.xfa.map(|x| match x { pdfcraft_render::Xfa::Static => "static", pdfcraft_render::Xfa::Dynamic => "dynamic" }),
+        // (laid out from the template by OpenPDF, see xfa_layout; placeholder pages when that failed).
+        "xfa": i.xfa.map(|x| match x { openpdf_render::Xfa::Static => "static", openpdf_render::Xfa::Dynamic => "dynamic" }),
         "xfa_layout": d.xfa.as_ref().map(|x| json!({ "pages": x.pages, "fields": x.fields, "warnings": x.warnings })),
         // A script of the form ran too long and was abandoned: its scripts no longer run in this
         // document (calculations, buttons) until it is opened again.
@@ -337,17 +337,17 @@ pub(crate) fn info(d: &Document) -> Value {
         // The Layers panel's rows, the default configuration's /Order (ISO 32000-2 Table 99): a
         // layer by its 1-based position in `layers`, or a label; `depth` 0 at the top.
         "layer_order": i.layer_order.iter().map(|r| match &r.item {
-            pdfcraft_render::LayerItem::Layer(n) => json!({ "depth": r.depth, "layer": n.saturating_add(1), "name": i.layers.get(*n).map(|l| l.name.as_str()) }),
-            pdfcraft_render::LayerItem::Label(s) => json!({ "depth": r.depth, "label": s }),
+            openpdf_render::LayerItem::Layer(n) => json!({ "depth": r.depth, "layer": n.saturating_add(1), "name": i.layers.get(*n).map(|l| l.name.as_str()) }),
+            openpdf_render::LayerItem::Label(s) => json!({ "depth": r.depth, "label": s }),
         }).collect::<Vec<_>>(),
         // Full-screen presentation settings a page carries (ISO 32000-2 §12.4.4): only pages with
         // a `/Trans` or `/Dur` appear; `style` is null for a display time alone.
         "transitions": i.transitions.iter().map(|t| json!({
-            "page": page1(t.page), "style": t.style.map(pdfcraft_render::TransitionStyle::name), "duration": t.duration,
+            "page": page1(t.page), "style": t.style.map(openpdf_render::TransitionStyle::name), "duration": t.duration,
             "horizontal": t.horizontal, "inward": t.inward, "direction": t.direction, "scale": t.scale, "opaque": t.opaque,
             "display": t.display,
         })).collect::<Vec<_>>(),
-        "attachments": i.attachments.iter().map(|a| json!({ "name": a.name, "key": match &a.source { pdfcraft_render::AttachmentSource::Document { key } => Some(key), pdfcraft_render::AttachmentSource::Annotation { .. } => None }, "description": a.description, "size": a.size })).collect::<Vec<_>>(),
+        "attachments": i.attachments.iter().map(|a| json!({ "name": a.name, "key": match &a.source { openpdf_render::AttachmentSource::Document { key } => Some(key), openpdf_render::AttachmentSource::Annotation { .. } => None }, "description": a.description, "size": a.size })).collect::<Vec<_>>(),
         // A PDF portfolio (`/Collection`, ISO 32000-2 §7.11.6): its pages are a cover sheet and its
         // documents are `attachments`; `initial` names the one presented first, null for the cover.
         "portfolio": i.portfolio.as_ref().map(|p| json!({
@@ -372,13 +372,13 @@ pub(crate) fn info(d: &Document) -> Value {
 /// A user-space rectangle on 0-based `page` in displayed-page coordinates (points from the
 /// top-left of the page as displayed, y down, after `/Rotate`), the way every tool reports
 /// rectangles; unchanged when the page is unknown (a malformed annotation that points at no page).
-/// Public so `pdfcraft-cli` reports the same rectangles as the tools.
-pub fn view_rect(i: &pdfcraft_render::DocInfo, page: usize, rect: [f32; 4]) -> [f32; 4] {
+/// Public so `openpdf-cli` reports the same rectangles as the tools.
+pub fn view_rect(i: &openpdf_render::DocInfo, page: usize, rect: [f32; 4]) -> [f32; 4] {
     i.pages.get(page).map_or(rect, |p| comments::rect_to_view(p, rect))
 }
 
 /// Bookmarks with the page each goes to, or the action it runs instead (as a link's `target`).
-fn outline(i: &pdfcraft_render::DocInfo, items: &[pdfcraft_render::OutlineItem]) -> Value {
+fn outline(i: &openpdf_render::DocInfo, items: &[openpdf_render::OutlineItem]) -> Value {
     Value::Array(
         items
             .iter()
@@ -394,33 +394,33 @@ fn outline(i: &pdfcraft_render::DocInfo, items: &[pdfcraft_render::OutlineItem])
 
 /// Where a link goes, or what a bookmark's action does: a 1-based page, a web address, layer
 /// changes, another PDF, or the name of an action that isn't run.
-fn link_target(i: &pdfcraft_render::DocInfo, target: &pdfcraft_render::LinkTarget) -> Value {
+fn link_target(i: &openpdf_render::DocInfo, target: &openpdf_render::LinkTarget) -> Value {
     // A remote page number is the file's, however large.
     let page1 = |p: usize| p.saturating_add(1);
     match target {
-        pdfcraft_render::LinkTarget::Page(p, _) => json!({ "page": page1(*p) }),
-        pdfcraft_render::LinkTarget::Uri(u) => json!({ "uri": u }),
-        pdfcraft_render::LinkTarget::SetLayers { changes, preserve_rb } => json!({
+        openpdf_render::LinkTarget::Page(p, _) => json!({ "page": page1(*p) }),
+        openpdf_render::LinkTarget::Uri(u) => json!({ "uri": u }),
+        openpdf_render::LinkTarget::SetLayers { changes, preserve_rb } => json!({
             "layers": changes.iter().map(|(op, ocg)| json!({
                 "layer": i.layers.iter().find(|l| l.id == *ocg).map(|l| l.name.as_str()),
                 "state": match op {
-                    pdfcraft_render::LayerOp::On => "on",
-                    pdfcraft_render::LayerOp::Off => "off",
-                    pdfcraft_render::LayerOp::Toggle => "toggle",
+                    openpdf_render::LayerOp::On => "on",
+                    openpdf_render::LayerOp::Off => "off",
+                    openpdf_render::LayerOp::Toggle => "toggle",
                 },
             })).collect::<Vec<_>>(),
             "preserve_rb": preserve_rb,
         }),
-        pdfcraft_render::LinkTarget::RemoteGoTo { launch, file, destination, new_window } => json!({
+        openpdf_render::LinkTarget::RemoteGoTo { launch, file, destination, new_window } => json!({
             "action": if *launch { "Launch" } else { "GoToR" },
             "remote_document": file,
             "destination": match destination {
-                pdfcraft_render::RemoteDestination::Default => json!({ "kind": "default" }),
-                pdfcraft_render::RemoteDestination::Page { page, view } => json!({ "kind": "page", "page": page1(*page), "view": format!("{view:?}") }),
-                pdfcraft_render::RemoteDestination::Named(name) => json!({ "kind": "named", "name": name }),
+                openpdf_render::RemoteDestination::Default => json!({ "kind": "default" }),
+                openpdf_render::RemoteDestination::Page { page, view } => json!({ "kind": "page", "page": page1(*page), "view": format!("{view:?}") }),
+                openpdf_render::RemoteDestination::Named(name) => json!({ "kind": "named", "name": name }),
             },
             "new_window": new_window,
         }),
-        pdfcraft_render::LinkTarget::Other(o) => json!({ "other": o }),
+        openpdf_render::LinkTarget::Other(o) => json!({ "other": o }),
     }
 }

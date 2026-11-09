@@ -152,7 +152,7 @@ pub fn static_radio_shell(data: &str) -> Vec<u8> {
     radio_shell(data, None)
 }
 
-/// [`static_radio_shell`] whose buttons also carry `/PCOn`, the item PdfCraft writes to the data
+/// [`static_radio_shell`] whose buttons also carry `/PCOn`, the item OpenPDF writes to the data
 /// for the selected button ahead of its `/Opt` entry.
 pub fn static_radio_shell_with_pcon(data: &str, pcon: [&str; 2]) -> Vec<u8> {
     radio_shell(data, Some(pcon))

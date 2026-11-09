@@ -5,16 +5,16 @@
 
 use std::collections::HashMap;
 
-use pdfcraft_engine::{
+use openpdf_engine::{
     BorderShape, Edit, LineEnding, Markup, NewAnnotation, NoteIcon, ReviewState, Rgb, Shape, StampGroup, StampKind, Style, SummarySort,
 };
-use pdfcraft_render::{Annotation, PageInfo};
+use openpdf_render::{Annotation, PageInfo};
 use serde_json::{Value, json};
 
 use crate::{Args, Automation, Content, DEFAULT_DPI, MAX_DPI, Result, ToolError, encode_png, failed};
 
 /// Author used when a tool call names none.
-pub(crate) const DEFAULT_AUTHOR: &str = "PdfCraft";
+pub(crate) const DEFAULT_AUTHOR: &str = "OpenPDF";
 /// The largest side of a stamp's box, in points: the largest page PDF allows (ISO 32000-2 Annex C).
 const MAX_STAMP_SIDE: f64 = 14_400.0;
 
@@ -182,7 +182,7 @@ impl Automation {
         // A group (`/RT /Group`, ISO 32000-2 §12.5.6.2) lists as its primary, with the primary's
         // attributes: the subordinates are neither comments nor replies, only its `group`.
         let mut members: HashMap<(usize, usize), Vec<&Annotation>> = HashMap::new();
-        for (m, p) in all.iter().zip(pdfcraft_render::group_primaries(&all)) {
+        for (m, p) in all.iter().zip(openpdf_render::group_primaries(&all)) {
             if let Some(p) = p.and_then(|p| all.get(p)) {
                 members.entry((p.page, p.index)).or_default().push(m);
             }
@@ -248,7 +248,7 @@ impl Automation {
         // drop it. Parents are found by reference, as `/NM` need not be unique. Status and
         // checkmark replies are read through `review` instead. A group subordinate is in no
         // thread, and a reply to one is the group's, its primary's.
-        let tops = pdfcraft_render::thread_tops(&all);
+        let tops = openpdf_render::thread_tops(&all);
         let mut threads: HashMap<(usize, usize), Vec<&Annotation>> = HashMap::new();
         for r in all.iter().filter(|r| r.state.is_none() && !r.is_group_member()) {
             let Some(&top) = tops.get(&(r.page, r.index)) else { continue };
@@ -260,7 +260,7 @@ impl Automation {
         // is the latest set by anyone; `statuses` has each reviewer's latest (a state is "for the
         // specified user"). Checkmarks are each reviewer's own too: `marked_by` names who has one
         // on, and `marked` whether anyone has.
-        let review = pdfcraft_render::ReviewStates::new(&all);
+        let review = openpdf_render::ReviewStates::new(&all);
         let states = |c: &Annotation, v: &mut Value| {
             v["status"] = json!(review.latest_status(c));
             v["statuses"] = json!(review.statuses(c).iter().map(|(who, state)| json!({ "author": who, "status": state })).collect::<Vec<_>>());
@@ -303,7 +303,7 @@ impl Automation {
         if ortho && !matches!(kind, "line" | "arrow" | "polygon" | "cloud" | "polyline") {
             return Err(ToolError::InvalidArgs("ortho applies to a line, arrow, polygon, cloud or polyline".into()));
         }
-        let held = |last: [f64; 2], p: [f64; 2]| if ortho { pdfcraft_engine::measure::snap::ortho(last, p) } else { p };
+        let held = |last: [f64; 2], p: [f64; 2]| if ortho { openpdf_engine::measure::snap::ortho(last, p) } else { p };
         let markup = match kind {
             "highlight" => Some(Markup::Highlight),
             "underline" => Some(Markup::Underline),
@@ -431,7 +431,7 @@ impl Automation {
                     let knee = match a.nums::<2>("knee")? {
                         Some(k) => to_user(&info, k[0], k[1]),
                         // Acrobat's: 12 pt out from the middle of the side facing the point.
-                        None => pdfcraft_engine::callout_knee(rect, point),
+                        None => openpdf_engine::callout_knee(rect, point),
                     };
                     Shape::Callout {
                         rect,
@@ -451,9 +451,9 @@ impl Automation {
                     let data = crate::read_input(&path)?;
                     let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                     let icon = match a.opt_str("icon")? {
-                        Some(n) => pdfcraft_engine::AttachIcon::from_name(n)
+                        Some(n) => openpdf_engine::AttachIcon::from_name(n)
                             .ok_or_else(|| ToolError::InvalidArgs(format!("unknown icon {n:?} (PushPin, Paperclip, Graph, Tag)")))?,
-                        None => pdfcraft_engine::AttachIcon::PushPin,
+                        None => openpdf_engine::AttachIcon::PushPin,
                     };
                     Shape::Attachment { at: icon_anchor(&info, x, y), icon, file, data }
                 }
@@ -531,7 +531,7 @@ impl Automation {
     /// Preferences ▸ Date format: set it with `format` and its names' `language` (`auto`
     /// follows the app's interface language, so English here), or read them.
     pub(crate) fn fill_sign_date_format(&mut self, a: &Args) -> Result<Value> {
-        use pdfcraft_engine::dates;
+        use openpdf_engine::dates;
         let format = a.opt_str("format")?;
         let language = a.opt_str("language")?.map(|l| Some(l).filter(|l| !l.trim().eq_ignore_ascii_case("auto")));
         // Check the format before changing anything, so a bad one leaves both settings alone.
@@ -559,7 +559,7 @@ impl Automation {
 
     pub(crate) fn fill_sign_add(&mut self, a: &Args) -> Result<Value> {
         let border_shape = border_shape(a)?;
-        use pdfcraft_engine::FillMark;
+        use openpdf_engine::FillMark;
         let page = self.page(a)?;
         let info = self.doc(a)?.info.pages[page].clone();
         let [x, y] = a.need::<2>("at", "Fill & Sign")?;
@@ -613,17 +613,17 @@ impl Automation {
             let file = std::fs::File::open(&path).map_err(|e| failed(format!("{}: {e}", path.display())))?;
             let image = if scan {
                 let sensitivity = match sensitivity {
-                    None => pdfcraft_engine::signature_scan::DEFAULT_SENSITIVITY,
+                    None => openpdf_engine::signature_scan::DEFAULT_SENSITIVITY,
                     Some(s) => u8::try_from(s)
                         .ok()
                         .filter(|s| *s <= 100)
                         .ok_or_else(|| ToolError::InvalidArgs(format!("sensitivity must be 0–100, got {s}")))?,
                 };
-                let mut photo = pdfcraft_engine::SignaturePhoto::read(file).map_err(|e| ToolError::InvalidArgs(e.to_string()))?;
+                let mut photo = openpdf_engine::SignaturePhoto::read(file).map_err(|e| ToolError::InvalidArgs(e.to_string()))?;
                 let frame = photo.auto_frame();
-                photo.scan(frame, sensitivity, pdfcraft_engine::signature_scan::SCAN_MAX_SIDE).map_err(|e| ToolError::InvalidArgs(e.to_string()))?
+                photo.scan(frame, sensitivity, openpdf_engine::signature_scan::SCAN_MAX_SIDE).map_err(|e| ToolError::InvalidArgs(e.to_string()))?
             } else {
-                pdfcraft_engine::SignatureImage::read(file).map_err(|e| ToolError::InvalidArgs(e.to_string()))?
+                openpdf_engine::SignatureImage::read(file).map_err(|e| ToolError::InvalidArgs(e.to_string()))?
             };
             let edit = image.edit(page, &info, at, kind == "initials", &author).ok_or_else(|| ToolError::InvalidArgs("at must be finite".into()))?;
             return self.apply(a, edit);
@@ -631,11 +631,11 @@ impl Automation {
         // A circle goes around the text, so its box is no wider than the text needs.
         let min_width = if border_shape == Some(BorderShape::Circle) { 0.0 } else { 20.0 };
         let text_at = |t: &str| {
-            let longest = t.lines().map(|line| pdfcraft_engine::annot_text::text_width(line, size)).fold(0.0, f64::max);
+            let longest = t.lines().map(|line| openpdf_engine::annot_text::text_width(line, size)).fold(0.0, f64::max);
             let w = (longest + 8.0).clamp(min_width, 600.0);
-            let rows = pdfcraft_engine::annot_text::wrap(t, size, w - 4.0).len().max(1);
+            let rows = openpdf_engine::annot_text::wrap(t, size, w - 4.0).len().max(1);
             let h = rows as f64 * size * 1.2 + 6.0;
-            let [x0, y0, x1, y1] = pdfcraft_engine::text_box_at(i64::from(info.rotation), at, w, h).unwrap_or([at[0], at[1] - h, at[0] + w, at[1]]);
+            let [x0, y0, x1, y1] = openpdf_engine::text_box_at(i64::from(info.rotation), at, w, h).unwrap_or([at[0], at[1] - h, at[0] + w, at[1]]);
             // A border goes around the box, so the text sits where it would without one.
             Shape::Typewriter { rect: [x0 - border, y0 - border, x1 + border, y1 + border], font_size: size }
         };
@@ -646,7 +646,7 @@ impl Automation {
             }
             "date" => {
                 let lang = a.opt_str("language")?;
-                if let Some(l) = lang.filter(|l| pdfcraft_engine::dates::date_language(l).is_none()) {
+                if let Some(l) = lang.filter(|l| openpdf_engine::dates::date_language(l).is_none()) {
                     return Err(ToolError::InvalidArgs(format!("unknown date language {l:?} (see fill_sign_date_format)")));
                 }
                 let t = self.session.today_text_for_pdf(a.opt_str("format")?, lang).map_err(ToolError::InvalidArgs)?;
@@ -656,7 +656,7 @@ impl Automation {
             kind @ ("signature" | "initials") => {
                 let t = a.str("text")?;
                 // Nobody sees a preview here: refuse what the script font would leave out.
-                if let Some(c) = pdfcraft_engine::script_missing(t) {
+                if let Some(c) = openpdf_engine::script_missing(t) {
                     return Err(ToolError::InvalidArgs(format!(
                         "the signature script font can't draw \"{}\" (U+{:04X}); type the {kind} in Latin, Cyrillic or Greek letters, or pass `path` to a PNG or JPEG image of it instead of `text`",
                         c.escape_debug(),
@@ -664,7 +664,7 @@ impl Automation {
                     )));
                 }
                 let h = if kind == "initials" { 24.0 } else { 32.0 };
-                let shape = pdfcraft_engine::typed_signature_shape(at, t, h, i64::from(info.rotation))
+                let shape = openpdf_engine::typed_signature_shape(at, t, h, i64::from(info.rotation))
                     .ok_or_else(|| ToolError::InvalidArgs("text has nothing to draw".into()))?;
                 (shape, String::new())
             }
@@ -849,7 +849,7 @@ impl Automation {
     pub(crate) fn comments_paste(&mut self, a: &Args) -> Result<Value> {
         let page = self.page(a)?;
         let xfdf = a.str("xfdf")?.to_owned();
-        if !pdfcraft_engine::is_xfdf_comments(&xfdf) {
+        if !openpdf_engine::is_xfdf_comments(&xfdf) {
             return Err(ToolError::InvalidArgs("xfdf: the text comments_copy returned (XFDF with <annots>)".into()));
         }
         let offset = match a.nums::<2>("at")? {
@@ -857,7 +857,7 @@ impl Automation {
                 let info = self.doc(a)?.info.pages.get(page).cloned().ok_or_else(|| failed(format!("no page {}", page + 1)))?;
                 let [cx, cy] = to_user(&info, x, y);
                 let b =
-                    pdfcraft_engine::comments_bounds(&xfdf).ok_or_else(|| ToolError::InvalidArgs("xfdf: no comment with a rect to place".into()))?;
+                    openpdf_engine::comments_bounds(&xfdf).ok_or_else(|| ToolError::InvalidArgs("xfdf: no comment with a rect to place".into()))?;
                 Some([cx - (b[0] + b[2]) / 2.0, cy - (b[1] + b[3]) / 2.0])
             }
             None => None,
@@ -901,7 +901,7 @@ impl Automation {
             page,
             rect,
             name,
-            file: pdfcraft_engine::MarkFile {
+            file: openpdf_engine::MarkFile {
                 name: file,
                 bytes: std::sync::Arc::new(bytes),
                 page: a.opt_int("file_page")?.unwrap_or(1).max(1) as usize - 1,
