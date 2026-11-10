@@ -182,6 +182,12 @@ OpenPDF opens files from strangers, and people trust it with their work. A malfo
 - `plan/` is an optional gitignored notebook. Do not ask for it and do not stop when it is absent. Public status is [`ROADMAP.md`](ROADMAP.md), [`docs/gaps.md`](docs/gaps.md) and [`docs/roadmap.md`](docs/roadmap.md). "Shipped" in `parity/` means exists and tested, not parity with Acrobat.
 - `cargo run -p openpdf -- <file.pdf>` opens the app. `openpdf-cli run` drives the engine headlessly. `cargo xtask fuzz` findings stay in `fuzz-out/` and become synthetic tests. For UI work, look at a screenshot from `--control` or the `shot` example.
 
+## Branch naming
+
+- Use a purpose-based prefix followed by a short, lowercase, hyphen-separated description: `fix/` for bug fixes, `feat/` for new features, `update/` for updates to existing behavior or project configuration, `refactor/` for refactoring, `docs/` for documentation, and `chore/` for maintenance.
+- For example: `fix/tools-expansion-row` or `docs/contributor-guide`.
+- Do not use agent or tool names as branch prefixes, including `codex/`. Follow an explicit branch name requested by the user.
+
 ## Contributor credits (About window)
 
 - About ▸ Contributors/Models are compiled into the binary from `contributors/contributors.json`
