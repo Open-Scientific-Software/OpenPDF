@@ -2,7 +2,7 @@
 
 > **Last reviewed:** 2026-11-03 · **Last updated:** 2026-11-03 · **Change:** minor (every catalog restated from `cargo xtask i18n-report` on `main` at `14ae839a`: 2,897 strings in the report's denominator; Hindi, Indonesian, Korean, Thai, Lao and Central Kurdish listed with their catalogs. Scores and estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 
-Per-language status of PdfCraft's interface against Acrobat Pro's. How translations work and how to
+Per-language status of OpenPDF's interface against Acrobat Pro's. How translations work and how to
 add a language: [localization.md](localization.md). Summary in [ROADMAP.md](../ROADMAP.md).
 
 ## How this was measured
@@ -98,7 +98,7 @@ help/docs polish: their script work is done, and each catalog lacks 46 strings o
 
 **23 other languages** ship (34 catalogs plus English = **35** interface languages in Preferences).
 Their presence does not imply a detailed linguistic or runtime review.
-Acrobat languages PdfCraft lacks: Danish, Dutch, Swedish, Hebrew. Vietnamese is shipped here but not by Acrobat.
+Acrobat languages OpenPDF lacks: Danish, Dutch, Swedish, Hebrew. Vietnamese is shipped here but not by Acrobat.
 
 ## Revision history
 

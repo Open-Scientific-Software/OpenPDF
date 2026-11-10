@@ -5,17 +5,17 @@ impl Automation {
     /// preprocessing flags, the skip flags and the output mode — each named exactly as its tool
     /// schema says. An unknown engine, strategy or mode is an honest error, never a silent
     /// fallback: a tool run must not quietly do something other than what it was asked.
-    pub(crate) fn ocr_settings(&self, a: &Args) -> Result<pdfcraft_engine::ocr::OcrSettings> {
-        use pdfcraft_engine::ocr::{EngineChoice, MergeStrategy, OutputMode};
-        let mut settings = pdfcraft_engine::ocr::OcrSettings::default();
+    pub(crate) fn ocr_settings(&self, a: &Args) -> Result<openpdf_engine::ocr::OcrSettings> {
+        use openpdf_engine::ocr::{EngineChoice, MergeStrategy, OutputMode};
+        let mut settings = openpdf_engine::ocr::OcrSettings::default();
         if let Some(d) = a.opt_num("dpi")? {
             settings.dpi = d.clamp(72.0, 600.0) as f32;
         }
         if let Some(l) = a.opt_str("language")? {
-            if !pdfcraft_engine::ocr::LANGUAGES.iter().any(|x| x.0 == l) {
+            if !openpdf_engine::ocr::LANGUAGES.iter().any(|x| x.0 == l) {
                 return Err(ToolError::InvalidArgs(format!(
                     "unsupported language {l:?} (supported: {})",
-                    pdfcraft_engine::ocr::LANGUAGES.iter().map(|(c, _)| *c).collect::<Vec<_>>().join(", ")
+                    openpdf_engine::ocr::LANGUAGES.iter().map(|(c, _)| *c).collect::<Vec<_>>().join(", ")
                 )));
             }
             settings.language = l.into();
@@ -71,13 +71,7 @@ impl Automation {
     /// The optional `region` argument ([x0, y0, x1, y1] in points from the top-left of the
     /// displayed page) as the job's pixel crop, at the resolution that page is really read at.
     /// A region reads exactly one page.
-    fn ocr_region(
-        &self,
-        a: &Args,
-        id: pdfcraft_engine::DocId,
-        page: usize,
-        settings: &pdfcraft_engine::ocr::OcrSettings,
-    ) -> Result<Option<[f32; 4]>> {
+    fn ocr_region(&self, a: &Args, id: openpdf_engine::DocId, page: usize, settings: &openpdf_engine::ocr::OcrSettings) -> Result<Option<[f32; 4]>> {
         const BAD: &str = "region must be [x0, y0, x1, y1] in points";
         let Some(v) = a.get("region") else { return Ok(None) };
         let arr = v.as_array().ok_or_else(|| ToolError::InvalidArgs(BAD.into()))?;
@@ -98,7 +92,7 @@ impl Automation {
     /// The per-page result entries the OCR tools return: recognised text or why the page was
     /// passed over. The text itself is only echoed when the document allows copying; the
     /// counts and metadata always are.
-    fn ocr_pages_json(found: &[pdfcraft_engine::ocr::OcrPage], include_text: bool) -> Vec<Value> {
+    fn ocr_pages_json(found: &[openpdf_engine::ocr::OcrPage], include_text: bool) -> Vec<Value> {
         found
             .iter()
             .map(|p| match &p.skipped {
@@ -163,16 +157,14 @@ impl Automation {
             )));
         }
         // The engines are built (and named if they cannot be) before the first file is read.
-        let recognizers = pdfcraft_engine::ocr::recognizers(&settings).map_err(failed)?;
+        let recognizers = openpdf_engine::ocr::recognizers(&settings).map_err(failed)?;
         let mut out = Vec::new();
         let (mut ok, mut skipped_files, mut words) = (0usize, 0usize, 0usize);
         for p in paths {
             let name = input_file_name(p);
             let result =
                 self.resolve(p, false).map_err(|e| e.to_string()).and_then(|src| crate::read_input_bytes(&src).map_err(|e| e.to_string())).and_then(
-                    |bytes| {
-                        pdfcraft_engine::ocr::recognize_file(&name, std::sync::Arc::new(bytes), None, settings.clone(), &recognizers, |_, _| true)
-                    },
+                    |bytes| openpdf_engine::ocr::recognize_file(&name, std::sync::Arc::new(bytes), None, settings.clone(), &recognizers, |_, _| true),
                 );
             match result {
                 Ok(r) => {
@@ -192,7 +184,7 @@ impl Automation {
                     // The batch's low-confidence note: at or under the settings' threshold (60
                     // by default), on 1-based sorted pages.
                     let threshold = settings.low_confidence_threshold;
-                    if let Some((count, pages)) = pdfcraft_engine::ocr::low_confidence_pages(&r.pages, threshold) {
+                    if let Some((count, pages)) = openpdf_engine::ocr::low_confidence_pages(&r.pages, threshold) {
                         entry["low_confidence"] = json!({ "count": count, "pages": pages, "threshold": threshold });
                     }
                     out.push(entry);
@@ -204,7 +196,7 @@ impl Automation {
     }
 
     pub(crate) fn ocr_recognize(&mut self, a: &Args) -> Result<Value> {
-        use pdfcraft_engine::ocr::OutputMode;
+        use openpdf_engine::ocr::OutputMode;
         let mut settings = self.ocr_settings(a)?;
         let pages = if a.opt_ints("pages")?.is_some() { self.pages(a, "pages")? } else { Vec::new() };
         // Recognizing needs only permission to change the document; the words it found are
@@ -255,7 +247,7 @@ impl Automation {
         };
         // Honest up front: the engines are built (and named if they cannot be) before anything
         // is read or written.
-        let recognizers = pdfcraft_engine::ocr::recognizers(&settings).map_err(failed)?;
+        let recognizers = openpdf_engine::ocr::recognizers(&settings).map_err(failed)?;
         match out {
             None => {
                 let (found, out) = self.session.with_own_js_output(id, |s| s.recognize_text(id, &pages, settings)).map_err(failed)?;
@@ -300,20 +292,20 @@ impl Automation {
         if retain && !self.ocr_reviews.contains_key(&id) && self.ocr_reviews.len() >= 8 {
             return Err(failed("at most 8 OCR reviews may be retained; discard one first"));
         }
-        let recognizers = pdfcraft_engine::ocr::recognizers(&settings).map_err(failed)?;
+        let recognizers = openpdf_engine::ocr::recognizers(&settings).map_err(failed)?;
         let job = self.session.ocr_job(id, &pages, settings.clone()).ok_or_else(|| failed("the document could not be read"))?;
-        let infos: std::collections::HashMap<usize, pdfcraft_render::PageInfo> =
+        let infos: std::collections::HashMap<usize, openpdf_render::PageInfo> =
             self.session.get(id).map(|d| d.info.pages.clone()).unwrap_or_default().into_iter().enumerate().collect();
         let guard = job.guard.clone();
         let found = job.run(&recognizers, |_, _| true);
         if found.len() > 65536 {
             return Err(failed("at most 65536 OCR review pages are allowed"));
         }
-        pdfcraft_engine::ocr::validate_ocr_words(found.iter().flat_map(|p| &p.words)).map_err(failed)?;
-        let band_name = |band: pdfcraft_engine::ocr::ConfidenceBand| match band {
-            pdfcraft_engine::ocr::ConfidenceBand::High => "high",
-            pdfcraft_engine::ocr::ConfidenceBand::Medium => "medium",
-            pdfcraft_engine::ocr::ConfidenceBand::Low => "low",
+        openpdf_engine::ocr::validate_ocr_words(found.iter().flat_map(|p| &p.words)).map_err(failed)?;
+        let band_name = |band: openpdf_engine::ocr::ConfidenceBand| match band {
+            openpdf_engine::ocr::ConfidenceBand::High => "high",
+            openpdf_engine::ocr::ConfidenceBand::Medium => "medium",
+            openpdf_engine::ocr::ConfidenceBand::Low => "low",
         };
         let mut suspects = 0usize;
         let list: Vec<Value> = found
@@ -324,7 +316,7 @@ impl Automation {
                     .words
                     .iter()
                     .map(|w| {
-                        let suspect = pdfcraft_engine::ocr::is_suspect(w.confidence);
+                        let suspect = openpdf_engine::ocr::is_suspect(w.confidence);
                         if suspect {
                             suspects += 1;
                         }
@@ -348,7 +340,7 @@ impl Automation {
                             "text": w.text,
                             "box": [min_x, min_y, w_pt, h_pt],
                             "confidence": w.confidence.map(|c| (c * 10.0).round() / 10.0),
-                            "band": w.confidence.map(|c| band_name(pdfcraft_engine::ocr::band_for(c))),
+                            "band": w.confidence.map(|c| band_name(openpdf_engine::ocr::band_for(c))),
                             "suspect": suspect,
                             "source": w.source,
                         })
@@ -426,7 +418,7 @@ impl Automation {
                 w.text = text;
             }
         }
-        pdfcraft_engine::ocr::validate_ocr_words(pages.iter().flat_map(|p| &p.words)).map_err(failed)?;
+        openpdf_engine::ocr::validate_ocr_words(pages.iter().flat_map(|p| &p.words)).map_err(failed)?;
         for page in &mut pages {
             page.words.retain(|w| !w.text.trim().is_empty());
         }
@@ -472,7 +464,7 @@ impl Automation {
 
     /// Read/update the same per-language dictionary file used by OCR Verify.
     pub(crate) fn ocr_dictionary(&mut self, a: &Args) -> Result<Value> {
-        use pdfcraft_engine::ocr::dictionary;
+        use openpdf_engine::ocr::dictionary;
         use std::io::Read as _;
         for key in ["add", "remove"] {
             if let Some(value) = a.get(key) {
@@ -510,7 +502,7 @@ impl Automation {
     }
 
     pub(crate) fn ocr_status(&self) -> Result<Value> {
-        use pdfcraft_engine::ocr;
+        use openpdf_engine::ocr;
         let dirs: Vec<String> = ocr::Models::search_dirs().iter().map(|d| d.to_string_lossy().into_owned()).collect();
         let langs: Vec<Value> = ocr::LANGUAGES.iter().map(|(c, n)| json!({ "code": c, "name": n })).collect();
         let engines: Vec<Value> = ocr::engines_status()

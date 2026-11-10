@@ -9,8 +9,8 @@
 use std::collections::HashMap;
 
 use egui::{Align, Color32, CornerRadius, Layout, Sense, Stroke, vec2};
-use pdfcraft_engine::{Edit, NoteIcon, ReviewState, Shape};
-use pdfcraft_render::{Annotation, DocInfo, ReviewStates};
+use openpdf_engine::{Edit, NoteIcon, ReviewState, Shape};
+use openpdf_render::{Annotation, DocInfo, ReviewStates};
 
 use crate::canvas::DocView;
 use crate::comments::{CommentPrefs, CommentTool, SortBy, color32, status_badge};
@@ -103,15 +103,15 @@ fn matches(a: &Annotation, q: &str) -> bool {
 
 /// Whether one of `fields` contains `q` in any case, Turkish dotted and dotless i included.
 fn any_contains<'a>(fields: impl IntoIterator<Item = &'a str>, q: &str) -> bool {
-    let q = pdfcraft_render::text::fold_case(q);
-    fields.into_iter().any(|s| pdfcraft_render::text::fold_case(s).contains(&q))
+    let q = openpdf_render::text::fold_case(q);
+    fields.into_iter().any(|s| openpdf_render::text::fold_case(s).contains(&q))
 }
 
 /// Draw the panel body. Returns an edit to apply (posting, replying, deleting…).
 pub(crate) fn show(
     ui: &mut egui::Ui,
     t: &Tokens,
-    doc: &pdfcraft_engine::Document,
+    doc: &openpdf_engine::Document,
     view: &mut DocView,
     prefs: &CommentPrefs,
     allowed: bool,
@@ -146,7 +146,7 @@ pub(crate) fn show(
             if let Some(p) = info.pages.get(page) {
                 let at = p.view_to_user(p.width - 44.0, 24.0);
                 let text = std::mem::take(&mut view.comments.add_box);
-                edit = Some(Edit::AddAnnotation(pdfcraft_engine::NewAnnotation {
+                edit = Some(Edit::AddAnnotation(openpdf_engine::NewAnnotation {
                     page,
                     shape: Shape::Note { at: [at[0] as f64, at[1] as f64], icon: NoteIcon::Comment },
                     style: prefs.style(CommentTool::Note),
@@ -180,7 +180,7 @@ pub(crate) fn show(
     // badges and checkmark leave it out (comment_list reports it on the reply). Page badges count
     // roots before filtering. A group (`/RT /Group`, ISO 32000-2 §12.5.6.2) is one comment, its
     // primary's: a subordinate is no reply, and a reply to one (a status too) is the group's.
-    let tops = pdfcraft_render::thread_tops(&info.annotations);
+    let tops = openpdf_render::thread_tops(&info.annotations);
     let states = ReviewStates::new(&info.annotations);
     for a in &info.annotations {
         if a.is_group_member() {
@@ -404,7 +404,7 @@ struct CardContext<'a> {
     /// The cards in the order shown, for a ⇧-click range.
     order: &'a [(usize, usize)],
     states: &'a ReviewStates<'a>,
-    doc: &'a pdfcraft_engine::Document,
+    doc: &'a openpdf_engine::Document,
     prefs: &'a CommentPrefs,
     allowed: bool,
     nav: &'a mut Option<Nav>,
@@ -695,7 +695,7 @@ fn inline_editor(ui: &mut egui::Ui, t: &Tokens, view: &mut DocView, key: (usize,
 /// the reply alone, with what hangs off it (its own replies, status changes and pop-up), as
 /// deleting a comment takes its thread; the comment and its other replies stay. Returns the
 /// edit to apply.
-fn reply_menu(ui: &egui::Ui, view: &mut DocView, r: &Annotation, doc: &pdfcraft_engine::Document, more: &egui::Response) -> Option<Edit> {
+fn reply_menu(ui: &egui::Ui, view: &mut DocView, r: &Annotation, doc: &openpdf_engine::Document, more: &egui::Response) -> Option<Edit> {
     let mut edit = None;
     let menu_id = ui.scope_id().with(("reply-menu", r.page, r.index));
     if more.clicked() {

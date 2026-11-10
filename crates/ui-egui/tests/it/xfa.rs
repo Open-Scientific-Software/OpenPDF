@@ -4,7 +4,7 @@
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
-use pdfcraft_ui_egui::PdfCraftApp;
+use openpdf_ui_egui::OpenPDFApp;
 
 /// A one-page PDF with a proper xref; `acroform` is the catalog's /AcroForm (or empty), `extra`
 /// more catalog entries, `objects` extra objects numbered from 5.
@@ -33,9 +33,9 @@ fn pdf(acroform: &str, extra: &str, objects: &[&str]) -> Vec<u8> {
 
 const XFA_PACKET: &str = "<< /Length 52 >>\nstream\n<xdp:xdp xmlns:xdp=\"http://ns.adobe.com/xdp/\"></xdp:xdp>\nendstream";
 
-fn open(bytes: Vec<u8>) -> Harness<'static, PdfCraftApp> {
+fn open(bytes: Vec<u8>) -> Harness<'static, OpenPDFApp> {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 800.0)).build_eframe(move |_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("form.pdf", None, bytes).expect("opens");
         app
@@ -44,15 +44,15 @@ fn open(bytes: Vec<u8>) -> Harness<'static, PdfCraftApp> {
     h
 }
 
-fn xfa(h: &Harness<'static, PdfCraftApp>) -> Option<pdfcraft_render::Xfa> {
+fn xfa(h: &Harness<'static, OpenPDFApp>) -> Option<openpdf_render::Xfa> {
     let s = h.state();
     s.session.get(s.views[0].id).unwrap().info.xfa
 }
 
 #[test]
 fn a_dynamic_xfa_form_is_laid_out_and_filled() {
-    let h = open(pdfcraft_xfa::fixtures::shell(&pdfcraft_xfa::fixtures::template(2)));
-    assert_eq!(xfa(&h), Some(pdfcraft_render::Xfa::Dynamic));
+    let h = open(openpdf_xfa::fixtures::shell(&openpdf_xfa::fixtures::template(2)));
+    assert_eq!(xfa(&h), Some(openpdf_render::Xfa::Dynamic));
     h.get_by_label_contains("laid out from its template: 2 pages, 11 fields");
     let s = h.state();
     let doc = s.session.get(s.views[0].id).unwrap();
@@ -64,8 +64,8 @@ fn a_dynamic_xfa_form_is_laid_out_and_filled() {
 
 #[test]
 fn a_dynamic_xfa_form_says_when_laying_it_out_took_its_usage_rights_off() {
-    let xdp = pdfcraft_xfa::fixtures::template(2);
-    let h = open(pdfcraft_xfa::fixtures::usage_rights_shell(&xdp, "", false));
+    let xdp = openpdf_xfa::fixtures::template(2);
+    let h = open(openpdf_xfa::fixtures::usage_rights_shell(&xdp, "", false));
     // The note starts its own sentence after the layout's.
     h.get_by_label_contains("laid out from its template: 2 pages, 11 fields. The form's usage rights were removed");
 }
@@ -75,21 +75,21 @@ fn a_dynamic_xfa_form_says_its_page_is_a_placeholder() {
     // No fields, the form lives in the XFA packets (an array of name/stream pairs here), but
     // the packets hold no template: the placeholder page stays, with a notice.
     let h = open(pdf("/AcroForm << /Fields [] /XFA [(template) 5 0 R] >>", "/NeedsRendering true", &[XFA_PACKET]));
-    assert_eq!(xfa(&h), Some(pdfcraft_render::Xfa::Dynamic));
+    assert_eq!(xfa(&h), Some(openpdf_render::Xfa::Dynamic));
     h.get_by_label_contains("dynamic XFA form");
     // Without /NeedsRendering, no fields still means nothing to fill but the placeholder.
     let h = open(pdf("/AcroForm << /Fields [] /XFA 5 0 R >>", "", &[XFA_PACKET]));
-    assert_eq!(xfa(&h), Some(pdfcraft_render::Xfa::Dynamic));
+    assert_eq!(xfa(&h), Some(openpdf_render::Xfa::Dynamic));
 }
 
 #[test]
 fn a_static_xfa_form_is_filled_from_its_data_and_says_so() {
     let field = "<< /FT /Tx /T (name) /Rect [20 20 200 40] /Type /Annot /Subtype /Widget /P 3 0 R >>";
     let h = open(pdf("/AcroForm << /Fields [6 0 R] /XFA 5 0 R >>", "", &[XFA_PACKET, field]));
-    assert_eq!(xfa(&h), Some(pdfcraft_render::Xfa::Static));
+    assert_eq!(xfa(&h), Some(openpdf_render::Xfa::Static));
     h.get_by_label_contains("XFA data are kept in step");
     // Values saved in the datasets by another viewer show up in the fields.
-    let h = open(pdfcraft_xfa::fixtures::static_shell("<form1><page1><name>Ada</name><agree>1</agree></page1></form1>"));
+    let h = open(openpdf_xfa::fixtures::static_shell("<form1><page1><name>Ada</name><agree>1</agree></page1></form1>"));
     let s = h.state();
     let doc = s.session.get(s.views[0].id).unwrap();
     assert_eq!(doc.form.iter().find(|f| f.name == "form1[0].page1[0].name[0]").unwrap().value, vec!["Ada".to_string()]);
@@ -108,16 +108,16 @@ fn ordinary_forms_and_documents_have_no_xfa_notice() {
     h.get_by_label_contains("interactive form fields");
     // A malformed /XFA (a number) still counts as XFA; it never crashes the open.
     let h = open(pdf("/AcroForm << /Fields [] /XFA 42 >>", "", &[]));
-    assert_eq!(xfa(&h), Some(pdfcraft_render::Xfa::Dynamic));
+    assert_eq!(xfa(&h), Some(openpdf_render::Xfa::Dynamic));
 }
 
 /// Click the centre of a field's widget.
-fn click_field(h: &mut Harness<'static, PdfCraftApp>, name: &str) {
+fn click_field(h: &mut Harness<'static, OpenPDFApp>, name: &str) {
     let p = {
         let s = h.state();
         let doc = s.session.get(s.views[0].id).unwrap();
         let f = doc.form.iter().find(|f| f.name == name).unwrap_or_else(|| panic!("no field {name}"));
-        pdfcraft_ui_egui::forms_ui::field_screen_rect(&s.views[0], &doc.info, f, 0).expect("on screen").center()
+        openpdf_ui_egui::forms_ui::field_screen_rect(&s.views[0], &doc.info, f, 0).expect("on screen").center()
     };
     h.hover_at(p);
     h.run_steps(1);
@@ -131,9 +131,9 @@ fn click_field(h: &mut Harness<'static, PdfCraftApp>, name: &str) {
 /// message as a notice.
 #[test]
 fn xfa_buttons_run_their_scripts_in_the_app() {
-    let mut h = open(pdfcraft_xfa::fixtures::shell(&pdfcraft_xfa::fixtures::scripted_template()));
+    let mut h = open(openpdf_xfa::fixtures::shell(&openpdf_xfa::fixtures::scripted_template()));
     crate::support::settle(&mut h);
-    let names = |h: &Harness<'static, PdfCraftApp>| {
+    let names = |h: &Harness<'static, OpenPDFApp>| {
         let s = h.state();
         s.session.get(s.views[0].id).unwrap().form.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
     };
@@ -151,16 +151,16 @@ fn xfa_buttons_run_their_scripts_in_the_app() {
 #[test]
 fn xfa_enter_and_exit_scripts_run_whenever_the_focus_moves() {
     use egui::{Key, Modifiers};
-    let mut h = open(pdfcraft_xfa::fixtures::shell(&pdfcraft_xfa::fixtures::focus_template()));
+    let mut h = open(openpdf_xfa::fixtures::shell(&openpdf_xfa::fixtures::focus_template()));
     crate::support::settle(&mut h);
-    let counts = |h: &Harness<'static, PdfCraftApp>| {
+    let counts = |h: &Harness<'static, OpenPDFApp>| {
         let s = h.state();
         let doc = s.session.get(s.views[0].id).unwrap();
         let v = |n: &str| doc.form.iter().find(|f| f.name == n).and_then(|f| f.value.first().cloned()).unwrap_or_default();
         (v("enters"), v("exits"))
     };
-    let focus = |h: &Harness<'static, PdfCraftApp>| h.state().views[0].forms.focus.as_ref().map(|f| f.name.clone());
-    let press = |h: &mut Harness<'static, PdfCraftApp>, modifiers, key| {
+    let focus = |h: &Harness<'static, OpenPDFApp>| h.state().views[0].forms.focus.as_ref().map(|f| f.name.clone());
+    let press = |h: &mut Harness<'static, OpenPDFApp>, modifiers, key| {
         h.key_press_modifiers(modifiers, key);
         h.run_steps(4);
     };
@@ -194,9 +194,9 @@ fn xfa_enter_and_exit_scripts_run_whenever_the_focus_moves() {
 #[test]
 fn an_enter_script_that_changes_its_field_shows_in_the_editor() {
     use egui::{Key, Modifiers};
-    let mut h = open(pdfcraft_xfa::fixtures::shell(&pdfcraft_xfa::fixtures::focus_template()));
+    let mut h = open(openpdf_xfa::fixtures::shell(&openpdf_xfa::fixtures::focus_template()));
     crate::support::settle(&mut h);
-    let value = |h: &Harness<'static, PdfCraftApp>| {
+    let value = |h: &Harness<'static, OpenPDFApp>| {
         let s = h.state();
         s.session.get(s.views[0].id).unwrap().form.iter().find(|f| f.name == "hint").and_then(|f| f.value.first().cloned()).unwrap_or_default()
     };
@@ -228,9 +228,9 @@ fn an_enter_script_that_changes_its_field_shows_in_the_editor() {
 /// is refused (only a click may print).
 #[test]
 fn messages_from_scripts_run_on_open_show_right_away() {
-    let tpl = pdfcraft_xfa::fixtures::scripted_template()
+    let tpl = openpdf_xfa::fixtures::scripted_template()
         .replace("if (qty.rawValue === null) qty.rawValue = 2;", r#"xfa.host.messageBox("Welcome to the form"); xfa.host.print();"#);
-    let mut h = open(pdfcraft_xfa::fixtures::shell(&tpl));
+    let mut h = open(openpdf_xfa::fixtures::shell(&tpl));
     h.run_steps(2);
     assert!(h.query_by_label_contains("Welcome to the form").is_some(), "script console: {:?}", h.state().js_console.log);
     assert_eq!(h.state().dialog, None, "an initialize script can't open the Print dialog");
@@ -249,8 +249,8 @@ fn says_scripts_are_off(toast: &Option<(String, f64)>) -> bool {
 
 #[test]
 fn a_form_whose_scripts_were_turned_off_at_open_says_so() {
-    let tpl = pdfcraft_xfa::fixtures::scripted_template().replace("if (qty.rawValue === null) qty.rawValue = 2;", RUNAWAY);
-    let mut h = open(pdfcraft_xfa::fixtures::shell(&tpl));
+    let tpl = openpdf_xfa::fixtures::scripted_template().replace("if (qty.rawValue === null) qty.rawValue = 2;", RUNAWAY);
+    let mut h = open(openpdf_xfa::fixtures::shell(&tpl));
     let id = h.state().views[0].id;
     assert!(h.state().session.get(id).unwrap().xfa_scripts_off(), "script console: {:?}", h.state().js_console.log);
     // A toast says so as it happens; the notice bar keeps saying so after the toast is gone.
@@ -261,14 +261,14 @@ fn a_form_whose_scripts_were_turned_off_at_open_says_so() {
     // The bar leads to the console, where the script's error is.
     h.get_by_label("JavaScript Console").click();
     h.run_steps(2);
-    assert_eq!(h.state().dialog, Some(pdfcraft_ui_egui::Dialog::JsConsole));
+    assert_eq!(h.state().dialog, Some(openpdf_ui_egui::Dialog::JsConsole));
     assert!(h.state().js_console.log.iter().any(|l| l.contains("abandoned")), "{:?}", h.state().js_console.log);
 }
 
 #[test]
 fn scripts_turned_off_by_a_click_bring_a_closed_notice_bar_back() {
-    let tpl = pdfcraft_xfa::fixtures::scripted_template().replace(r#"xfa.host.messageBox("Hello " + qty.rawValue);"#, RUNAWAY);
-    let mut h = open(pdfcraft_xfa::fixtures::shell(&tpl));
+    let tpl = openpdf_xfa::fixtures::scripted_template().replace(r#"xfa.host.messageBox("Hello " + qty.rawValue);"#, RUNAWAY);
+    let mut h = open(openpdf_xfa::fixtures::shell(&tpl));
     crate::support::settle(&mut h);
     // The form opens with its scripts on, and the user closes the notice bar.
     let id = h.state().views[0].id;
@@ -298,9 +298,9 @@ fn scripts_turned_off_by_a_click_bring_a_closed_notice_bar_back() {
 #[test]
 fn a_secured_dynamic_xfa_form_shows_its_layout_and_its_security() {
     // Changing and assembling withheld, filling allowed.
-    let mut doc = pdfcraft_cos::Document::open(std::sync::Arc::new(pdfcraft_xfa::fixtures::shell(&pdfcraft_xfa::fixtures::template(2)))).unwrap();
-    doc.set_encryption(&pdfcraft_cos::NewEncryption {
-        algorithm: pdfcraft_cos::Algorithm::Aes256,
+    let mut doc = openpdf_cos::Document::open(std::sync::Arc::new(openpdf_xfa::fixtures::shell(&openpdf_xfa::fixtures::template(2)))).unwrap();
+    doc.set_encryption(&openpdf_cos::NewEncryption {
+        algorithm: openpdf_cos::Algorithm::Aes256,
         user_password: "",
         owner_password: "owner",
         permissions: -1036,
@@ -308,7 +308,7 @@ fn a_secured_dynamic_xfa_form_shows_its_layout_and_its_security() {
         seed: [4; 32],
     })
     .unwrap();
-    let h = open(pdfcraft_cos::write_full(&doc, &Default::default()).unwrap());
+    let h = open(openpdf_cos::write_full(&doc, &Default::default()).unwrap());
     h.get_by_label_contains("laid out from its template: 2 pages, 11 fields. This document is secured.");
     h.get_by_label("Hide field highlights");
     h.get_by_label("Security settings");
@@ -335,7 +335,7 @@ fn opening_another_document_keeps_the_highlight_the_one_in_front_reads() {
 "##,
         look = script("xfa.form.form.seen.rawValue = String(app.runtimeHighlight);"),
     );
-    let mut h = open(pdfcraft_xfa::fixtures::shell(&xdp));
+    let mut h = open(openpdf_xfa::fixtures::shell(&xdp));
     let app = h.state_mut();
     // The document in front has Highlight fields on; the remembered setting is off.
     app.view_defaults.highlight_fields = false;
@@ -343,9 +343,9 @@ fn opening_another_document_keeps_the_highlight_the_one_in_front_reads() {
     h.run_steps(2);
     let app = h.state_mut();
     let first = app.views[0].id;
-    app.open_bytes("next.pdf", None, pdfcraft_xfa::fixtures::shell(&pdfcraft_xfa::fixtures::template(1))).unwrap();
+    app.open_bytes("next.pdf", None, openpdf_xfa::fixtures::shell(&openpdf_xfa::fixtures::template(1))).unwrap();
     // Before the next frame, the first document's script reads its own setting.
-    app.session.apply(first, pdfcraft_engine::Edit::XfaEvent { som: "form[0].look[0]".into(), activity: "click".into() }).unwrap();
+    app.session.apply(first, openpdf_engine::Edit::XfaEvent { som: "form[0].look[0]".into(), activity: "click".into() }).unwrap();
     let seen = app.session.get(first).unwrap().form.iter().find(|f| f.name == "seen").map(|f| f.value.clone()).unwrap_or_default();
     assert_eq!(seen, vec!["true".to_string()], "the first document's script reads its own Highlight fields");
 }
@@ -354,10 +354,10 @@ fn opening_another_document_keeps_the_highlight_the_one_in_front_reads() {
 /// script) gets it, and so does the next document, as with the Highlight fields button.
 #[test]
 fn a_form_that_turns_field_highlighting_on_gets_it() {
-    let mut h = open(pdfcraft_xfa::fixtures::shell(&pdfcraft_xfa::fixtures::layout_ready_template()));
+    let mut h = open(openpdf_xfa::fixtures::shell(&openpdf_xfa::fixtures::layout_ready_template()));
     h.run_steps(4);
     assert!(h.state().views[0].highlight_fields, "the form's fields are highlighted");
-    h.state_mut().open_bytes("next.pdf", None, pdfcraft_xfa::fixtures::shell(&pdfcraft_xfa::fixtures::template(1))).unwrap();
+    h.state_mut().open_bytes("next.pdf", None, openpdf_xfa::fixtures::shell(&openpdf_xfa::fixtures::template(1))).unwrap();
     h.run_steps(4);
     assert!(h.state().views[1].highlight_fields, "the next document opens highlighted");
 }

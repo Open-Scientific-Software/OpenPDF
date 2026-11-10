@@ -1,4 +1,4 @@
-//! `pdfcraft-cli mcp --automation-read-root <dir> --automation-write-root <dir>`: through the MCP
+//! `openpdf-cli mcp --automation-read-root <dir> --automation-write-root <dir>`: through the MCP
 //! protocol, files open and load only from inside the read root and are written only inside the
 //! write root. Paths that leave a root (`..`, another folder, a sibling with the same prefix, a
 //! link) are refused with the wording VectorCraft uses, nothing is read into the result and
@@ -7,9 +7,9 @@
 
 use std::path::{Path, PathBuf};
 
-use pdfcraft_automation::Automation;
-use pdfcraft_automation::file_access::AutomationRoots;
-use pdfcraft_automation::mcp::McpServer;
+use openpdf_automation::Automation;
+use openpdf_automation::file_access::AutomationRoots;
+use openpdf_automation::mcp::McpServer;
 use serde_json::{Value, json};
 
 /// A 1x1 PNG, so the tools that take a picture have something real to read.
@@ -51,7 +51,7 @@ fn pdf(text: &str) -> Vec<u8> {
 /// A fresh folder holding `in` (the read root, with `a.pdf`, `b.pdf` and `pic.png`), `out` (the
 /// write root), `outside` (with `secret.pdf` and a picture) and `in2`.
 fn folders(tag: &str) -> PathBuf {
-    let base = std::env::temp_dir().join(format!("pdfcraft-mcp-roots-{tag}-{}", std::process::id()));
+    let base = std::env::temp_dir().join(format!("openpdf-mcp-roots-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     for d in ["in", "out", "outside", "in2"] {
         std::fs::create_dir_all(base.join(d)).unwrap();
@@ -107,7 +107,7 @@ fn refused(server: &mut McpServer, name: &str, args: Value, why: &str) {
 
 /// The text of document 1, through the resource a client can read it with.
 fn text_of(server: &mut McpServer, doc: u64) -> String {
-    rpc(server, "resources/read", json!({"uri": format!("pdfcraft://doc/{doc}/text")}))["result"]["contents"][0]["text"]
+    rpc(server, "resources/read", json!({"uri": format!("openpdf://doc/{doc}/text")}))["result"]["contents"][0]["text"]
         .as_str()
         .unwrap_or_default()
         .to_owned()
@@ -363,7 +363,7 @@ fn links_out_of_a_root_are_refused() {
 fn other_shares_and_devices_are_refused_by_name() {
     let (mut server, base) = confined("shares", true, true);
     ok(&mut server, "doc_open", json!({"path": s(&base.join("in/a.pdf"))}));
-    for p in [r"\\.\pipe\pdfcraft-4003.pdf", r"\\pdfcraft-no-such-host.invalid\share\a.pdf", "//pdfcraft-no-such-host.invalid/share/a.pdf"] {
+    for p in [r"\\.\pipe\openpdf-4003.pdf", r"\\openpdf-no-such-host.invalid\share\a.pdf", "//openpdf-no-such-host.invalid/share/a.pdf"] {
         refused(&mut server, "doc_open", json!({"path": p}), "outside the read root");
         refused(&mut server, "doc_save", json!({"doc": 1, "path": p}), "outside the write root");
     }

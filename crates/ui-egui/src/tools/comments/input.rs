@@ -664,7 +664,7 @@ impl Gestures<'_> {
         true
     }
 
-    fn caret(&self, view: &mut DocView, caret_text: Option<&pdfcraft_render::PageText>) -> bool {
+    fn caret(&self, view: &mut DocView, caret_text: Option<&openpdf_render::PageText>) -> bool {
         let Self { cx, pointer, over_page, .. } = *self;
         let cv = &mut view.comments;
         if !cx.allowed {
@@ -846,7 +846,7 @@ pub(crate) fn nudge_keys(ctx: &egui::Context, view: &mut DocView, info: &DocInfo
 fn point_cursor(selected: Option<&Annotation>, i: usize) -> egui::CursorIcon {
     let knee_side = selected.filter(|a| i == 1 && is_callout(a)).and_then(|a| {
         let (tb, knee) = (a.text_box?, a.points.get(1)?);
-        Some(pdfcraft_engine::callout_side(tb.map(f64::from), [f64::from(knee[0]), f64::from(knee[1])]))
+        Some(openpdf_engine::callout_side(tb.map(f64::from), [f64::from(knee[0]), f64::from(knee[1])]))
     });
     match knee_side {
         Some(side) if side.horizontal() => egui::CursorIcon::ResizeHorizontal,

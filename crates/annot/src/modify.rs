@@ -11,16 +11,16 @@ use super::types::{
     Shape, Style, StyleChange, TextReplacement,
 };
 use super::{AnnotError, Dict, Document, HashMap, HashSet, ObjRef, Object, PdfString, appearance};
-use pdfcraft_fonts::Std14;
+use openpdf_fonts::Std14;
 
 /// A comment another program drew, whose text the standard fonts can't draw. Redrawing it would
 /// replace those characters with `?`, so the edit is refused before the dictionary changes.
 pub(crate) fn refuse_foreign_text(doc: &Document, d: &Dict) -> Result<(), AnnotError> {
     let drawn_elsewhere =
-        d.get(b"AP").is_some_and(|ap| doc.resolve(ap).as_dict().is_some_and(|ap| ap.contains(b"N"))) && pdfcraft_fonts::undrawn_mark(d).is_none();
+        d.get(b"AP").is_some_and(|ap| doc.resolve(ap).as_dict().is_some_and(|ap| ap.contains(b"N"))) && openpdf_fonts::undrawn_mark(d).is_none();
     if drawn_elsewhere && let Some((what, c)) = appearance::undrawable_text(d) {
         return Err(AnnotError::Undrawable(format!(
-            "PdfCraft can't redraw this comment: the standard fonts can't draw \"{}\" (U+{:04X}) in {what}, which would then show as ? (the comment was left as it is)",
+            "OpenPDF can't redraw this comment: the standard fonts can't draw \"{}\" (U+{:04X}) in {what}, which would then show as ? (the comment was left as it is)",
             c.escape_debug(),
             u32::from(c)
         )));
@@ -31,7 +31,7 @@ pub(crate) fn refuse_foreign_text(doc: &Document, d: &Dict) -> Result<(), AnnotE
 /// Thai typed into a text box (`free_text`) that this build can't draw (it has no Thai face): refused
 /// with what to do, rather than drawn as `?`.
 pub(crate) fn refuse_undrawable_thai(free_text: bool, text: &str) -> Result<(), AnnotError> {
-    match free_text.then(|| pdfcraft_fonts::shaped_text::thai_refusal(text)).flatten() {
+    match free_text.then(|| openpdf_fonts::shaped_text::thai_refusal(text)).flatten() {
         Some(why) => Err(AnnotError::Undrawable(why)),
         None => Ok(()),
     }
@@ -46,7 +46,7 @@ pub(crate) fn n(v: f64) -> String {
 
 // ── edits ───────────────────────────────────────────────────────────────────────────────────
 
-/// [`rich_text_in`] for a text box whose `/DA` was just written (in Helvetica, as PdfCraft writes it).
+/// [`rich_text_in`] for a text box whose `/DA` was just written (in Helvetica, as OpenPDF writes it).
 pub(crate) fn rich_text(d: &mut Dict) {
     let (color, size) = appearance::parse_da(d);
     rich_text_in(d, TextStyle { face: Std14::Helvetica, size, color });
@@ -96,7 +96,7 @@ fn rich_text_in(d: &mut Dict, style: TextStyle) {
     let rc = format!(
         "<?xml version=\"1.0\"?><body xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:xfa=\"http://www.xfa.org/schema/xfa-data/1.0/\" xfa:spec=\"2.0.2\" style=\"{style}\">{body}</body>"
     );
-    // "font: Helvetica 12pt" for PdfCraft's own boxes; other faces add their slant and weight.
+    // "font: Helvetica 12pt" for OpenPDF's own boxes; other faces add their slant and weight.
     let keywords = format!("{}{}", if slant == "normal" { "" } else { "italic " }, if weight == "normal" { "" } else { "bold " });
     d.set(b"DS".to_vec(), PdfString::text(&format!("font: {keywords}{family} {}pt; text-align:{align}; color:{hex}", n(size))));
     d.set(b"RC".to_vec(), PdfString::text(&rc));
@@ -183,7 +183,7 @@ pub fn lift_annotation(doc: &mut Document, page: usize, index: usize) -> Result<
 /// A deleted primary then stays reachable from nothing, so a full save leaves its text out. An
 /// inline entry is rewritten in the list; a referenced one is updated in place. Each entry is
 /// read once, following no chain.
-pub fn release_members(doc: &mut Document, kept: Vec<Object>, going: &HashSet<ObjRef>) -> Result<Vec<Object>, pdfcraft_cos::CosError> {
+pub fn release_members(doc: &mut Document, kept: Vec<Object>, going: &HashSet<ObjRef>) -> Result<Vec<Object>, openpdf_cos::CosError> {
     let orphaned = |d: &Dict| is_group_subordinate(d) && d.reference(b"IRT").is_some_and(|r| going.contains(&r));
     let mut out = Vec::with_capacity(kept.len());
     for e in kept {
@@ -248,7 +248,7 @@ fn hangs_off(doc: &Document, d: &Dict) -> [Option<ObjRef>; 2] {
 /// Whether the annotation `d` stays when its group's primary is deleted: a group subordinate
 /// (`/RT /Group`) does, as Acrobat deletes only the member clicked, unless it is half of Replace
 /// Text, which Acrobat deletes as one comment: the strikeout (`/IT /StrikeOutTextEdit`) under its
-/// caret, or a caret under such a strikeout, as earlier PdfCraft builds wrote the pair.
+/// caret, or a caret under such a strikeout, as earlier OpenPDF builds wrote the pair.
 fn own_deletion(doc: &Document, d: &Dict) -> bool {
     let edit = |d: &Dict| d.name(b"IT") == Some(b"StrikeOutTextEdit".as_slice());
     let under_edit =
@@ -358,7 +358,7 @@ fn fitted_box(doc: &Document, r: ObjRef, text: &str) -> Option<[f64; 4]> {
         let longest = text.lines().map(|l| measure(l, size)).fold(0.0, f64::max);
         (longest + 2.0 * pad + 4.0).clamp(40.0, 300.0)
     };
-    let height = appearance::text_lines_height(&pdfcraft_fonts::wrap_with(text, size, (w - 2.0 * pad).max(1.0), measure), size);
+    let height = appearance::text_lines_height(&openpdf_fonts::wrap_with(text, size, (w - 2.0 * pad).max(1.0), measure), size);
     Some([x0, top - height - 2.0 * pad - 2.0, x0 + w, top])
 }
 
@@ -417,7 +417,7 @@ fn reply(
     fd.set(b"Type".to_vec(), Object::name("XObject"));
     fd.set(b"Subtype".to_vec(), Object::name("Form"));
     fd.set(b"BBox".to_vec(), num_array(&[0.0, 0.0, 0.0, 0.0]));
-    let ap = doc.add(Object::Stream(pdfcraft_cos::Stream::from_raw(fd, Vec::new())));
+    let ap = doc.add(Object::Stream(openpdf_cos::Stream::from_raw(fd, Vec::new())));
     let mut apd = Dict::new();
     apd.set(b"N".to_vec(), Object::Ref(ap));
     d.set(b"AP".to_vec(), Object::Dict(apd));
@@ -930,7 +930,7 @@ pub(crate) fn callout_text_box(doc: &Document, d: &Dict) -> Option<[f64; 4]> {
 ///   line doesn't change;
 /// - otherwise (that side moved): the line meets the middle of that side, the knee
 ///   [`CALLOUT_KNEE_LINE`] out from it ([`callout_knee_on`]). Acrobat also moves the box next to
-///   the arrow point then; PdfCraft leaves the box where it was put.
+///   the arrow point then; OpenPDF leaves the box where it was put.
 ///
 /// With `lead`, the end stays where it is while it is on the side facing the knee (dragging the
 /// knee or the arrow point leaves it in Acrobat), and otherwise meets the middle of that side.
@@ -1408,7 +1408,7 @@ fn pair_points(d: &Dict, key: &[u8]) -> Option<Vec<[f64; 2]>> {
 /// /Replace`. The strikeout is its subordinate (`/IRT` to the caret, `/RT /Group`, `/IT
 /// /StrikeOutTextEdit`) with no `/Contents`, since a reader ignores a subordinate's text.
 /// Groups written before this the other way round (the strikeout primary, the text only on
-/// the caret) still list their text: see `pdfcraft_render::fill_group_text`.
+/// the caret) still list their text: see `openpdf_render::fill_group_text`.
 ///
 /// The two annotations need their own `/NM`: XFDF names a reply by the `/NM` of what it replies
 /// to, so one id for both writes `inreplyto` equal to the strikeout's own `name`, and a reader that

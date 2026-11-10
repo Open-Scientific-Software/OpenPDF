@@ -84,8 +84,8 @@ jobs:
       # cargo-deny for the deny step of `cargo xtask ci`, which requires it under CI.
       tools: cargo-nextest@0.9.150,cargo-deny@0.20.2
       # A missing oracle fails the job instead of printing a skip notice that reads as a pass.
-      linux-env: PDFCRAFT_ORACLES_REQUIRED=1
-      windows-env: PDFCRAFT_REQUIRE_WINRES=1
+      linux-env: OPENPDF_ORACLES_REQUIRED=1
+      windows-env: OPENPDF_REQUIRE_WINRES=1
       # Windows checks what differs by platform: the build (with resources) and the tests.
       windows-command: |
         cargo clippy --workspace --all-targets --locked -- -D warnings

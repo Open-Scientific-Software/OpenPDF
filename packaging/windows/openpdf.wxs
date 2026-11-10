@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <?ifndef HasCraftFontLicences ?>
+  <?define HasCraftFontLicences=0 ?>
+  <?endif?>
+  <Package Name="OpenPDF" Manufacturer="Open Scientific Software" Version="$(var.Version)" UpgradeCode="BFB3E79F-7F88-4875-A50B-B6D531805C5B" Scope="perUserOrMachine" Compressed="yes" Language="1033">
+    <SummaryInformation Description="OpenPDF PDF workbench" Manufacturer="Open Scientific Software" />
+    <?include $(sys.SOURCEFILEDIR)install-policy.wxi?>
+    <!-- HKLM registrations must never point into a per-user installation (#305). Allow removal
+         of an existing installation even if an older MSI let it install per-user. -->
+    <!-- Same-version upgrades let successive pre-releases of one X.Y.Z replace each other
+         (MSI versions are numeric, so 1.2.3-rc.1 and 1.2.3-rc.2 are both 1.2.3). -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of OpenPDF is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- Windows Installer requires an Icon id ending in .ico or .exe, or advertised shortcuts and
+         Add/Remove Programs show a blank icon (#57). -->
+    <Icon Id="OpenPDFIcon.ico" SourceFile="$(var.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="OpenPDFIcon.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Open-Scientific-Software/OpenPDF" />
+    <Property Id="ARPURLUPDATEINFO" Value="https://github.com/Open-Scientific-Software/OpenPDF" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/Open-Scientific-Software/OpenPDF/issues" />
+    <!-- Desktop shortcut (#143): on by default for a first install, a checkbox in the full-UI
+         welcome dialog, and INSTALLDESKTOPSHORTCUT=0 on the msiexec command line for unattended
+         installs. Secure, so the choice made in the (unelevated) UI reaches the elevated install.
+         An update keeps the shortcut only if it is still on the desktop (#1058): the launcher
+         updates with /passive and no properties, so deleting the shortcut is the only way its
+         users can say no. A value given on the command line wins. -->
+    <Property Id="INSTALLDESKTOPSHORTCUT" Secure="yes" />
+    <!-- AppSearch runs before the full-UI scope page can choose Everyone, so [DesktopFolder] still
+         names the user's desktop then. Search both desktops and keep the one for the chosen scope. -->
+    <Property Id="EXISTINGDESKTOPSHORTCUT_USER">
+      <DirectorySearch Id="DesktopSearchUser" Path="[DesktopFolder]" Depth="0">
+        <FileSearch Name="OpenPDF.lnk" />
+      </DirectorySearch>
+    </Property>
+    <Property Id="EXISTINGDESKTOPSHORTCUT_MACHINE">
+      <DirectorySearch Id="DesktopSearchMachine" Path="[%PUBLIC]\Desktop" Depth="0">
+        <FileSearch Name="OpenPDF.lnk" />
+      </DirectorySearch>
+    </Property>
+    <SetProperty Id="EXISTINGDESKTOPSHORTCUT" Action="CraftExistingMachineShortcut" Value="[EXISTINGDESKTOPSHORTCUT_MACHINE]" After="CraftLoadOption2U" Sequence="first" Condition="ALLUSERS = 1 AND EXISTINGDESKTOPSHORTCUT_MACHINE" />
+    <SetProperty Id="EXISTINGDESKTOPSHORTCUT" Action="CraftExistingUserShortcut" Value="[EXISTINGDESKTOPSHORTCUT_USER]" After="CraftExistingMachineShortcut" Sequence="first" Condition="ALLUSERS &lt;&gt; 1 AND EXISTINGDESKTOPSHORTCUT_USER" />
+    <SetProperty Id="INSTALLDESKTOPSHORTCUT" Value="1" After="CraftExistingUserShortcut" Sequence="first" Condition="NOT INSTALLDESKTOPSHORTCUT AND (NOT WIX_UPGRADE_DETECTED OR EXISTINGDESKTOPSHORTCUT)" />
+    <!-- The File Explorer menus: "Edit with OpenPDF" for PDF files (#682) and "Create PDF with
+         OpenPDF…" for images (#190). Each is on by default for a first install and has a property
+         to leave it out of unattended installs: INSTALLPDFCONTEXTMENU=0 (also a welcome-dialog
+         checkbox) and INSTALLIMAGECONTEXTMENU=0. Secure, like the desktop shortcut's.
+         An update keeps the installed version's choice (#305) by looking for the menu's registry
+         key, the way the desktop shortcut looks for its file: AppSearch runs before the old version
+         is removed. Releases from before a menu existed (the PDF one came in 0.7.1, the image one in
+         0.4.0) never had the key, so updating from one of them counts as a first install; the
+         OnlyDetect rows below tell them apart. A value given on the command line wins. -->
+    <Upgrade Id="BFB3E79F-7F88-4875-A50B-B6D531805C5B">
+      <UpgradeVersion Minimum="0.7.1" IncludeMinimum="yes" OnlyDetect="yes" Property="PDFCONTEXTMENURELEASE" />
+      <UpgradeVersion Minimum="0.4.0" IncludeMinimum="yes" OnlyDetect="yes" Property="IMAGECONTEXTMENURELEASE" />
+    </Upgrade>
+    <Property Id="INSTALLPDFCONTEXTMENU" Secure="yes" />
+    <Property Id="EXISTINGPDFCONTEXTMENU" Secure="yes">
+      </Property>
+    <SetProperty Id="INSTALLPDFCONTEXTMENU" Value="1" After="CraftLoadOption2U" Sequence="first" Condition="NOT INSTALLPDFCONTEXTMENU AND (NOT PDFCONTEXTMENURELEASE OR EXISTINGPDFCONTEXTMENU)" />
+    <Property Id="INSTALLIMAGECONTEXTMENU" Secure="yes" />
+    <Property Id="EXISTINGIMAGECONTEXTMENU" Secure="yes">
+      </Property>
+    <SetProperty Id="INSTALLIMAGECONTEXTMENU" Value="1" After="CraftLoadOption2U" Sequence="first" Condition="NOT INSTALLIMAGECONTEXTMENU AND (NOT IMAGECONTEXTMENURELEASE OR EXISTINGIMAGECONTEXTMENU)" />
+    <UIRef Id="OpenPDFInstallerUI" />
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="CraftSuiteFolder" Name="Open Scientific Software">
+        <Directory Id="INSTALLFOLDER" Name="OpenPDF">
+        <Directory Id="ModelsFolder" Name="models" />
+      </Directory>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="DesktopFolder" />
+
+    <Feature Id="Main" Title="OpenPDF" Level="1">
+      <?if $(var.HasCraftFontLicences) = 1 ?>
+      <ComponentGroupRef Id="CraftFontLicences" />
+      <?endif?>
+      <ComponentGroupRef Id="OpenPDFFiles" />
+      <ComponentGroupRef Id="OpenPDFModels" />
+    </Feature>
+  <Property Id="CRAFT_OPTION_1_M" Secure="yes"><RegistrySearch Id="CRAFT_OPTION_1_MSearch" Root="HKLM" Key="Software\Classes\SystemFileAssociations\.pdf\shell\OpenPDF.Edit" Type="raw" />
+    </Property><SetProperty Id="EXISTINGPDFCONTEXTMENU" Action="CraftLoadOption1M" Value="[CRAFT_OPTION_1_M]" After="LaunchConditions" Sequence="both" Condition="ALLUSERS = 1" /><Property Id="CRAFT_OPTION_1_U" Secure="yes"><RegistrySearch Id="CRAFT_OPTION_1_USearch" Root="HKCU" Key="Software\Classes\SystemFileAssociations\.pdf\shell\OpenPDF.Edit" Type="raw" />
+    </Property><SetProperty Id="EXISTINGPDFCONTEXTMENU" Action="CraftLoadOption1U" Value="[CRAFT_OPTION_1_U]" After="CraftLoadOption1M" Sequence="both" Condition="ALLUSERS &lt;&gt; 1" /><Property Id="CRAFT_OPTION_2_M" Secure="yes"><RegistrySearch Id="CRAFT_OPTION_2_MSearch" Root="HKLM" Key="Software\Classes\SystemFileAssociations\.png\shell\OpenPDF.CreatePdf" Type="raw" />
+    </Property><SetProperty Id="EXISTINGIMAGECONTEXTMENU" Action="CraftLoadOption2M" Value="[CRAFT_OPTION_2_M]" After="CraftLoadOption1U" Sequence="both" Condition="ALLUSERS = 1" /><Property Id="CRAFT_OPTION_2_U" Secure="yes"><RegistrySearch Id="CRAFT_OPTION_2_USearch" Root="HKCU" Key="Software\Classes\SystemFileAssociations\.png\shell\OpenPDF.CreatePdf" Type="raw" />
+    </Property><SetProperty Id="EXISTINGIMAGECONTEXTMENU" Action="CraftLoadOption2U" Value="[CRAFT_OPTION_2_U]" After="CraftLoadOption2M" Sequence="both" Condition="ALLUSERS &lt;&gt; 1" /></Package>
+
+  <Fragment>
+    <?if $(var.HasCraftFontLicences) = 1 ?>
+    <ComponentGroup Id="CraftFontLicences" Directory="INSTALLFOLDER">
+      <Files Include="$(var.DocsDir)\**" />
+    </ComponentGroup>
+    <?endif?>
+    <ComponentGroup Id="OpenPDFFiles" Directory="INSTALLFOLDER">
+      <Component Id="OpenPDFApp" Guid="D5B3EA90-BD2B-4E78-A3FC-DF508772C905">
+        <File Id="OpenPDFExe" Source="$(var.BinDir)\openpdf.exe" KeyPath="yes" />
+
+        <RegistryValue Root="HKMU" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\openpdf.exe" Value="[#OpenPDFExe]" Type="string" />
+
+        <!-- PDF files (#107): OpenPDF is offered under "Open with" and in Settings ▸ Default
+             apps, through Windows' Default Programs registration (a ProgID, OpenWithProgids,
+             Capabilities and RegisteredApplications). It never takes over an existing default:
+             .pdf's own default value is left alone, and the user chooses. Without this, the only
+             OpenPDF entry to pick was the advertised Start Menu shortcut, which Windows can't
+             run as a file handler ("This app can't run on your PC"). -->
+        <RegistryValue Root="HKMU" Key="Software\Classes\OpenPDF.Document" Value="PDF Document" Type="string" />
+        <!-- A negative index selects the stable icon resource ID, rather than its position.
+             Resource 1 is the app icon; resource 2 is the PDF document (build.rs). -->
+        <RegistryValue Root="HKMU" Key="Software\Classes\OpenPDF.Document\DefaultIcon" Value="&quot;[#OpenPDFExe]&quot;,-2" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\OpenPDF.Document\shell\open\command" Value="&quot;[#OpenPDFExe]&quot; &quot;%1&quot;" Type="string" />
+        <!-- No overlay on thumbnails and in the preview pane: without TypeOverlay, Windows paints
+             the default program's icon (the OpenPDF icon) over the lower-right corner of every PDF
+             thumbnail, covering part of the page. An empty string means none ("Thumbnail
+             Handlers", Microsoft Learn). -->
+        <RegistryValue Root="HKMU" Key="Software\Classes\OpenPDF.Document" Name="TypeOverlay" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.pdf\OpenWithProgids" Name="OpenPDF.Document" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\openpdf.exe" Name="FriendlyAppName" Value="OpenPDF" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\openpdf.exe\DefaultIcon" Value="&quot;[#OpenPDFExe]&quot;,-2" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\openpdf.exe\SupportedTypes" Name=".pdf" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\openpdf.exe\shell\open\command" Value="&quot;[#OpenPDFExe]&quot; &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\OpenPDF\Capabilities" Name="ApplicationName" Value="OpenPDF" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\OpenPDF\Capabilities" Name="ApplicationDescription" Value="Open-source PDF workbench" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\OpenPDF\Capabilities" Name="ApplicationIcon" Value="[#OpenPDFExe],0" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\OpenPDF\Capabilities\FileAssociations" Name=".pdf" Value="OpenPDF.Document" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\RegisteredApplications" Name="OpenPDF" Value="Software\OpenPDF\Capabilities" Type="string" />
+      <RegistryValue Root="HKMU" Key="Software\OpenPDF" Name="InstallDir" Value="[INSTALLFOLDER]" Type="string" />
+      </Component>
+
+      <!-- Shortcuts (#143) are plain links to openpdf.exe, not advertised MSI shortcuts: advertised
+           ones point at a Windows Installer descriptor rather than the program, which Windows can't
+           use as a file handler (#107), and 0.2.1's advertised one went missing from the Start menu
+           (#143). Each has its own component with an HKLM key path, so Windows Installer removes it
+           on uninstall; in this per-machine package both folders are the all-users ones. They take
+           their icon from openpdf.exe, not the Icon table: Windows Installer keeps that copy under
+           the ProductCode, which every release changes, so a taskbar pin made from a shortcut that
+           named it shows a blank icon once an update removes the old release. -->
+      <Component Id="OpenPDFStartMenuShortcut" Directory="ProgramMenuFolder" Guid="40D4B19D-FE7D-4B73-91A1-085DE6643D3A">
+        <Shortcut Id="StartMenuShortcut" Name="OpenPDF" Description="OpenPDF PDF workbench" Target="[#OpenPDFExe]" WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKMU" Key="Software\OpenPDF\Shortcuts" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+
+      <Component Id="OpenPDFDesktopShortcut" Directory="DesktopFolder" Guid="24AABEB2-06DF-4163-AEA0-2DDC2D14D9B5" Condition="INSTALLDESKTOPSHORTCUT = 1">
+        <Shortcut Id="DesktopShortcut" Name="OpenPDF" Description="OpenPDF PDF workbench" Target="[#OpenPDFExe]" WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKMU" Key="Software\OpenPDF\Shortcuts" Name="Desktop" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+
+      <!-- PDF context menu (#682): "Edit with OpenPDF" opens the file in OpenPDF whichever app is
+           the default for .pdf, which it leaves alone (SystemFileAssociations, like the image
+           menu). Several PDFs selected (up to 15, Windows' limit for this kind of entry) start one
+           launch each, and the single-instance hand-off opens them as tabs of one window. On
+           Windows 11 the entry is under "Show more options": the first-level menu only takes
+           packaged apps' (IExplorerCommand) entries. Its own component with an HKLM key path, so
+           INSTALLPDFCONTEXTMENU=0 leaves it out and uninstall removes it. -->
+      <Component Id="OpenPDFPdfContextMenu" Guid="93743C58-C6F9-44BD-A892-C4D8667C0255" Condition="INSTALLPDFCONTEXTMENU = 1">
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.pdf\shell\OpenPDF.Edit" Value="Edit with OpenPDF" Type="string" KeyPath="yes" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.pdf\shell\OpenPDF.Edit" Name="Icon" Value="&quot;[#OpenPDFExe]&quot;,0" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.pdf\shell\OpenPDF.Edit" Name="MultiSelectModel" Value="Document" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.pdf\shell\OpenPDF.Edit\command" Value="&quot;[#OpenPDFExe]&quot; &quot;%1&quot;" Type="string" />
+        <!-- "Combine files in OpenPDF" (#585), on the same switch: each selected file starts one
+             launch of openpdf.exe with the combine option, and the running OpenPDF collects them into its Combine
+             files tab (single_instance). -->
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.pdf\shell\OpenPDF.Combine" Value="Combine files in OpenPDF" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.pdf\shell\OpenPDF.Combine" Name="Icon" Value="&quot;[#OpenPDFExe]&quot;,0" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.pdf\shell\OpenPDF.Combine" Name="MultiSelectModel" Value="Document" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.pdf\shell\OpenPDF.Combine\command" Value="&quot;[#OpenPDFExe]&quot; --combine &quot;%1&quot;" Type="string" />
+      </Component>
+
+      <!-- Image context menu (#190): "Create PDF with OpenPDF…" opens the DPI chooser, without
+           changing image file defaults. Its own component with an HKLM key path, so
+           INSTALLIMAGECONTEXTMENU=0 leaves it out and uninstall removes it. These rows were in
+           OpenPDFApp up to 0.7.1; moving them is safe because MajorUpgrade removes the old version
+           before installing (afterInstallValidate), so no old row is left behind. -->
+      <Component Id="OpenPDFImageContextMenu" Guid="18AE5CAC-516B-4BF9-93E9-8972AC89BCAB" Condition="INSTALLIMAGECONTEXTMENU = 1">
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.png\shell\OpenPDF.CreatePdf" Value="Create PDF with OpenPDF…" Type="string" KeyPath="yes" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.png\shell\OpenPDF.CreatePdf" Name="MultiSelectModel" Value="Single" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.png\shell\OpenPDF.CreatePdf\command" Value="&quot;[#OpenPDFExe]&quot; --create-images &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.jpg\shell\OpenPDF.CreatePdf" Value="Create PDF with OpenPDF…" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.jpg\shell\OpenPDF.CreatePdf" Name="MultiSelectModel" Value="Single" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.jpg\shell\OpenPDF.CreatePdf\command" Value="&quot;[#OpenPDFExe]&quot; --create-images &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.jpeg\shell\OpenPDF.CreatePdf" Value="Create PDF with OpenPDF…" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.jpeg\shell\OpenPDF.CreatePdf" Name="MultiSelectModel" Value="Single" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.jpeg\shell\OpenPDF.CreatePdf\command" Value="&quot;[#OpenPDFExe]&quot; --create-images &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.tif\shell\OpenPDF.CreatePdf" Value="Create PDF with OpenPDF…" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.tif\shell\OpenPDF.CreatePdf" Name="MultiSelectModel" Value="Single" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.tif\shell\OpenPDF.CreatePdf\command" Value="&quot;[#OpenPDFExe]&quot; --create-images &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.tiff\shell\OpenPDF.CreatePdf" Value="Create PDF with OpenPDF…" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.tiff\shell\OpenPDF.CreatePdf" Name="MultiSelectModel" Value="Single" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.tiff\shell\OpenPDF.CreatePdf\command" Value="&quot;[#OpenPDFExe]&quot; --create-images &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.gif\shell\OpenPDF.CreatePdf" Value="Create PDF with OpenPDF…" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.gif\shell\OpenPDF.CreatePdf" Name="MultiSelectModel" Value="Single" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.gif\shell\OpenPDF.CreatePdf\command" Value="&quot;[#OpenPDFExe]&quot; --create-images &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.bmp\shell\OpenPDF.CreatePdf" Value="Create PDF with OpenPDF…" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.bmp\shell\OpenPDF.CreatePdf" Name="MultiSelectModel" Value="Single" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.bmp\shell\OpenPDF.CreatePdf\command" Value="&quot;[#OpenPDFExe]&quot; --create-images &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.jp2\shell\OpenPDF.CreatePdf" Value="Create PDF with OpenPDF…" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.jp2\shell\OpenPDF.CreatePdf" Name="MultiSelectModel" Value="Single" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.jp2\shell\OpenPDF.CreatePdf\command" Value="&quot;[#OpenPDFExe]&quot; --create-images &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.j2k\shell\OpenPDF.CreatePdf" Value="Create PDF with OpenPDF…" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.j2k\shell\OpenPDF.CreatePdf" Name="MultiSelectModel" Value="Single" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.j2k\shell\OpenPDF.CreatePdf\command" Value="&quot;[#OpenPDFExe]&quot; --create-images &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.jpx\shell\OpenPDF.CreatePdf" Value="Create PDF with OpenPDF…" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.jpx\shell\OpenPDF.CreatePdf" Name="MultiSelectModel" Value="Single" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\SystemFileAssociations\.jpx\shell\OpenPDF.CreatePdf\command" Value="&quot;[#OpenPDFExe]&quot; --create-images &quot;%1&quot;" Type="string" />
+      </Component>
+
+      <Component Id="OpenPDFCli">
+        <File Id="OpenPDFCliExe" Source="$(var.BinDir)\openpdf-cli.exe" KeyPath="yes" />
+      </Component>
+      <!-- The embedded PDF icon's ISC notice and project licences travel with the binaries. -->
+      <Component Id="OpenPDFDocumentIconLicense">
+        <File Id="OpenPDFDocumentIconLicenseFile" Source="$(var.BinDir)\LICENSE-document.txt" KeyPath="yes" />
+      </Component>
+      <Component Id="OpenPDFMitLicense">
+        <File Id="OpenPDFMitLicenseFile" Source="$(var.BinDir)\LICENSE-MIT" KeyPath="yes" />
+      </Component>
+      <Component Id="OpenPDFApacheLicense">
+        <File Id="OpenPDFApacheLicenseFile" Source="$(var.BinDir)\LICENSE-APACHE" KeyPath="yes" />
+      </Component>
+      <Component Id="OpenPDFNotice">
+        <File Id="OpenPDFNoticeFile" Source="$(var.BinDir)\NOTICE" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- OCR models (#103), with their licences and ATTRIBUTION.txt, in models\ beside openpdf.exe
+         where the app looks for them: every file `cargo xtask models` fetched (package.ps1), one
+         component each, so new models ship without naming them here. -->
+    <ComponentGroup Id="OpenPDFModels" Directory="ModelsFolder">
+      <Files Include="$(var.ModelsDir)\*" />
+    </ComponentGroup>
+  </Fragment>
+</Wix>

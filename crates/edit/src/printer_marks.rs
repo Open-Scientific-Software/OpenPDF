@@ -7,8 +7,8 @@
 //! (ISO 32000-2, 8.6.6.4), so they print on every plate, spot plates too; viewers show its
 //! four-ink alternate. The colour bars are process inks and stay DeviceCMYK.
 
-use pdfcraft_cos::{Dict, Document, Object};
-use pdfcraft_fonts::{literal, win_ansi};
+use openpdf_cos::{Dict, Document, Object};
+use openpdf_fonts::{literal, win_ansi};
 
 use crate::marks::{MarkKind, n};
 use crate::place::{END, add_resources, begin, check, page_list, place};
@@ -201,7 +201,7 @@ impl PrinterMarks {
                 info.push_str("  ");
                 info.push_str(self.date.trim());
             }
-            let info: String = info.chars().filter(|ch| pdfcraft_fonts::win_ansi_encodable(*ch)).collect();
+            let info: String = info.chars().filter(|ch| openpdf_fonts::win_ansi_encodable(*ch)).collect();
             c.push_str(&format!("BT /PCHelv {} Tf 1 0 0 1 {} {} Tm ", n(INFO_SIZE), n(x0 + LENGTH + GAP + 12.0), n(y0 - GAP - BAR)));
             c.push_str(&ascii_literal(&literal(&win_ansi(&info))));
             c.push_str(" Tj ET\n");
@@ -257,7 +257,7 @@ pub fn add_printer_marks(doc: &mut Document, pages: &[usize], marks: &PrinterMar
     let count = all.len();
     let mut widened = Vec::new();
     for &i in pages {
-        let [media, crop, bleed, trim, art] = pdfcraft_organize_boxes(doc, i)?;
+        let [media, crop, bleed, trim, art] = openpdf_organize_boxes(doc, i)?;
         let side = side_reach(marks, trim, bleed);
         let needed = [trim[0] - side[0], trim[1] - side[1], trim[2] + side[2], trim[3] + side[3]];
         let within = |b: [f64; 4]| b[0] <= needed[0] && b[1] <= needed[1] && b[2] >= needed[2] && b[3] >= needed[3];
@@ -325,7 +325,7 @@ pub fn add_printer_marks(doc: &mut Document, pages: &[usize], marks: &PrinterMar
 
 /// A page's boxes: media, crop, bleed, trim, art (each inherited or falling back as the
 /// standard says), without depending on the organize crate.
-fn pdfcraft_organize_boxes(doc: &Document, page: usize) -> Result<[[f64; 4]; 5], EditError> {
+fn openpdf_organize_boxes(doc: &Document, page: usize) -> Result<[[f64; 4]; 5], EditError> {
     let p = page_list(doc).get(page).cloned().ok_or_else(|| EditError::Invalid(format!("page {} does not exist", page + 1)))?;
     let rect = |k: &[u8]| -> Option<[f64; 4]> {
         let a = p.dict.get(k).map(|o| doc.resolve(o))?;

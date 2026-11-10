@@ -1,12 +1,12 @@
 {
-  "id": "pdfcraft",
-  "name": "PdfCraft",
-  "upgradeCode": "EA00C367-7270-4C50-9D8B-A7A5C88AD27F",
+  "id": "openpdf",
+  "name": "OpenPDF",
+  "upgradeCode": "BFB3E79F-7F88-4875-A50B-B6D531805C5B",
   "sources": [
-    "pdfcraft.wxs",
+    "openpdf.wxs",
     "installer-ui.wxs"
   ],
-  "icon": "assets/app-icon/pdfcraft.ico",
+  "icon": "assets/app-icon/openpdf.ico",
   "localization": [],
   "extensions": [],
   "payloads": [
@@ -14,315 +14,315 @@
     "LICENSE-MIT",
     "LICENSE-document.txt",
     "NOTICE",
-    "pdfcraft-cli.exe",
-    "pdfcraft.exe"
+    "openpdf-cli.exe",
+    "openpdf.exe"
   ],
   "registry": [
     [
       "-1",
-      "Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\pdfcraft.exe",
+      "Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\openpdf.exe",
       "",
-      "[#PdfcraftExe]"
+      "[#OpenPDFExe]"
     ],
     [
       "-1",
-      "Software\\Classes\\PdfCraft.Document",
+      "Software\\Classes\\OpenPDF.Document",
       "",
       "PDF Document"
     ],
     [
       "-1",
-      "Software\\Classes\\PdfCraft.Document\\DefaultIcon",
+      "Software\\Classes\\OpenPDF.Document\\DefaultIcon",
       "",
-      "\"[#PdfcraftExe]\",-2"
+      "\"[#OpenPDFExe]\",-2"
     ],
     [
       "-1",
-      "Software\\Classes\\PdfCraft.Document\\shell\\open\\command",
+      "Software\\Classes\\OpenPDF.Document\\shell\\open\\command",
       "",
-      "\"[#PdfcraftExe]\" \"%1\""
+      "\"[#OpenPDFExe]\" \"%1\""
     ],
     [
       "-1",
-      "Software\\Classes\\PdfCraft.Document",
+      "Software\\Classes\\OpenPDF.Document",
       "TypeOverlay",
       ""
     ],
     [
       "-1",
       "Software\\Classes\\.pdf\\OpenWithProgids",
-      "PdfCraft.Document",
+      "OpenPDF.Document",
       ""
     ],
     [
       "-1",
-      "Software\\Classes\\Applications\\pdfcraft.exe",
+      "Software\\Classes\\Applications\\openpdf.exe",
       "FriendlyAppName",
-      "PdfCraft"
+      "OpenPDF"
     ],
     [
       "-1",
-      "Software\\Classes\\Applications\\pdfcraft.exe\\DefaultIcon",
+      "Software\\Classes\\Applications\\openpdf.exe\\DefaultIcon",
       "",
-      "\"[#PdfcraftExe]\",-2"
+      "\"[#OpenPDFExe]\",-2"
     ],
     [
       "-1",
-      "Software\\Classes\\Applications\\pdfcraft.exe\\SupportedTypes",
+      "Software\\Classes\\Applications\\openpdf.exe\\SupportedTypes",
       ".pdf",
       ""
     ],
     [
       "-1",
-      "Software\\Classes\\Applications\\pdfcraft.exe\\shell\\open\\command",
+      "Software\\Classes\\Applications\\openpdf.exe\\shell\\open\\command",
       "",
-      "\"[#PdfcraftExe]\" \"%1\""
+      "\"[#OpenPDFExe]\" \"%1\""
     ],
     [
       "-1",
-      "Software\\PdfCraft\\Capabilities",
+      "Software\\OpenPDF\\Capabilities",
       "ApplicationName",
-      "PdfCraft"
+      "OpenPDF"
     ],
     [
       "-1",
-      "Software\\PdfCraft\\Capabilities",
+      "Software\\OpenPDF\\Capabilities",
       "ApplicationDescription",
       "Open-source PDF workbench"
     ],
     [
       "-1",
-      "Software\\PdfCraft\\Capabilities",
+      "Software\\OpenPDF\\Capabilities",
       "ApplicationIcon",
-      "[#PdfcraftExe],0"
+      "[#OpenPDFExe],0"
     ],
     [
       "-1",
-      "Software\\PdfCraft\\Capabilities\\FileAssociations",
+      "Software\\OpenPDF\\Capabilities\\FileAssociations",
       ".pdf",
-      "PdfCraft.Document"
+      "OpenPDF.Document"
     ],
     [
       "-1",
       "Software\\RegisteredApplications",
-      "PdfCraft",
-      "Software\\PdfCraft\\Capabilities"
+      "OpenPDF",
+      "Software\\OpenPDF\\Capabilities"
     ],
     [
       "-1",
-      "Software\\PdfCraft\\Shortcuts",
+      "Software\\OpenPDF\\Shortcuts",
       "StartMenu",
       "#1"
     ],
     [
       "-1",
-      "Software\\PdfCraft\\Shortcuts",
+      "Software\\OpenPDF\\Shortcuts",
       "Desktop",
       "#1"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.pdf\\shell\\PdfCraft.Edit",
+      "Software\\Classes\\SystemFileAssociations\\.pdf\\shell\\OpenPDF.Edit",
       "",
-      "Edit with PdfCraft"
+      "Edit with OpenPDF"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.pdf\\shell\\PdfCraft.Edit",
+      "Software\\Classes\\SystemFileAssociations\\.pdf\\shell\\OpenPDF.Edit",
       "Icon",
-      "\"[#PdfcraftExe]\",0"
+      "\"[#OpenPDFExe]\",0"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.pdf\\shell\\PdfCraft.Edit",
+      "Software\\Classes\\SystemFileAssociations\\.pdf\\shell\\OpenPDF.Edit",
       "MultiSelectModel",
       "Document"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.pdf\\shell\\PdfCraft.Edit\\command",
+      "Software\\Classes\\SystemFileAssociations\\.pdf\\shell\\OpenPDF.Edit\\command",
       "",
-      "\"[#PdfcraftExe]\" \"%1\""
+      "\"[#OpenPDFExe]\" \"%1\""
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.png\\shell\\PdfCraft.CreatePdf",
+      "Software\\Classes\\SystemFileAssociations\\.png\\shell\\OpenPDF.CreatePdf",
       "",
-      "Create PDF with PdfCraft\u2026"
+      "Create PDF with OpenPDF\u2026"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.png\\shell\\PdfCraft.CreatePdf",
+      "Software\\Classes\\SystemFileAssociations\\.png\\shell\\OpenPDF.CreatePdf",
       "MultiSelectModel",
       "Single"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.png\\shell\\PdfCraft.CreatePdf\\command",
+      "Software\\Classes\\SystemFileAssociations\\.png\\shell\\OpenPDF.CreatePdf\\command",
       "",
-      "\"[#PdfcraftExe]\" --create-images \"%1\""
+      "\"[#OpenPDFExe]\" --create-images \"%1\""
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.jpg\\shell\\PdfCraft.CreatePdf",
+      "Software\\Classes\\SystemFileAssociations\\.jpg\\shell\\OpenPDF.CreatePdf",
       "",
-      "Create PDF with PdfCraft\u2026"
+      "Create PDF with OpenPDF\u2026"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.jpg\\shell\\PdfCraft.CreatePdf",
+      "Software\\Classes\\SystemFileAssociations\\.jpg\\shell\\OpenPDF.CreatePdf",
       "MultiSelectModel",
       "Single"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.jpg\\shell\\PdfCraft.CreatePdf\\command",
+      "Software\\Classes\\SystemFileAssociations\\.jpg\\shell\\OpenPDF.CreatePdf\\command",
       "",
-      "\"[#PdfcraftExe]\" --create-images \"%1\""
+      "\"[#OpenPDFExe]\" --create-images \"%1\""
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.jpeg\\shell\\PdfCraft.CreatePdf",
+      "Software\\Classes\\SystemFileAssociations\\.jpeg\\shell\\OpenPDF.CreatePdf",
       "",
-      "Create PDF with PdfCraft\u2026"
+      "Create PDF with OpenPDF\u2026"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.jpeg\\shell\\PdfCraft.CreatePdf",
+      "Software\\Classes\\SystemFileAssociations\\.jpeg\\shell\\OpenPDF.CreatePdf",
       "MultiSelectModel",
       "Single"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.jpeg\\shell\\PdfCraft.CreatePdf\\command",
+      "Software\\Classes\\SystemFileAssociations\\.jpeg\\shell\\OpenPDF.CreatePdf\\command",
       "",
-      "\"[#PdfcraftExe]\" --create-images \"%1\""
+      "\"[#OpenPDFExe]\" --create-images \"%1\""
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.tif\\shell\\PdfCraft.CreatePdf",
+      "Software\\Classes\\SystemFileAssociations\\.tif\\shell\\OpenPDF.CreatePdf",
       "",
-      "Create PDF with PdfCraft\u2026"
+      "Create PDF with OpenPDF\u2026"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.tif\\shell\\PdfCraft.CreatePdf",
+      "Software\\Classes\\SystemFileAssociations\\.tif\\shell\\OpenPDF.CreatePdf",
       "MultiSelectModel",
       "Single"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.tif\\shell\\PdfCraft.CreatePdf\\command",
+      "Software\\Classes\\SystemFileAssociations\\.tif\\shell\\OpenPDF.CreatePdf\\command",
       "",
-      "\"[#PdfcraftExe]\" --create-images \"%1\""
+      "\"[#OpenPDFExe]\" --create-images \"%1\""
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.tiff\\shell\\PdfCraft.CreatePdf",
+      "Software\\Classes\\SystemFileAssociations\\.tiff\\shell\\OpenPDF.CreatePdf",
       "",
-      "Create PDF with PdfCraft\u2026"
+      "Create PDF with OpenPDF\u2026"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.tiff\\shell\\PdfCraft.CreatePdf",
+      "Software\\Classes\\SystemFileAssociations\\.tiff\\shell\\OpenPDF.CreatePdf",
       "MultiSelectModel",
       "Single"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.tiff\\shell\\PdfCraft.CreatePdf\\command",
+      "Software\\Classes\\SystemFileAssociations\\.tiff\\shell\\OpenPDF.CreatePdf\\command",
       "",
-      "\"[#PdfcraftExe]\" --create-images \"%1\""
+      "\"[#OpenPDFExe]\" --create-images \"%1\""
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.gif\\shell\\PdfCraft.CreatePdf",
+      "Software\\Classes\\SystemFileAssociations\\.gif\\shell\\OpenPDF.CreatePdf",
       "",
-      "Create PDF with PdfCraft\u2026"
+      "Create PDF with OpenPDF\u2026"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.gif\\shell\\PdfCraft.CreatePdf",
+      "Software\\Classes\\SystemFileAssociations\\.gif\\shell\\OpenPDF.CreatePdf",
       "MultiSelectModel",
       "Single"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.gif\\shell\\PdfCraft.CreatePdf\\command",
+      "Software\\Classes\\SystemFileAssociations\\.gif\\shell\\OpenPDF.CreatePdf\\command",
       "",
-      "\"[#PdfcraftExe]\" --create-images \"%1\""
+      "\"[#OpenPDFExe]\" --create-images \"%1\""
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.bmp\\shell\\PdfCraft.CreatePdf",
+      "Software\\Classes\\SystemFileAssociations\\.bmp\\shell\\OpenPDF.CreatePdf",
       "",
-      "Create PDF with PdfCraft\u2026"
+      "Create PDF with OpenPDF\u2026"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.bmp\\shell\\PdfCraft.CreatePdf",
+      "Software\\Classes\\SystemFileAssociations\\.bmp\\shell\\OpenPDF.CreatePdf",
       "MultiSelectModel",
       "Single"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.bmp\\shell\\PdfCraft.CreatePdf\\command",
+      "Software\\Classes\\SystemFileAssociations\\.bmp\\shell\\OpenPDF.CreatePdf\\command",
       "",
-      "\"[#PdfcraftExe]\" --create-images \"%1\""
+      "\"[#OpenPDFExe]\" --create-images \"%1\""
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.jp2\\shell\\PdfCraft.CreatePdf",
+      "Software\\Classes\\SystemFileAssociations\\.jp2\\shell\\OpenPDF.CreatePdf",
       "",
-      "Create PDF with PdfCraft\u2026"
+      "Create PDF with OpenPDF\u2026"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.jp2\\shell\\PdfCraft.CreatePdf",
+      "Software\\Classes\\SystemFileAssociations\\.jp2\\shell\\OpenPDF.CreatePdf",
       "MultiSelectModel",
       "Single"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.jp2\\shell\\PdfCraft.CreatePdf\\command",
+      "Software\\Classes\\SystemFileAssociations\\.jp2\\shell\\OpenPDF.CreatePdf\\command",
       "",
-      "\"[#PdfcraftExe]\" --create-images \"%1\""
+      "\"[#OpenPDFExe]\" --create-images \"%1\""
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.j2k\\shell\\PdfCraft.CreatePdf",
+      "Software\\Classes\\SystemFileAssociations\\.j2k\\shell\\OpenPDF.CreatePdf",
       "",
-      "Create PDF with PdfCraft\u2026"
+      "Create PDF with OpenPDF\u2026"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.j2k\\shell\\PdfCraft.CreatePdf",
+      "Software\\Classes\\SystemFileAssociations\\.j2k\\shell\\OpenPDF.CreatePdf",
       "MultiSelectModel",
       "Single"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.j2k\\shell\\PdfCraft.CreatePdf\\command",
+      "Software\\Classes\\SystemFileAssociations\\.j2k\\shell\\OpenPDF.CreatePdf\\command",
       "",
-      "\"[#PdfcraftExe]\" --create-images \"%1\""
+      "\"[#OpenPDFExe]\" --create-images \"%1\""
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.jpx\\shell\\PdfCraft.CreatePdf",
+      "Software\\Classes\\SystemFileAssociations\\.jpx\\shell\\OpenPDF.CreatePdf",
       "",
-      "Create PDF with PdfCraft\u2026"
+      "Create PDF with OpenPDF\u2026"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.jpx\\shell\\PdfCraft.CreatePdf",
+      "Software\\Classes\\SystemFileAssociations\\.jpx\\shell\\OpenPDF.CreatePdf",
       "MultiSelectModel",
       "Single"
     ],
     [
       "-1",
-      "Software\\Classes\\SystemFileAssociations\\.jpx\\shell\\PdfCraft.CreatePdf\\command",
+      "Software\\Classes\\SystemFileAssociations\\.jpx\\shell\\OpenPDF.CreatePdf\\command",
       "",
-      "\"[#PdfcraftExe]\" --create-images \"%1\""
+      "\"[#OpenPDFExe]\" --create-images \"%1\""
     ]
   ],
   "mode": "dualScope"

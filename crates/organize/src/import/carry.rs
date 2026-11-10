@@ -39,11 +39,10 @@ fn write_attachments(dst: &mut Document, entries: &mut [(Vec<u8>, Object)], uniq
     // Names are compared and numbered as text: a key written as UTF-16 (a name with an accent
     // or Chinese letters) must not get ASCII bytes appended to it.
     if uniquify {
-        let reserved: std::collections::HashSet<String> =
-            entries.iter().map(|(k, _)| pdfcraft_cos::PdfString::literal(k.clone()).to_text()).collect();
+        let reserved: std::collections::HashSet<String> = entries.iter().map(|(k, _)| openpdf_cos::PdfString::literal(k.clone()).to_text()).collect();
         let mut seen = std::collections::HashSet::new();
         for (k, _) in entries.iter_mut() {
-            let base = pdfcraft_cos::PdfString::literal(k.clone()).to_text();
+            let base = openpdf_cos::PdfString::literal(k.clone()).to_text();
             let mut text = base.clone();
             let mut n = 2;
             if !seen.insert(text.clone()) {
@@ -56,14 +55,14 @@ fn write_attachments(dst: &mut Document, entries: &mut [(Vec<u8>, Object)], uniq
                 }
             }
             if text != base {
-                *k = pdfcraft_cos::PdfString::text(&text).bytes;
+                *k = openpdf_cos::PdfString::text(&text).bytes;
             }
         }
     }
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     let mut names = Vec::new();
     for (k, v) in entries.iter() {
-        names.push(Object::String(pdfcraft_cos::PdfString::literal(k.clone())));
+        names.push(Object::String(openpdf_cos::PdfString::literal(k.clone())));
         names.push(v.clone());
     }
     let mut tree = Dict::new();
@@ -226,7 +225,7 @@ pub(super) fn add_outline(doc: &mut Document, marks: &[Mark]) -> Result<(), Orga
     let (Some(&first_item), Some(&last_item)) = (items.first(), items.last()) else { return Ok(()) };
     for (i, (mark, r)) in marks.iter().zip(&items).enumerate() {
         let mut d = Dict::new();
-        d.set(b"Title".to_vec(), Object::String(pdfcraft_cos::PdfString::text(&mark.title)));
+        d.set(b"Title".to_vec(), Object::String(openpdf_cos::PdfString::text(&mark.title)));
         d.set(b"Parent".to_vec(), Object::Ref(outlines));
         d.set(b"Dest".to_vec(), Object::Array(vec![Object::Ref(mark.page), Object::name("Fit")]));
         if i > 0 {

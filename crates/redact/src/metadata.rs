@@ -22,7 +22,7 @@
 
 use std::collections::HashSet;
 
-use pdfcraft_cos::{Document, ObjRef, Object};
+use openpdf_cos::{Document, ObjRef, Object};
 use unicode_normalization::UnicodeNormalization;
 
 /// Terms longer than this are cut (matching still finds the prefix).
@@ -363,7 +363,7 @@ pub(crate) fn decode_xmp(bytes: &[u8]) -> Option<String> {
 /// mark is UTF-16LE to any reader that takes it as such, and read through PDFDocEncoding it
 /// could never match: it is read as UTF-16LE (an odd last byte is left out, a lone surrogate
 /// becomes U+FFFD), so the search stays fail-closed (#2539 review).
-pub(crate) fn text_string(s: &pdfcraft_cos::PdfString) -> String {
+pub(crate) fn text_string(s: &openpdf_cos::PdfString) -> String {
     match s.bytes.as_slice() {
         [0xFF, 0xFE, rest @ ..] => {
             let units = rest.as_chunks::<2>().0.iter().map(|&p| u16::from_le_bytes(p));
@@ -481,12 +481,12 @@ pub(crate) struct Scrubbed {
 /// removed text was cut short; then, as when the terms themselves exceed their limits, every
 /// `/Info` string and every XMP stream goes. A removed catalog packet's PDF/A and PDF/UA
 /// identification is written back in a packet of its own ([`crate::identification`]).
-pub(crate) fn scrub(doc: &mut Document, removed: &[String], complete: bool) -> Result<Scrubbed, pdfcraft_cos::CosError> {
+pub(crate) fn scrub(doc: &mut Document, removed: &[String], complete: bool) -> Result<Scrubbed, openpdf_cos::CosError> {
     scrub_within(doc, removed, complete, MAX_WORK)
 }
 
 /// [`scrub`] with the searching it may do given, so tests can run out of it.
-pub(crate) fn scrub_within(doc: &mut Document, removed: &[String], complete: bool, limit: usize) -> Result<Scrubbed, pdfcraft_cos::CosError> {
+pub(crate) fn scrub_within(doc: &mut Document, removed: &[String], complete: bool, limit: usize) -> Result<Scrubbed, openpdf_cos::CosError> {
     let search = Search::new(removed, complete, limit);
     let mut out = Scrubbed::default();
     if search.is_nothing() {
@@ -542,6 +542,6 @@ pub(crate) fn scrub_within(doc: &mut Document, removed: &[String], complete: boo
 /// The catalog and the pages: the objects whose XMP [`scrub`] checks.
 pub(crate) fn catalog_and_pages(doc: &Document) -> Vec<ObjRef> {
     let mut holders: Vec<ObjRef> = doc.root().into_iter().collect();
-    holders.extend(pdfcraft_model::pages(doc).iter().map(|p| p.obj));
+    holders.extend(openpdf_model::pages(doc).iter().map(|p| p.obj));
     holders
 }

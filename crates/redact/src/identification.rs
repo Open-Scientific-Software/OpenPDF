@@ -9,7 +9,7 @@
 //! none of them holding the removed text. Nothing else of the old packet is copied. What became
 //! of each claim is reported ([`Identification`]).
 
-use pdfcraft_cos::{Dict, Document, Object, Stream};
+use openpdf_cos::{Dict, Document, Object, Stream};
 
 use crate::metadata::Search;
 

@@ -18,7 +18,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use pdfcraft_cos::{Dict, Document, ObjRef, Object};
+use openpdf_cos::{Dict, Document, ObjRef, Object};
 
 use crate::OptimizeError;
 

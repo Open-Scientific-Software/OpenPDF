@@ -4,7 +4,7 @@
 //! step land in the same frame.
 
 use egui_kittest::Harness;
-use pdfcraft_ui_egui::PdfCraftApp;
+use openpdf_ui_egui::OpenPDFApp;
 
 /// The word searched for, placed (x, y in PDF user space) on each page.
 const NEEDLE: &str = "needle";
@@ -69,14 +69,14 @@ fn needles() -> usize {
 }
 
 /// The app with the fixture open and a search for the needle that has found every match.
-fn harness() -> Harness<'static, PdfCraftApp> {
+fn harness() -> Harness<'static, OpenPDFApp> {
     harness_dt(1.0 / 4.0)
 }
 
 /// [`harness`] with frames `dt` seconds apart.
-fn harness_dt(dt: f32) -> Harness<'static, PdfCraftApp> {
+fn harness_dt(dt: f32) -> Harness<'static, OpenPDFApp> {
     let mut h = Harness::builder().with_size(egui::vec2(1200.0, 800.0)).with_step_dt(dt).build_eframe(|_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("search.pdf", None, fixture()).expect("opens");
         app.set_option("left", "closed").unwrap();
@@ -99,7 +99,7 @@ fn harness_dt(dt: f32) -> Harness<'static, PdfCraftApp> {
 }
 
 /// Run frames until rendering has finished and the layout holds still.
-fn settle(h: &mut Harness<'static, PdfCraftApp>) {
+fn settle(h: &mut Harness<'static, OpenPDFApp>) {
     for _ in 0..200 {
         h.run_steps(2);
         if !h.state().render_pending() {
@@ -111,7 +111,7 @@ fn settle(h: &mut Harness<'static, PdfCraftApp>) {
 
 /// Fail unless the current match is drawn inside the window, and, where the page lets the view
 /// scroll that far, near its middle (#3530 asks for the middle, as Acrobat does).
-fn assert_match_shown(h: &Harness<'static, PdfCraftApp>, what: &str) {
+fn assert_match_shown(h: &Harness<'static, OpenPDFApp>, what: &str) {
     let v = &h.state().views[0];
     let f = v.find.as_ref().unwrap();
     let i = f.current.unwrap_or_else(|| panic!("{what}: no current match"));
@@ -285,7 +285,7 @@ fn a_step_during_a_wheel_zoom_keeps_the_match_when_the_pointer_leaves_and_return
 /// Single page and two-up, scrolling or a page (spread) at a time: each step shows its match.
 #[test]
 fn every_page_display_shows_the_match_after_zooming() {
-    use pdfcraft_ui_egui::canvas::PageLayout;
+    use openpdf_ui_egui::canvas::PageLayout;
     let mut h = harness();
     for (layout, continuous) in [(PageLayout::Single, false), (PageLayout::TwoUp, true), (PageLayout::TwoUp, false)] {
         h.state_mut().views[0].set_display(layout, continuous);

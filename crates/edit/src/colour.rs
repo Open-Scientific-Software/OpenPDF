@@ -5,7 +5,7 @@
 //! (exponential) tint transform into the alternate space; a sampled or PostScript tint function,
 //! or a pattern, falls back to a plain darkness so nothing reads as the wrong hue.
 
-use pdfcraft_cos::{Dict, Document, Object};
+use openpdf_cos::{Dict, Document, Object};
 
 /// A colour space as far as a fill colour needs it.
 #[derive(Clone, Debug, PartialEq)]

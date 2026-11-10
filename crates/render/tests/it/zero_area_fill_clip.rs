@@ -31,7 +31,7 @@
 
 use std::sync::Arc;
 
-use pdfcraft_render::{PageRenderer, RenderConfig, RenderRequest, RequestKind};
+use openpdf_render::{PageRenderer, RenderConfig, RenderRequest, RequestKind};
 
 const SIZE: u32 = 200;
 

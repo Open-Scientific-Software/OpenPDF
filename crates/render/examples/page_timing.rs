@@ -22,7 +22,7 @@ use std::error::Error;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use pdfcraft_render::{PageText, RenderConfig, RenderPool, RenderRequest, RenderedPage, RequestKind, Tile};
+use openpdf_render::{PageText, RenderConfig, RenderPool, RenderRequest, RenderedPage, RequestKind, Tile};
 
 /// The canvas's tile side in device pixels.
 const TILE: u32 = 1024;

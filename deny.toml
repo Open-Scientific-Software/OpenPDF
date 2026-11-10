@@ -45,7 +45,7 @@ allow-git = [
 [advisories]
 yanked = "warn"
 ignore = [
-    # Marvin (RSA private-key timing side channel, no fixed `rsa` release). pdfcraft-sign uses
+    # Marvin (RSA private-key timing side channel, no fixed `rsa` release). openpdf-sign uses
     # `rsa` only for public-key signature verification, which the advisory does not affect; RSA
     # private-key operations use aws-lc-rs on native targets and are refused in the browser
     # (ADR-0009). Revisit when a fixed `rsa` ships.
@@ -56,7 +56,7 @@ ignore = [
     { id = "RUSTSEC-2024-0370", reason = "compile-time proc macro of winprint's fmt-derive (craft-print Windows printing, #1107)" },
     # zvariant, zbus_names and zvariant_derive are unmaintained (no vulnerability, and no fixed
     # release to move to). They reach the tree as the D-Bus stack behind `accesskit_unix` ->
-    # `atspi`, which is Linux accessibility only, and as a dev-dependency of pdfcraft-platform.
+    # `atspi`, which is Linux accessibility only, and as a dev-dependency of openpdf-platform.
     # Revisit when the accesskit/zbus chain moves to a maintained successor.
     { id = "RUSTSEC-2026-0370", reason = "zvariant unmaintained; Linux a11y stack via accesskit_unix" },
     { id = "RUSTSEC-2026-0371", reason = "zbus_names unmaintained; Linux a11y stack via accesskit_unix" },
@@ -72,7 +72,7 @@ allow = ["OFL-1.1", "Ubuntu-font-1.0"]
 # winprint (craft-print's Windows spooler, #1107) lists reqwest as a build-dependency for its
 # PDFium download, which only runs with its `pdfium` feature; craft-print turns that off. The CA
 # bundle reqwest brings is CDLA-Permissive-2.0 data and is compiled into winprint's build script
-# only, never into PdfCraft. Remove when winprint makes those build-dependencies optional.
+# only, never into OpenPDF. Remove when winprint makes those build-dependencies optional.
 [[licenses.exceptions]]
 crate = "webpki-root-certs"
 allow = ["CDLA-Permissive-2.0"]

@@ -11,7 +11,7 @@
 
 use std::collections::HashSet;
 
-use pdfcraft_cos::{Document, ObjRef, Object};
+use openpdf_cos::{Document, ObjRef, Object};
 
 use crate::metadata::Search;
 
@@ -143,7 +143,7 @@ fn attachments(doc: &Document, hit: &dyn Fn(Option<&Object>) -> bool) -> usize {
             }
         }
     }
-    for page in pdfcraft_model::pages(doc) {
+    for page in openpdf_model::pages(doc) {
         for a in crate::annots_of(doc, &page.dict) {
             let Some(a) = doc.resolve(&a).as_dict().cloned() else { continue };
             if a.name(b"Subtype") == Some(b"FileAttachment".as_slice()) {
@@ -159,7 +159,7 @@ fn attachments(doc: &Document, hit: &dyn Fn(Option<&Object>) -> bool) -> usize {
 fn comments(doc: &Document, search: &Search, hit: &dyn Fn(Option<&Object>) -> bool) -> usize {
     let mut seen = HashSet::new();
     let mut n = 0usize;
-    for page in pdfcraft_model::pages(doc) {
+    for page in openpdf_model::pages(doc) {
         for a in crate::annots_of(doc, &page.dict) {
             if let Some(r) = a.as_ref()
                 && !seen.insert(r)

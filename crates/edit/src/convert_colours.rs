@@ -19,8 +19,8 @@
 //! JPEG 2000 ...); those that are not in the target already are counted in
 //! [`Converted::images_left`].
 
-use pdfcraft_content::{Op, parse, serialize_ops};
-use pdfcraft_cos::{Dict, Document, ObjRef, Object, Stream};
+use openpdf_content::{Op, parse, serialize_ops};
+use openpdf_cos::{Dict, Document, ObjRef, Object, Stream};
 use std::collections::{HashMap, HashSet};
 
 use crate::colour::{Space, rgb, space_of};

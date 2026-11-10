@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-use pdfcraft_cos::{Dict, Document, Object, PdfString};
+use openpdf_cos::{Dict, Document, Object, PdfString};
 
 use crate::data::{DataNode, data_path, parse_datasets};
 use crate::model::{Access, Field, Node, Presence, Props, Script, SomIndices, Template};
@@ -113,7 +113,7 @@ fn access_name(a: Access) -> &'static str {
     }
 }
 
-fn acroform(doc: &Document) -> Option<(Option<pdfcraft_cos::ObjRef>, Dict)> {
+fn acroform(doc: &Document) -> Option<(Option<openpdf_cos::ObjRef>, Dict)> {
     let root = doc.root()?;
     let catalog = doc.get(root);
     let o = catalog.as_dict()?.get(b"AcroForm")?.clone();
@@ -620,7 +620,7 @@ pub fn fields_by_som(doc: &Document) -> HashMap<String, String> {
             k.as_ref().is_none_or(|r| walk(doc, r, prefix, w, depth))
         })
     }
-    fn walk(doc: &Document, r: pdfcraft_cos::ObjRef, prefix: &str, w: &mut Walk, depth: usize) -> bool {
+    fn walk(doc: &Document, r: openpdf_cos::ObjRef, prefix: &str, w: &mut Walk, depth: usize) -> bool {
         if depth > MAX_DEPTH || w.seen.get(&r.num).is_some_and(|&read| read <= depth) {
             return true;
         }
@@ -721,12 +721,12 @@ pub fn rerender(doc: &mut Document, tpl: &Template) -> Result<Report, XfaError> 
         return Err(XfaError::Malformed("the template laid out to no pages".into()));
     }
     // The fields an earlier pass generated give way to the new layout's, after it is written: it
-    // keeps a signature one of them holds. The AcroForm keeps every field PdfCraft did not generate.
+    // keeps a signature one of them holds. The AcroForm keeps every field OpenPDF did not generate.
     let Some(root) = doc.root() else { return Err(XfaError::NotXfa) };
     let top = |doc: &Document| -> Vec<Object> {
         acroform(doc).and_then(|(_, acro)| acro.get(b"Fields").map(|f| doc.resolve(f)).and_then(|f| f.as_array().cloned())).unwrap_or_default()
     };
-    let generated: std::collections::HashSet<pdfcraft_cos::ObjRef> = top(doc)
+    let generated: std::collections::HashSet<openpdf_cos::ObjRef> = top(doc)
         .iter()
         .filter_map(Object::as_ref)
         .filter(|r| doc.get(*r).as_dict().is_some_and(|d| d.contains(crate::pdf::SOM_KEY) || d.contains(crate::pdf::NODE_KEY)))

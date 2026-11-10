@@ -1,4 +1,4 @@
-//! The face, size and colour a text box's text is drawn in when PdfCraft draws its appearance:
+//! The face, size and colour a text box's text is drawn in when OpenPDF draws its appearance:
 //! `/DA` (ISO 32000-2 Table 177; the font named there is looked up in the interactive form's
 //! `/DR` font resources, §12.7.4.3) and `/DS`, the default style string (Table 177), which is
 //! read for its CSS `font`, `font-family`, `font-size`, `font-weight`, `font-style` and `color`.
@@ -7,8 +7,8 @@
 //! bold, italic and bold italic, in WinAnsiEncoding): a font that isn't one of them is drawn in
 //! Helvetica, as before. Symbol and ZapfDingbats are not text faces for this purpose.
 
-use pdfcraft_cos::{Dict, Document, Object};
-use pdfcraft_fonts::{Std14, Std14Match as Match};
+use openpdf_cos::{Dict, Document, Object};
+use openpdf_fonts::{Std14, Std14Match as Match};
 
 use crate::Rgb;
 use crate::appearance::parse_da;
@@ -332,7 +332,7 @@ fn css_color(v: &str) -> Option<Rgb> {
 
 #[cfg(test)]
 mod tests {
-    use pdfcraft_cos::PdfString;
+    use openpdf_cos::PdfString;
 
     use super::*;
 
@@ -379,9 +379,9 @@ mod tests {
         assert_eq!(text_style(&dict("/Cour 12 Tf", Some("font-weight:700")), None).face, Std14::CourierBold);
     }
 
-    /// PdfCraft writes `/DS` from `/DA` (8-bit colour): `/DA`'s exact colour, size and face stay.
+    /// OpenPDF writes `/DS` from `/DA` (8-bit colour): `/DA`'s exact colour, size and face stay.
     #[test]
-    fn pdfcraft_written_ds_matches_da() {
+    fn openpdf_written_ds_matches_da() {
         let s = text_style(&dict("0.1 0.2 0.3 rg /Helv 12.5 Tf", Some("font: Helvetica 12.5pt; text-align:left; color:#1A334D")), None);
         assert_eq!(s, TextStyle { face: Std14::Helvetica, size: 12.5, color: [0.1, 0.2, 0.3] });
     }

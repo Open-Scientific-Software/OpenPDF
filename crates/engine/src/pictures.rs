@@ -17,11 +17,11 @@ pub struct MarkFile {
 
 /// Embed an image that is placed on a page, turned the way its EXIF Orientation says.
 pub(crate) fn embed_image(
-    doc: &mut pdfcraft_cos::Document,
+    doc: &mut openpdf_cos::Document,
     name: &str,
     bytes: &[u8],
-) -> Result<(pdfcraft_cos::ObjRef, (f64, f64)), pdfcraft_create::CreateError> {
-    pdfcraft_create::image_xobject(doc, name, bytes)
+) -> Result<(openpdf_cos::ObjRef, (f64, f64)), openpdf_create::CreateError> {
+    openpdf_create::image_xobject(doc, name, bytes)
 }
 
 /// The largest box of `w`:`h` shape inside `rect`, centred in it: a stamp's picture keeps its
@@ -48,28 +48,28 @@ pub(crate) fn fit_picture(rect: [f64; 4], w: f64, h: f64) -> [f64; 4] {
 }
 
 /// Bring a mark's picture into `doc`: a PDF page as a form XObject, or an image.
-pub(crate) fn mark_source(doc: &mut pdfcraft_cos::Document, f: &MarkFile) -> Result<pdfcraft_edit::MarkSource, EditError> {
+pub(crate) fn mark_source(doc: &mut openpdf_cos::Document, f: &MarkFile) -> Result<openpdf_edit::MarkSource, EditError> {
     let head = &f.bytes[..f.bytes.len().min(1024)];
     if head.windows(5).any(|w| w == b"%PDF-") {
-        let src = pdfcraft_cos::Document::open(f.bytes.clone()).map_err(|e| EditError::Source(format!("{}: {e}", f.name)))?;
-        let (xobject, size) = pdfcraft_organize::page_as_form(doc, &src, f.page)?;
-        Ok(pdfcraft_edit::MarkSource { xobject, size, image: false })
+        let src = openpdf_cos::Document::open(f.bytes.clone()).map_err(|e| EditError::Source(format!("{}: {e}", f.name)))?;
+        let (xobject, size) = openpdf_organize::page_as_form(doc, &src, f.page)?;
+        Ok(openpdf_edit::MarkSource { xobject, size, image: false })
     } else {
         let (xobject, size) = embed_image(doc, &f.name, &f.bytes)?;
-        Ok(pdfcraft_edit::MarkSource { xobject, size, image: true })
+        Ok(openpdf_edit::MarkSource { xobject, size, image: true })
     }
 }
 
 /// A 3D model's poster: the picture in `file` brought into `doc` and fitted inside `rect`
 /// (user space), keeping its shape, and centred. It is drawn in user space and not counter-rotated
 /// (unlike a stamp), so on a page with `/Rotate` it turns with the page, as the model does.
-pub(crate) fn model_poster(doc: &mut pdfcraft_cos::Document, rect: [f64; 4], file: &MarkFile) -> Result<pdfcraft_annot::PosterPicture, EditError> {
+pub(crate) fn model_poster(doc: &mut openpdf_cos::Document, rect: [f64; 4], file: &MarkFile) -> Result<openpdf_annot::PosterPicture, EditError> {
     let src = mark_source(doc, file)?;
     let (sw, sh) = src.size;
     if !(sw.is_finite() && sh.is_finite() && sw > 0.0 && sh > 0.0) {
         return Err(EditError::Source(format!("{}: the poster has no area", file.name)));
     }
-    Ok(pdfcraft_annot::PosterPicture { xobject: src.xobject, image: src.image, size: (sw, sh), at: fit_picture(rect, sw, sh) })
+    Ok(openpdf_annot::PosterPicture { xobject: src.xobject, image: src.image, size: (sw, sh), at: fit_picture(rect, sw, sh) })
 }
 
 /// The dimensions of an image from its bytes (JPEG, PNG, TIFF), without decoding the full raster.

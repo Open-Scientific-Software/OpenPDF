@@ -2,12 +2,12 @@
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
-use pdfcraft_ui_egui::{PdfCraftApp, QuickTool};
+use openpdf_ui_egui::{OpenPDFApp, QuickTool};
 
 #[test]
 fn choosing_and_placing_stamps() {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("form.pdf", None, include_bytes!("../data/form.pdf").to_vec()).unwrap();
         app.set_option("zoom", "150").unwrap();
@@ -19,7 +19,7 @@ fn choosing_and_placing_stamps() {
     h.get_by_label("Add a stamp");
     h.get_all_by_label("APPROVED").next().expect("dynamic approved").click();
     h.run_steps(2);
-    assert_eq!(h.state().quick_tool, QuickTool::Stamp(pdfcraft_engine::StampKind::DynApproved));
+    assert_eq!(h.state().quick_tool, QuickTool::Stamp(openpdf_engine::StampKind::DynApproved));
     let p = {
         let r = h.state().views[0].page_screen_rect(0).unwrap();
         r.min + egui::vec2(r.width() * 0.5, r.height() * 0.85)
@@ -39,7 +39,7 @@ fn choosing_and_placing_stamps() {
         h.run_steps(2);
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    if let Ok(dir) = std::env::var("PDFCRAFT_SHOTS") {
+    if let Ok(dir) = std::env::var("OPENPDF_SHOTS") {
         let _gpu = crate::gpu();
         h.render().unwrap().save(format!("{dir}/stamps.png")).unwrap();
     }
@@ -49,11 +49,11 @@ fn choosing_and_placing_stamps() {
 fn natural_image_stamps_keep_displayed_bounds_on_rotated_pages() {
     for degrees in [0, 90, 180, 270] {
         let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| {
-            let mut app = PdfCraftApp::new();
+            let mut app = OpenPDFApp::new();
             app.set_option("language", "en").unwrap();
             app.open_bytes("form.pdf", None, include_bytes!("../data/form.pdf").to_vec()).unwrap();
             let id = app.views[0].id;
-            app.session.apply(id, pdfcraft_engine::Edit::RotatePages { pages: vec![0], degrees }).unwrap();
+            app.session.apply(id, openpdf_engine::Edit::RotatePages { pages: vec![0], degrees }).unwrap();
             app.set_option("zoom", "100").unwrap();
             app
         });
@@ -91,7 +91,7 @@ fn natural_image_stamps_keep_displayed_bounds_on_rotated_pages() {
 #[test]
 fn creating_placing_and_keeping_custom_stamps() {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("form.pdf", None, include_bytes!("../data/form.pdf").to_vec()).unwrap();
         app.set_option("zoom", "150").unwrap();
@@ -133,7 +133,7 @@ fn creating_placing_and_keeping_custom_stamps() {
     assert_eq!(doc.can_undo(), Some("Add stamp"));
     // The library is kept with the app's settings.
     let saved = s.persist();
-    let mut again = PdfCraftApp::new();
+    let mut again = OpenPDFApp::new();
     again.set_option("language", "en").unwrap();
     again.restore(&saved);
     assert_eq!(again.custom_stamps.len(), 1);
@@ -146,7 +146,7 @@ fn creating_placing_and_keeping_custom_stamps() {
 #[test]
 fn a_dynamic_custom_stamp_keeps_its_line_and_fills_it_in_when_placed() {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("form.pdf", None, include_bytes!("../data/form.pdf").to_vec()).unwrap();
         app.set_option("zoom", "150").unwrap();
@@ -178,11 +178,11 @@ fn a_dynamic_custom_stamp_keeps_its_line_and_fills_it_in_when_placed() {
     h.run_steps(4);
     let s = h.state();
     let saved = s.session.save_bytes(s.views[0].id).unwrap();
-    let pdf = pdfcraft_cos::Document::open(saved).unwrap();
+    let pdf = openpdf_cos::Document::open(saved).unwrap();
     let line = pdf
         .scan_objects()
         .find_map(|(_, object)| match object.as_ref() {
-            pdfcraft_cos::Object::Dict(dict) => dict.get(b"PCByLine").and_then(pdfcraft_cos::Object::as_string).map(pdfcraft_cos::PdfString::to_text),
+            openpdf_cos::Object::Dict(dict) => dict.get(b"PCByLine").and_then(openpdf_cos::Object::as_string).map(openpdf_cos::PdfString::to_text),
             _ => None,
         })
         .expect("placed custom stamp stores PCByLine in the PDF");
@@ -197,7 +197,7 @@ fn a_dynamic_custom_stamp_keeps_its_line_and_fills_it_in_when_placed() {
     let aspect = (r[2] - r[0]) / (r[3] - r[1]);
     // A band under the 3:1 picture (so less wide than 3:1), at least as wide as the picture.
     assert!(aspect > 3.0 * (1.0 - 0.22) - 0.05 && aspect < 3.0 - 0.05, "a band under the 3:1 picture: {r:?}");
-    let mut again = PdfCraftApp::new();
+    let mut again = OpenPDFApp::new();
     again.restore(&s.persist());
     assert_eq!(again.custom_stamps[0].line, s.custom_stamps[0].line, "kept with the library");
 }

@@ -12,8 +12,8 @@
 //! display time waits at most `MAX_DISPLAY`.
 
 use egui::{Color32, CornerRadius, Painter, Pos2, Rect, TextureHandle, pos2};
-use pdfcraft_render::transition::{self, Effect, Piece};
-use pdfcraft_render::{DocInfo, PageTransition};
+use openpdf_render::transition::{self, Effect, Piece};
+use openpdf_render::{DocInfo, PageTransition};
 
 use super::{DocView, PageLayout};
 
@@ -255,7 +255,7 @@ mod tests {
 
     #[test]
     fn only_a_visible_effect_with_a_length_plays() {
-        use pdfcraft_render::TransitionStyle;
+        use openpdf_render::TransitionStyle;
         let t = |style, duration| PageTransition {
             page: 1,
             style,

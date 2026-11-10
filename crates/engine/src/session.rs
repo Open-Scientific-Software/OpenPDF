@@ -2,8 +2,8 @@
 
 use std::sync::{Arc, OnceLock};
 
-use pdfcraft_cos::{SaveOptions, write_full, write_incremental};
-use pdfcraft_render::{LayerOp, OpenError, ReadingColors, RenderConfig, RenderPool, inspect};
+use openpdf_cos::{SaveOptions, write_full, write_incremental};
+use openpdf_render::{LayerOp, OpenError, ReadingColors, RenderConfig, RenderPool, inspect};
 
 #[cfg(test)]
 use crate::check_refresh_panic;

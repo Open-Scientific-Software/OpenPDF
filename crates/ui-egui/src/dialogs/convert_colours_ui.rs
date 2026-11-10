@@ -1,11 +1,11 @@
 //! Print production ▸ Convert colours (Acrobat's Convert Colors): the target
 //! space, what to convert, the pages. Convert counts first and says what changed.
 
-use pdfcraft_engine::{ColourTarget, ConvertColours, DocId, Edit};
+use openpdf_engine::{ColourTarget, ConvertColours, DocId, Edit};
 
 use crate::pageboxes::Range;
 use crate::theme::{self, Tokens};
-use crate::{PdfCraftApp, widgets};
+use crate::{OpenPDFApp, widgets};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConvertColoursDraft {
@@ -40,7 +40,7 @@ impl ConvertColoursDraft {
 }
 
 /// The dialog: (convert, cancel).
-pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> (bool, bool) {
+pub(crate) fn body(ui: &mut egui::Ui, app: &mut OpenPDFApp, t: &Tokens) -> (bool, bool) {
     let Some((i, id)) = app.active_ids() else { return (false, true) };
     let count = app.session.get(id).map(|d| d.info.pages.len()).unwrap_or(0);
     let current = app.views[i].current;
@@ -101,7 +101,7 @@ pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> (boo
     (go, cancel)
 }
 
-impl PdfCraftApp {
+impl OpenPDFApp {
     /// Convert: count first (the edit refuses when nothing changes), then apply and say.
     pub(crate) fn convert_colours(&mut self) {
         let Some((i, id)) = self.active_ids() else { return };

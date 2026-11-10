@@ -664,7 +664,7 @@ fn attachments_of_both_kinds_are_listed_and_extracted() {
             subset: true,
             encoding: None,
             substitute: Some("Helvetica".into()),
-            substitution: Some(pdfcraft_fonts::fallback::Why::NamedStandard14.note().into()),
+            substitution: Some(openpdf_fonts::fallback::Why::NamedStandard14.note().into()),
         }]
     );
 }
@@ -948,7 +948,7 @@ trailer << /Root 1 0 R >>
     assert_eq!(listed, [("Text", 1, Some("typed")), ("Square", 3, Some("untyped")), ("Circle", 5, Some("null type"))], "{:?}", info.annotations);
 }
 
-/// `/QuadPoints` is read by the rule redaction apply uses (`pdfcraft_geom::quad_points`): a quad
+/// `/QuadPoints` is read by the rule redaction apply uses (`openpdf_geom::quad_points`): a quad
 /// with a non-number is left out rather than drawn with a zero, an indirect number is followed,
 /// and a trailing partial quad is dropped.
 #[test]
@@ -1020,7 +1020,7 @@ fn an_annotation_reached_through_a_reference_chain_is_listed_once() {
     }
 }
 
-/// Comments list their `/C` as pdfcraft-annot draws and lists it: four entries with a null are
+/// Comments list their `/C` as openpdf-annot draws and lists it: four entries with a null are
 /// CMYK with the null as 0, one entry is grey, a reference among four entries is unreadable,
 /// three numbers (some by reference) are RGB, and a text box keeps its three-number `/C`.
 #[test]
@@ -1505,8 +1505,8 @@ fn rebuilt_file_prefers_a_trailer_whose_root_is_the_catalog() {
 fn lazy_structure_matches_the_compatibility_inspector() {
     // Each fixture as lopdf writes it, and with its objects in object streams.
     let packed = |bytes: &[u8]| {
-        let doc = pdfcraft_cos::Document::open(Arc::new(bytes.to_vec())).unwrap();
-        pdfcraft_cos::write_full(&doc, &pdfcraft_cos::SaveOptions { object_streams: true, ..Default::default() }).unwrap()
+        let doc = openpdf_cos::Document::open(Arc::new(bytes.to_vec())).unwrap();
+        openpdf_cos::write_full(&doc, &openpdf_cos::SaveOptions { object_streams: true, ..Default::default() }).unwrap()
     };
     let fixtures = [ATTACHMENTS, LAYERS, DESTS].into_iter().flat_map(|bytes| {
         let mut original = Document::load_mem(bytes).unwrap();
@@ -1963,7 +1963,7 @@ fn outline_items_carry_their_colour_and_style() {
 /// A bookmark's action (`/A`, ISO 32000-2 §12.3.3 Table 151) is read as a link's is. Only a
 /// go-to's `/D` is a page of this document: a remote go-to's names a page or destination of the
 /// other file (§12.6.4.3), so `[0 /FitH 200]` there is not this file's first page. A web address,
-/// another PDF and actions PdfCraft doesn't run are kept for the bookmark to run or report. An
+/// another PDF and actions OpenPDF doesn't run are kept for the bookmark to run or report. An
 /// action without a type is still read as the go-to its `/D` suggests.
 #[test]
 fn bookmark_actions_are_read_as_links_read_them() {
@@ -2451,7 +2451,7 @@ mod group_tests {
 }
 
 /// #2137 review: a pop-up without a `/Rect` of four numbers reads as no pop-up, as
-/// `pdfcraft_annot::summaries` reads it, so the two lists of comments agree.
+/// `openpdf_annot::summaries` reads it, so the two lists of comments agree.
 #[test]
 fn a_pop_up_without_a_four_number_rect_is_none() {
     let bytes = "%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Annots [4 0 R 5 0 R] >> endobj\n4 0 obj << /Type /Annot /Subtype /Text /Rect [20 260 40 280] /Contents (Hi) /Popup 5 0 R >> endobj\n5 0 obj << /Type /Annot /Subtype /Popup RECT /Parent 4 0 R /Open true >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n";
@@ -2464,7 +2464,7 @@ fn a_pop_up_without_a_four_number_rect_is_none() {
 
 /// #2137 review: a pop-up `/Rect` with its corners reversed reads with them in order (ISO
 /// 32000-2 §7.9.5), and one with a number too large for `f32` reads as no pop-up, as
-/// `pdfcraft_annot::summaries` reads both.
+/// `openpdf_annot::summaries` reads both.
 #[test]
 fn a_pop_up_rect_with_reversed_corners_is_put_in_order_and_a_huge_one_is_none() {
     let bytes = "%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Annots [4 0 R 5 0 R] >> endobj\n4 0 obj << /Type /Annot /Subtype /Text /Rect [20 260 40 280] /Contents (Hi) /Popup 5 0 R >> endobj\n5 0 obj << /Type /Annot /Subtype /Popup /Rect RECT /Parent 4 0 R /Open true >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n";
@@ -2656,9 +2656,9 @@ trailer << /Root 1 0 R >>
 /// user password, as a save writes them.
 fn r6_password_values() -> String {
     let plain = b"%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kids [] /Count 0 >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF".to_vec();
-    let mut doc = pdfcraft_cos::Document::open(Arc::new(plain)).unwrap();
-    doc.set_encryption(&pdfcraft_cos::NewEncryption {
-        algorithm: pdfcraft_cos::Algorithm::Aes256,
+    let mut doc = openpdf_cos::Document::open(Arc::new(plain)).unwrap();
+    doc.set_encryption(&openpdf_cos::NewEncryption {
+        algorithm: openpdf_cos::Algorithm::Aes256,
         user_password: "user pw",
         owner_password: "owner pw",
         permissions: -4,
@@ -2666,8 +2666,8 @@ fn r6_password_values() -> String {
         seed: [5; 32],
     })
     .unwrap();
-    let saved = pdfcraft_cos::write_full(&doc, &pdfcraft_cos::SaveOptions::default()).unwrap();
-    let saved = pdfcraft_cos::Document::open_with_password(Arc::new(saved), Some("user pw")).unwrap();
+    let saved = openpdf_cos::write_full(&doc, &openpdf_cos::SaveOptions::default()).unwrap();
+    let saved = openpdf_cos::Document::open_with_password(Arc::new(saved), Some("user pw")).unwrap();
     let encrypt = saved.resolve(saved.trailer().get(b"Encrypt").unwrap());
     let encrypt = encrypt.as_dict().unwrap();
     ["O", "U", "OE", "UE", "Perms"]

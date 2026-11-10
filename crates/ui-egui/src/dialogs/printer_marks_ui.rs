@@ -2,11 +2,11 @@
 //! marks, the line weight, whether to widen the page to make room, and the pages. The marks are
 //! a removable page mark (Remove printer marks takes them off; adding again replaces them).
 
-use pdfcraft_engine::{Edit, PrinterMarks};
+use openpdf_engine::{Edit, PrinterMarks};
 
 use crate::pageboxes::Range;
 use crate::theme::{self, Tokens};
-use crate::{PdfCraftApp, widgets};
+use crate::{OpenPDFApp, widgets};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PrinterMarksDraft {
@@ -62,7 +62,7 @@ impl PrinterMarksDraft {
 }
 
 /// The dialog: (add, cancel).
-pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> (bool, bool) {
+pub(crate) fn body(ui: &mut egui::Ui, app: &mut OpenPDFApp, t: &Tokens) -> (bool, bool) {
     let Some((i, id)) = app.active_ids() else { return (false, true) };
     let count = app.session.get(id).map(|d| d.info.pages.len()).unwrap_or(0);
     let current = app.views[i].current;
@@ -136,7 +136,7 @@ pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> (boo
     (go, cancel)
 }
 
-impl PdfCraftApp {
+impl OpenPDFApp {
     /// Add: the marks on the chosen pages, labelled with the file's name and today's date.
     pub(crate) fn add_printer_marks(&mut self) {
         let Some((i, id)) = self.active_ids() else { return };

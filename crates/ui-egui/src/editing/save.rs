@@ -1,4 +1,4 @@
-use super::{PdfCraftApp, StagingName, staging_suffixes};
+use super::{OpenPDFApp, StagingName, staging_suffixes};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::file_filter::AddFilterAnyCase as _;
 
@@ -6,19 +6,19 @@ use crate::file_filter::AddFilterAnyCase as _;
 /// on disk is another version than the document came from (#2166).
 #[cfg(not(target_arch = "wasm32"))]
 pub struct PendingOverwrite {
-    pub id: pdfcraft_engine::DocId,
+    pub id: openpdf_engine::DocId,
     pub dest: String,
     target: SaveTarget,
     /// What was to run once the document is written (close its tab, quit).
-    after: Box<dyn FnOnce(&mut PdfCraftApp) + Send>,
+    after: Box<dyn FnOnce(&mut OpenPDFApp) + Send>,
 }
 
 /// A save held back by [`Dialog::LockSignatures`](crate::Dialog::LockSignatures) (#2149).
 pub struct PendingLock {
-    pub id: pdfcraft_engine::DocId,
+    pub id: openpdf_engine::DocId,
     target: SaveTarget,
     /// What was to run once the document is written (close its tab, quit).
-    after: Box<dyn FnOnce(&mut PdfCraftApp) + Send>,
+    after: Box<dyn FnOnce(&mut OpenPDFApp) + Send>,
 }
 
 /// Where Save writes.
@@ -30,7 +30,7 @@ pub enum SaveTarget {
     As,
 }
 
-impl PdfCraftApp {
+impl OpenPDFApp {
     /// Save the active document. Returns `true` if it was written.
     pub fn save_active(&mut self, target: SaveTarget) -> bool {
         match self.active {
@@ -81,7 +81,7 @@ impl PdfCraftApp {
         // last delivery make Save ask where.
         let redacted = self.views.get(index).is_some_and(|v| v.redactions_applied > 0);
         let not_delivered = self.views.get(index).is_some_and(|v| v.redactions_applied > v.redactions_downloaded);
-        let name = if redacted { pdfcraft_engine::redacted_file_name(&name) } else { name };
+        let name = if redacted { openpdf_engine::redacted_file_name(&name) } else { name };
         // Undo past a saved Apply redactions brings back content that the file on disk has
         // redacted: ask where instead of writing it over that file. In the web build a delivered
         // step stays counted in `redactions_applied`, so fewer steps than were delivered means one
@@ -181,7 +181,7 @@ impl PdfCraftApp {
     /// `pending_overwrite` behind [`Dialog::OverwriteChanged`](crate::Dialog::OverwriteChanged).
     /// Returns `true` if written now.
     #[cfg(not(target_arch = "wasm32"))]
-    fn save_doc_to_then(&mut self, id: pdfcraft_engine::DocId, dest: &str, target: SaveTarget, after: Box<dyn FnOnce(&mut Self) + Send>) -> bool {
+    fn save_doc_to_then(&mut self, id: openpdf_engine::DocId, dest: &str, target: SaveTarget, after: Box<dyn FnOnce(&mut Self) + Send>) -> bool {
         let own = self.session.get(id).and_then(|d| d.path.as_deref()).is_some_and(|p| crate::same_file(p, dest));
         if own && self.watch.disk_differs(id, dest, self.session.get(id).map(|d| d.saved_bytes())) {
             self.pending_overwrite = Some(PendingOverwrite { id, dest: dest.to_string(), target, after });
@@ -242,7 +242,7 @@ impl PdfCraftApp {
     /// saving. Undoable. The next save doesn't ask, as no Fill & Sign mark is left to lock; the
     /// placed-signature mark itself stays, so undoing the lock brings back both the notice and the
     /// save-time question. Never on a digitally signed document.
-    pub(crate) fn lock_signatures_now(&mut self, id: pdfcraft_engine::DocId) {
+    pub(crate) fn lock_signatures_now(&mut self, id: openpdf_engine::DocId) {
         if self.session.get(id).is_none_or(|d| d.is_signed()) {
             return;
         }
@@ -253,9 +253,9 @@ impl PdfCraftApp {
 
     /// Lock document `id`'s Fill & Sign marks into its pages (an undoable edit). Returns false,
     /// having told the user why, when that fails.
-    fn flatten_fill_sign_in(&mut self, id: pdfcraft_engine::DocId) -> bool {
+    fn flatten_fill_sign_in(&mut self, id: openpdf_engine::DocId) -> bool {
         let before = self.session.get(id).map(|d| d.edit_generation());
-        if let Err(e) = self.session.apply(id, pdfcraft_engine::Edit::FlattenFillSign) {
+        if let Err(e) = self.session.apply(id, openpdf_engine::Edit::FlattenFillSign) {
             self.notify_error(e);
             return false;
         }
@@ -273,7 +273,7 @@ impl PdfCraftApp {
 
     /// Write document `id` to `dest` and make it the document's file. Returns `true` if written.
     #[cfg(not(target_arch = "wasm32"))]
-    fn save_doc_to(&mut self, id: pdfcraft_engine::DocId, dest: &str, target: SaveTarget) -> bool {
+    fn save_doc_to(&mut self, id: openpdf_engine::DocId, dest: &str, target: SaveTarget) -> bool {
         // Save As answers on a later frame: commit what was typed meanwhile, too (#166), even
         // if another tab is active by then.
         if !self.commit_typing_in(id) || !self.flatten_fill_sign_for_save(id) {
@@ -368,7 +368,7 @@ fn restores_saved_redactions(view: &crate::DocView) -> bool {
     view.redactions_undone_after_save > 0 || view.saved_redactions_cut_off || view.redactions_applied < view.redactions_downloaded
 }
 
-/// `name` without the `_Redacted` that [`pdfcraft_engine::redacted_file_name`] adds before the
+/// `name` without the `_Redacted` that [`openpdf_engine::redacted_file_name`] adds before the
 /// extension ("contract_Redacted.pdf" gives "contract.pdf"). Any other name is returned as it is.
 pub(crate) fn unredacted_file_name(name: &str) -> String {
     let cut = name.len().saturating_sub(4);
@@ -421,7 +421,7 @@ pub(super) fn write_atomically_syncing(
     suffixes: impl IntoIterator<Item = u64>,
     sync_all: impl FnOnce(&std::fs::File) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
-    pdfcraft_platform::staging::write_atomically_with(std::path::Path::new(path), bytes, StagingName::TagThenSuffix, suffixes, sync_all)
+    openpdf_platform::staging::write_atomically_with(std::path::Path::new(path), bytes, StagingName::TagThenSuffix, suffixes, sync_all)
 }
 
 #[cfg(not(target_arch = "wasm32"))]

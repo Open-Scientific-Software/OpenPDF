@@ -1,4 +1,4 @@
-# PdfCraft integration candidate, 2026-10-30
+# OpenPDF integration candidate, 2026-10-30
 
 Base: 1d1cbc4ec92012767f5b48c92b451e15eb401c42
 

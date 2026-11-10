@@ -1,6 +1,6 @@
 [package]
-name = "pdfcraft-automation"
-description = "Agent control for PdfCraft: a headless tool set over the engine and an MCP server"
+name = "openpdf-automation"
+description = "Agent control for OpenPDF: a headless tool set over the engine and an MCP server"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,13 +9,13 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-pdfcraft-engine = { workspace = true }
-pdfcraft-cos = { workspace = true }
-pdfcraft-render = { workspace = true }
-pdfcraft-organize = { workspace = true }
-pdfcraft-platform = { workspace = true }
-pdfcraft-prc = { workspace = true }
-pdfcraft-prc-render = { workspace = true }
+openpdf-engine = { workspace = true }
+openpdf-cos = { workspace = true }
+openpdf-render = { workspace = true }
+openpdf-organize = { workspace = true }
+openpdf-platform = { workspace = true }
+openpdf-prc = { workspace = true }
+openpdf-prc-render = { workspace = true }
 serde_json = { workspace = true }
 sha2 = "0.11"
 tempfile = "3.27"
@@ -28,11 +28,11 @@ default = ["mcp"]
 mcp = ["dep:base64"]
 
 [dev-dependencies]
-pdfcraft-fonts = { workspace = true }
+openpdf-fonts = { workspace = true }
 png = "0.18"
 flate2.workspace = true
-pdfcraft-model = { workspace = true }
-pdfcraft-xfa = { workspace = true }
+openpdf-model = { workspace = true }
+openpdf-xfa = { workspace = true }
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]

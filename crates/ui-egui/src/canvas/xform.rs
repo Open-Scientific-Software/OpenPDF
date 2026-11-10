@@ -70,7 +70,7 @@ impl PageXform {
         &self,
         painter: &egui::Painter,
         tex: egui::TextureId,
-        p: &pdfcraft_render::PageInfo,
+        p: &openpdf_render::PageInfo,
         rect: [f64; 4],
         turn: i64,
         color: Color32,
@@ -78,7 +78,7 @@ impl PageXform {
         let mut mesh = egui::Mesh::with_texture(tex);
         let (w, h) = (rect[2] - rect[0], rect[3] - rect[1]);
         let (shown_w, shown_h) = if turn % 180 == 0 { (w, h) } else { (h, w) };
-        let [a, b, c, d, e, f] = pdfcraft_model::view_matrix_for(turn, rect);
+        let [a, b, c, d, e, f] = openpdf_model::view_matrix_for(turn, rect);
         for (u, v) in [(0.0_f32, 0.0_f32), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)] {
             // The texture's (u, v), from its top-left, in the picture's upright frame, then in user space.
             let (dx, dy) = (f64::from(u) * shown_w, f64::from(1.0 - v) * shown_h);
@@ -141,7 +141,7 @@ impl PageXform {
 
     /// Whether the screen point `p` activates link `l` on `page`: inside one of its
     /// `/QuadPoints` quadrilaterals, or its rectangle when it has none (ISO 32000-2 Table 176).
-    pub fn link_contains(&self, info: &DocInfo, page: usize, l: &pdfcraft_render::Link, p: Pos2) -> bool {
+    pub fn link_contains(&self, info: &DocInfo, page: usize, l: &openpdf_render::Link, p: Pos2) -> bool {
         if l.quads.is_empty() {
             return self.user_rect(info, page, l.rect).contains(p);
         }

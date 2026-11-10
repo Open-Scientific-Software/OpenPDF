@@ -8,7 +8,7 @@ fn asks_for_password(kind: &open_worker::ResultKind) -> bool {
     matches!(
         kind,
         open_worker::ResultKind::Prepared { result, .. }
-            if matches!(**result, Err(pdfcraft_render::OpenError::NeedsPassword | pdfcraft_render::OpenError::WrongPassword))
+            if matches!(**result, Err(openpdf_render::OpenError::NeedsPassword | openpdf_render::OpenError::WrongPassword))
     )
 }
 
@@ -18,13 +18,13 @@ pub(crate) fn same_file(a: &str, b: &str) -> bool {
     a == b || matches!((std::path::absolute(a), std::path::absolute(b)), (Ok(x), Ok(y)) if x == y)
 }
 
-impl PdfCraftApp {
+impl OpenPDFApp {
     /// Open a document the way it asks to be opened: navigation panel, layout, magnification,
     /// page and the place on it (Document Properties ▸ Initial View, `/OpenAction`). With Always
     /// use my default zoom and page layout on, the layout and magnification stay at the defaults
     /// the view opened with, and the view goes to the opening page's top.
-    fn apply_initial_view(&mut self, index: usize, v: &pdfcraft_engine::InitialView) {
-        use pdfcraft_engine::{InitialLayout as L, Magnification as M, Navigation as N};
+    fn apply_initial_view(&mut self, index: usize, v: &openpdf_engine::InitialView) {
+        use openpdf_engine::{InitialLayout as L, Magnification as M, Navigation as N};
         let pages = self.session.get(self.views[index].id).map_or(0, |d| d.info.pages.len());
         // A right panel the user closed stays closed, whatever the document asks for (#2884).
         // A document that asks for full screen gets the panel it names for outside it
@@ -267,9 +267,9 @@ impl PdfCraftApp {
                     }
                     Err(error) => self.notify_fmt("Couldn't open {name}: {e}", &[("name", &pending.name), ("e", &error)]),
                 },
-                Err(error @ (pdfcraft_render::OpenError::NeedsPassword | pdfcraft_render::OpenError::WrongPassword)) => {
+                Err(error @ (openpdf_render::OpenError::NeedsPassword | openpdf_render::OpenError::WrongPassword)) => {
                     let password_error =
-                        matches!(error, pdfcraft_render::OpenError::WrongPassword).then(|| "Incorrect password. Try again.".to_string());
+                        matches!(error, openpdf_render::OpenError::WrongPassword).then(|| "Incorrect password. Try again.".to_string());
                     self.password_prompt = Some(PasswordPrompt {
                         name: pending.name,
                         path: pending.path,
@@ -299,7 +299,7 @@ impl PdfCraftApp {
         password: Option<&str>,
         activate: bool,
     ) -> Result<(), String> {
-        use pdfcraft_render::OpenError;
+        use openpdf_render::OpenError;
         // A new document opens with the remembered Highlight fields, which its scripts read; the
         // session keeps the document in front's.
         let context = self.session.open_context().with_highlight(self.view_defaults.highlight_fields);
@@ -338,7 +338,7 @@ impl PdfCraftApp {
         name: &str,
         path: Option<String>,
         size: usize,
-        prepared: pdfcraft_engine::PreparedDocument,
+        prepared: openpdf_engine::PreparedDocument,
         activate: bool,
     ) -> Result<DocId, String> {
         let id = self.session.commit_open(prepared);
@@ -363,8 +363,8 @@ impl PdfCraftApp {
         // name-tree key, which an edit meanwhile can't shift as it can an index.
         let portfolio_initial =
             doc.info.portfolio.as_ref().and_then(|p| p.initial).and_then(|i| doc.info.attachments.get(i)).and_then(|a| match &a.source {
-                pdfcraft_render::AttachmentSource::Document { key } => Some(key.clone()),
-                pdfcraft_render::AttachmentSource::Annotation { .. } => None,
+                openpdf_render::AttachmentSource::Document { key } => Some(key.clone()),
+                openpdf_render::AttachmentSource::Annotation { .. } => None,
             });
         if activate && self.right.is_none() && !self.right_panel_closed && opening_mode != Mode::Read {
             self.right = if !doc.info.annotations.is_empty() {
@@ -478,8 +478,8 @@ impl PdfCraftApp {
                 return;
             }
         };
-        let mime = pdfcraft_engine::mime_for_name(&name).map(str::to_string);
-        if self.apply_edit(pdfcraft_engine::Edit::AddAttachment { name, bytes, description: None, mime }) {
+        let mime = openpdf_engine::mime_for_name(&name).map(str::to_string);
+        if self.apply_edit(openpdf_engine::Edit::AddAttachment { name, bytes, description: None, mime }) {
             self.choose_right_panel(Some(RightPanel::Attachments));
         }
     }
@@ -488,7 +488,7 @@ impl PdfCraftApp {
     pub fn attachment_action(&mut self, doc: DocId, index: usize, open: bool) {
         let Some(d) = self.session.get(doc) else { return };
         let Some(att) = d.info.attachments.get(index).cloned() else { return };
-        let data = pdfcraft_render::attachment_data(&d.bytes, d.password.as_deref(), &att);
+        let data = openpdf_render::attachment_data(&d.bytes, d.password.as_deref(), &att);
         #[cfg(not(target_arch = "wasm32"))]
         let source = d.path.clone();
         match (data, open) {
@@ -508,7 +508,7 @@ impl PdfCraftApp {
                         Ok(()) => {
                             // Windows: the file keeps the document's Mark-of-the-Web (#3990). Best
                             // effort: a volume without alternate data streams can't carry it.
-                            let _ = pdfcraft_platform::zone::mark_from(&path, source.as_deref().map(std::path::Path::new));
+                            let _ = openpdf_platform::zone::mark_from(&path, source.as_deref().map(std::path::Path::new));
                             app.notify_fmt("Saved {name}", &[("name", &path.display().to_string())])
                         }
                         Err(e) => app.notify_fmt("Couldn't save: {e}", &[("e", &e.to_string())]),
@@ -564,7 +564,7 @@ impl PdfCraftApp {
     /// The document is a portfolio whose tab shows its file list: one that doesn't keep the
     /// list hidden (`/View /H`).
     fn lists_files(&self, id: DocId) -> bool {
-        self.session.get(id).and_then(|d| d.info.portfolio.as_ref()).is_some_and(|p| p.view != pdfcraft_render::PortfolioView::Hidden)
+        self.session.get(id).and_then(|d| d.info.portfolio.as_ref()).is_some_and(|p| p.view != openpdf_render::PortfolioView::Hidden)
     }
 
     /// Show portfolio `id`'s file list in place of `before`, the panel given back when its tab
@@ -583,7 +583,7 @@ impl PdfCraftApp {
             .info
             .attachments
             .iter()
-            .position(|a| matches!(&a.source, pdfcraft_render::AttachmentSource::Document { key: k } if k == key))
+            .position(|a| matches!(&a.source, openpdf_render::AttachmentSource::Document { key: k } if k == key))
     }
 
     /// Open portfolio `doc`'s attachment `index` in a tab of its own when its bytes are a PDF,
@@ -591,8 +591,8 @@ impl PdfCraftApp {
     fn open_portfolio_initial(&mut self, doc: DocId, index: usize) {
         let Some(d) = self.session.get(doc) else { return };
         let Some(att) = d.info.attachments.get(index).cloned() else { return };
-        let Ok(bytes) = pdfcraft_render::attachment_data(&d.bytes, d.password.as_deref(), &att) else { return };
-        if pdfcraft_engine::source_kind(&att.name, &bytes) != Some(pdfcraft_engine::SourceKind::Pdf) {
+        let Ok(bytes) = openpdf_render::attachment_data(&d.bytes, d.password.as_deref(), &att) else { return };
+        if openpdf_engine::source_kind(&att.name, &bytes) != Some(openpdf_engine::SourceKind::Pdf) {
             return;
         }
         if let Err(e) = self.open_bytes(&crate::files::attachment_file_name(&att.name), None, bytes) {
@@ -618,7 +618,7 @@ impl PdfCraftApp {
 
     /// [`Self::attachment_action`] for the file of the attachment comment at (page, index).
     pub fn comment_attachment_action(&mut self, doc: DocId, page: usize, index: usize, open: bool) {
-        let source = pdfcraft_render::AttachmentSource::Annotation { page, index };
+        let source = openpdf_render::AttachmentSource::Annotation { page, index };
         // The menus offer the items only for a listed file, so a miss is a comment gone since.
         if let Some(i) = self.session.get(doc).and_then(|d| d.info.attachments.iter().position(|a| a.source == source)) {
             self.attachment_action(doc, i, open);
@@ -735,7 +735,7 @@ impl PdfCraftApp {
                 }
                 _ => self.notify_tr("Restrictions lifted"),
             },
-            Err(pdfcraft_engine::EditError::WrongPassword) => {
+            Err(openpdf_engine::EditError::WrongPassword) => {
                 p.input.clear();
                 p.error = Some("Incorrect password. Try again.".to_string());
                 self.unlock_prompt = Some(p);

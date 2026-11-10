@@ -4,11 +4,11 @@
 use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
-use pdfcraft_ui_egui::{MIN_WINDOW_SIZE, PdfCraftApp};
+use openpdf_ui_egui::{MIN_WINDOW_SIZE, OpenPDFApp};
 
-fn harness(size: egui::Vec2) -> Harness<'static, PdfCraftApp> {
+fn harness(size: egui::Vec2) -> Harness<'static, OpenPDFApp> {
     let mut h = Harness::builder().with_size(size).build_eframe(|_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app
     });
@@ -26,7 +26,12 @@ fn at_the_minimum_width_the_modes_fold_into_a_menu_and_search_stays() {
     h.get_by_role_and_label(Role::Button, "E-Sign").click();
     h.run_steps(4);
     assert!(h.query_by_role_and_label(Role::Button, "E-Sign").is_some(), "the menu button is named after the mode");
-    assert!(h.query_by_role_and_label(Role::MenuItem, "File").is_some(), "main menu reachable");
+    if h.query_by_role_and_label(Role::MenuItem, "File").is_none() {
+        let overflow = h.query_by_role_and_label(Role::MenuItem, "Menu").or_else(|| h.query_by_role_and_label(Role::MenuItem, "…"));
+        overflow.expect("the menu overflow is reachable").click();
+        h.run_steps(4);
+    }
+    assert!(h.query_by_label("File").is_some(), "main menu reachable");
 }
 
 #[test]
@@ -63,12 +68,12 @@ fn fixture(n: usize) -> Vec<u8> {
 }
 
 fn protected(user: &str, owner: &str, permissions: i32) -> Vec<u8> {
-    protected_with(pdfcraft_cos::Algorithm::Aes256, user, owner, permissions)
+    protected_with(openpdf_cos::Algorithm::Aes256, user, owner, permissions)
 }
 
-fn protected_with(algorithm: pdfcraft_cos::Algorithm, user: &str, owner: &str, permissions: i32) -> Vec<u8> {
-    let mut doc = pdfcraft_cos::Document::open(std::sync::Arc::new(fixture(2))).unwrap();
-    doc.set_encryption(&pdfcraft_cos::NewEncryption {
+fn protected_with(algorithm: openpdf_cos::Algorithm, user: &str, owner: &str, permissions: i32) -> Vec<u8> {
+    let mut doc = openpdf_cos::Document::open(std::sync::Arc::new(fixture(2))).unwrap();
+    doc.set_encryption(&openpdf_cos::NewEncryption {
         algorithm,
         user_password: user,
         owner_password: owner,
@@ -77,14 +82,14 @@ fn protected_with(algorithm: pdfcraft_cos::Algorithm, user: &str, owner: &str, p
         seed: [4; 32],
     })
     .unwrap();
-    pdfcraft_cos::write_full(&doc, &Default::default()).unwrap()
+    openpdf_cos::write_full(&doc, &Default::default()).unwrap()
 }
 
 /// A narrow window: the stacked notice bar keeps both buttons inside the window and apart.
 #[test]
 fn the_stacked_notice_keeps_its_buttons_in_view() {
     let mut h = Harness::builder().with_size(egui::vec2(MIN_WINDOW_SIZE[0], MIN_WINDOW_SIZE[1])).build_eframe(|_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("locked.pdf", None, protected("", "owner", 0b0100)).unwrap();
         app

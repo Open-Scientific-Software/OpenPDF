@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=OpenPDF
+GenericName=PDF Editor
+Comment=Read, organize, combine, split and secure PDFs
+Exec=openpdf %U
+TryExec=openpdf
+Icon=io.github.openscientificsoftware.openpdf
+Terminal=false
+StartupNotify=true
+StartupWMClass=io.github.openscientificsoftware.openpdf
+Categories=Office;Viewer;
+Keywords=pdf;viewer;editor;annotate;sign;forms;merge;split;
+MimeType=application/pdf;

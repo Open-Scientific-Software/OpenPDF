@@ -8,7 +8,7 @@
 //! nothing is dropped silently. Not carried: actions other than a GoTo, named destinations (they
 //! travel resolved to their page), and structure links (`/SE`).
 
-use pdfcraft_cos::{Dict, Document, ObjRef, Object, PdfString};
+use openpdf_cos::{Dict, Document, ObjRef, Object, PdfString};
 
 use crate::outline::{LIST_DEPTH, children, container, recount, relink, show_children};
 use crate::{OrganizeError, OutlineError, walk};

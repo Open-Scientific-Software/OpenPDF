@@ -388,7 +388,7 @@ fn items_list_their_entries_as_the_list_shows_them() {
 }
 
 /// The items reads come from the list state (`HNode::items`) once one is set: the hook for
-/// PdfCraft's choice-list methods (`addItem`, `clearItems`; the Series 1 work, not on main yet).
+/// OpenPDF's choice-list methods (`addItem`, `clearItems`; the Series 1 work, not on main yet).
 /// Nothing sets it in the product yet, so this test sets it directly.
 #[test]
 fn items_read_the_list_state_once_one_is_set() {

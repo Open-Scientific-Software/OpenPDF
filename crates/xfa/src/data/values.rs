@@ -29,7 +29,7 @@ pub(super) fn text_of(doc: &Document, d: &Dict, key: &[u8]) -> Option<String> {
     d.get(key).map(|o| doc.resolve(o)).and_then(|o| o.as_string().map(|s| s.to_text()))
 }
 
-/// The SOM path of a field: its `/PCSom` when PdfCraft generated it, else its name.
+/// The SOM path of a field: its `/PCSom` when OpenPDF generated it, else its name.
 fn som_of(doc: &Document, f: &FieldDatum) -> String {
     doc.get(f.obj).as_dict().and_then(|d| text_of(doc, d, crate::pdf::SOM_KEY)).unwrap_or_else(|| f.name.clone())
 }
@@ -73,9 +73,9 @@ fn radio_widgets(doc: &Document, f: &FieldDatum) -> Vec<(Option<String>, Option<
 
 /// An on-state name's bytes in the spelling a radio group's AcroForm value has, so the two can
 /// be compared: UTF-8 names read as themselves, other bytes (Shift-JIS states) and `#` are
-/// written `#XX`, as in PDF name syntax. This is `pdfcraft_forms::name_text`, which this crate
+/// written `#XX`, as in PDF name syntax. This is `openpdf_forms::name_text`, which this crate
 /// can't depend on; the value saving gets is read through it, and the state opening returns is
-/// written back through its inverse, `pdfcraft_forms::name_bytes`.
+/// written back through its inverse, `openpdf_forms::name_bytes`.
 /// The engine checks that the two spell names alike (`xfa_and_forms_spell_names_alike`).
 pub fn name_text(bytes: &[u8]) -> String {
     let escape = |b: u8| format!("#{b:02X}");

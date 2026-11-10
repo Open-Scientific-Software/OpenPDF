@@ -1,6 +1,6 @@
-# pdfcraft-fonts
+# openpdf-fonts
 
-Layer L2. Font helpers for the appearance streams PdfCraft generates (comments, form fields).
+Layer L2. Font helpers for the appearance streams OpenPDF generates (comments, form fields).
 
 Today it holds what generated appearances need without a font program:
 
@@ -66,7 +66,7 @@ set). Without that variable `CRAFT_FONTS` is empty and everything below copes:
 - `SHIPPORI_MINCHO`: Shippori Mincho's bytes, or `None`.
 - `TextPlan::for_words`: how the OCR output writes text beyond WinAnsi — per word the first
   face (document face first) whose glyphs cover it, planned once per page into Type 3 fonts
-  (codes, advances, `?` stand-ins) that `pdfcraft-edit` registers and the `pdfcraft-ocr` layers
+  (codes, advances, `?` stand-ins) that `openpdf-edit` registers and the `openpdf-ocr` layers
   draw with; characters no face has are counted (`missing`) so the output reports them.
 
 Generated Japanese Type 3 fonts record the fallback face's family and style in an indirect
