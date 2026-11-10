@@ -9,11 +9,8 @@ use crate::tab_context::Action;
 use crate::theme::{self, ThemePreference, Tokens};
 use crate::{Dialog, Mode, OpenPDFApp, PropsTab, RightPanel, icons, widgets, window_controls};
 
-/// Height of the tab strip when it doubles as the macOS title bar (#789). AppKit draws the traffic
-/// lights itself, centred in the standard 28 pt title-bar band at the top of the window, and moving
-/// them takes AppKit calls the workspace forbids (`unsafe`). So on macOS the strip is that band:
-/// the lights sit vertically centred in it, and the controls beside them shrink to fit, as in
-/// WordCraft (storytold/wordcraft#255).
+/// AppKit's default traffic-light band (#789). Keep the established horizontal reservation;
+/// `macos_titlebar` adjusts the native buttons to the integrated row's centre.
 pub const MAC_TITLE_BAR: f32 = 28.0;
 /// The traffic lights as AppKit lays them out: button diameter, centre-to-centre pitch and the
 /// first button's left edge (8–10 pt depending on the macOS version; the larger value keeps the
@@ -21,25 +18,33 @@ pub const MAC_TITLE_BAR: f32 = 28.0;
 const MAC_LIGHT: f32 = 12.0;
 const MAC_LIGHT_PITCH: f32 = 20.0;
 const MAC_LIGHTS_LEFT: f32 = 10.0;
-/// Where the strip's content starts to the right of the traffic lights: the end of the three
-/// lights plus the same gap the lights keep from the top of the window.
-pub const MAC_CONTENT_LEFT: f32 = MAC_LIGHTS_LEFT + 2.0 * MAC_LIGHT_PITCH + MAC_LIGHT + (MAC_TITLE_BAR - MAC_LIGHT) / 2.0;
-/// The strip and its controls everywhere else.
-const TAB_STRIP: f32 = 38.0;
-const TAB_HEIGHT: f32 = 30.0;
-const STRIP_BUTTON: f32 = 28.0;
+/// Native traffic-light clearance plus 16 pt of separation before Home, so its selected
+/// background does not crowd the window controls.
+pub const MAC_CONTENT_LEFT: f32 = MAC_LIGHTS_LEFT + 2.0 * MAC_LIGHT_PITCH + MAC_LIGHT + (MAC_TITLE_BAR - MAC_LIGHT) / 2.0 + 16.0;
+/// Shared row height, including the integrated macOS title bar.
+const TAB_STRIP: f32 = 36.0;
+const TAB_HEIGHT: f32 = 28.0;
+const STRIP_BUTTON: f32 = 32.0;
 
 /// Draw the window's tab strip: home and open controls, shrinkable and scrollable document tabs with drag
 /// reordering, and platform window controls.
 pub fn tab_strip(app: &mut OpenPDFApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
-    // macOS: the strip is the 28 pt title bar, so the traffic lights are centred in it; tabs and
-    // buttons shrink to keep a margin above and below.
+    // Keep native window buttons aligned with the controls in the integrated row.
     let mac = cfg!(target_os = "macos") && app.integrated_titlebar;
+    let zoom = ui.ctx().zoom_factor().max(0.01);
+    // Native buttons do not shrink with egui; keep at least their standard physical band.
+    let row_height = if mac { TAB_STRIP.max(MAC_TITLE_BAR / zoom) } else { TAB_STRIP };
+    #[cfg(target_os = "macos")]
+    if mac {
+        crate::platform::macos_titlebar::align_controls(ui.ctx(), row_height);
+    }
     let left = if mac { MAC_CONTENT_LEFT as i8 } else { 8 };
-    let (tab_h, button) = if mac { (MAC_TITLE_BAR - 2.0, 24.0) } else { (TAB_HEIGHT, STRIP_BUTTON) };
+    // AppKit buttons keep their native size when egui's interface is scaled down.
+    let native_extra = if mac { (MAC_CONTENT_LEFT / zoom - MAC_CONTENT_LEFT).max(0.0) } else { 0.0 };
+    let (tab_h, button) = (TAB_HEIGHT, STRIP_BUTTON);
     egui::Panel::top("tab_strip")
-        .exact_size(if mac { MAC_TITLE_BAR } else { TAB_STRIP })
+        .exact_size(row_height)
         .frame(egui::Frame::NONE.fill(t.titlebar).inner_margin(egui::Margin { left, right: 10, top: 0, bottom: 0 }))
         .show(ui, |ui| {
             let full = ui.max_rect();
@@ -60,6 +65,9 @@ pub fn tab_strip(app: &mut OpenPDFApp, ui: &mut egui::Ui) {
                 .filter(|_| app.draws_window_frame() && !fullscreen)
                 .unwrap_or_else(|| window_controls::Layout { left: Vec::new(), right: Vec::new() });
             ui.horizontal_centered(|ui| {
+                if native_extra > 0.0 {
+                    ui.add_space(native_extra);
+                }
                 ui.spacing_mut().item_spacing.x = 4.0;
                 if !controls.left.is_empty() {
                     ui.scope(|ui| {
@@ -68,17 +76,17 @@ pub fn tab_strip(app: &mut OpenPDFApp, ui: &mut egui::Ui) {
                     });
                     ui.add_space(window_controls::SIDE_GAP - 4.0);
                 }
-                if icons::button(ui, "house", button, app.active.is_none() && !app.combine_showing(), tl!("Home")).clicked() {
+                if icons::inset_button(ui, "house", button, app.active.is_none() && !app.combine_showing(), tl!("Home")).clicked() {
                     app.active = None;
                     app.combine_tab.focused = false;
                 }
                 // Reserve the three icon buttons, Discord and their gaps outside the scrolling tabs.
                 let controls_width = ui.fonts_mut(|f| f.layout_no_wrap("Discord".into(), theme::medium(13.0), t.text).size().x)
                     + 3.0 * button
-                    + 54.0
+                    + 56.0
                     + window_controls::width(&controls.right);
                 // Open stays in sight after the tabs: its icon, text and padding, and the gaps around it.
-                let open_width = ui.fonts_mut(|f| f.layout_no_wrap(tl!("Open").into(), theme::medium(13.0), t.text).size().x) + 38.0 + 12.0;
+                let open_width = ui.fonts_mut(|f| f.layout_no_wrap(tl!("Open").into(), theme::medium(13.0), t.text).size().x) + 40.0 + 12.0;
                 let mut tabs_width = (ui.available_width() - controls_width - open_width).max(0.0);
                 // Tabs shrink to share the strip (names end in "…") and scroll only once they reach
                 // their narrowest; then arrows either side say so and step through them.
@@ -239,7 +247,7 @@ pub fn tab_strip(app: &mut OpenPDFApp, ui: &mut egui::Ui) {
                 }
                 ui.add_space(4.0);
                 let tip = crate::commands::command_tip(ui.ctx(), tl!("Open a PDF ({key})"), "file.open");
-                if widgets::ghost_button_sized(ui, "plus", tl!("Open"), tab_h).on_hover_text(tip).clicked() {
+                if widgets::title_button(ui, "plus", tl!("Open"), tab_h).on_hover_text(tip).clicked() {
                     app.open_dialog();
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -253,7 +261,7 @@ pub fn tab_strip(app: &mut OpenPDFApp, ui: &mut egui::Ui) {
                         });
                         ui.add_space(window_controls::SIDE_GAP - 4.0);
                     }
-                    if icons::button(ui, "settings", button, false, tl!("Preferences")).clicked() {
+                    if icons::inset_button(ui, "settings", button, false, tl!("Preferences")).clicked() {
                         app.execute("app.preferences");
                     }
                     let (icon, label) = match app.theme_preference {
@@ -262,7 +270,7 @@ pub fn tab_strip(app: &mut OpenPDFApp, ui: &mut egui::Ui) {
                         ThemePreference::Dark => ("moon", tl!("Dark gray")),
                     };
                     let tip = format!("{}: {label}", tl!("Display theme"));
-                    let response = icons::button(ui, icon, button, false, &tip);
+                    let response = icons::inset_button(ui, icon, button, false, &tip);
                     // A click cycles System, Light, Dark; a right-click opens the menu.
                     if response.clicked() {
                         app.execute(match app.theme_preference {
@@ -272,11 +280,11 @@ pub fn tab_strip(app: &mut OpenPDFApp, ui: &mut egui::Ui) {
                         });
                     }
                     egui::Popup::context_menu(&response).id(response.id.with("theme_menu")).show(|ui| appearance_menu(app, ui));
-                    if icons::button(ui, "circle-help", button, false, tl!("Keyboard shortcuts")).clicked() {
+                    if icons::inset_button(ui, "circle-help", button, false, tl!("Keyboard shortcuts")).clicked() {
                         app.dialog = Some(Dialog::Shortcuts);
                     }
                     // One click to the community, from anywhere in the app.
-                    if widgets::ghost_button_sized(ui, "messages-square", "Discord", tab_h).on_hover_text(openpdf_engine::links::DISCORD).clicked() {
+                    if widgets::title_button(ui, "messages-square", "Discord", tab_h).on_hover_text(openpdf_engine::links::DISCORD).clicked() {
                         app.execute("help.discord");
                     }
                 });
@@ -478,7 +486,7 @@ fn tab_name(name: &str) -> String {
 /// The width a tab takes when nothing has to shrink.
 fn tab_natural_width(ui: &egui::Ui, t: &Tokens, name: &str) -> f32 {
     let label = tab_name(name);
-    ui.fonts_mut(|f| f.layout_no_wrap(label, theme::regular(13.0), t.text).size().x) + TAB_CHROME
+    ui.fonts_mut(|f| f.layout_no_wrap(label, theme::medium(13.0), t.text).size().x) + TAB_CHROME
 }
 
 /// The widest any tab may be so that tabs of `natural` widths, `gap` apart, fit in `budget`:
@@ -523,7 +531,7 @@ struct TabSpec<'a> {
 
 fn tab(ui: &mut egui::Ui, spec: TabSpec<'_>, close: &mut Option<usize>) -> egui::Response {
     let TabSpec { id, theme: t, icon, name, file, dirty, active, index, cap, height, draggable } = spec;
-    let font = theme::regular(13.0);
+    let font = theme::medium(13.0);
     let mut label = tab_name(name);
     // A shrunk tab shows as much of its name as fits (the tooltip has all of it).
     if let Some(cap) = cap {
@@ -553,14 +561,14 @@ fn tab(ui: &mut egui::Ui, spec: TabSpec<'_>, close: &mut Option<usize>) -> egui:
         }
         icons::paint(
             ui,
-            Rect::from_min_size(rect.min + vec2(6.0, (height - 16.0) / 2.0), vec2(16.0, 16.0)),
+            Rect::from_min_size(rect.min + vec2(10.0, (height - 16.0) / 2.0 + 1.0), vec2(16.0, 16.0)),
             icon,
-            15.0,
+            16.0,
             if active { t.accent } else { t.text_muted },
         );
-        ui.painter().galley(rect.min + vec2(28.0, (rect.height() - label_galley.size().y) / 2.0), label_galley.clone(), label_color);
+        ui.painter().galley(rect.min + vec2(34.0, (rect.height() - label_galley.size().y) / 2.0 + 1.0), label_galley.clone(), label_color);
     });
-    let x_rect = Rect::from_center_size(rect.right_center() - vec2(16.0, 0.0), vec2(20.0, 20.0));
+    let x_rect = Rect::from_center_size(rect.right_center() - vec2(16.0, -1.0), vec2(20.0, 20.0));
     let x = ui.interact(x_rect, id.with("close"), Sense::click());
     let x_press = theme::Press::track(ui, &x);
     x_press.wash(ui, x_rect, 4, false);
@@ -591,7 +599,7 @@ pub fn mode_bar(app: &mut OpenPDFApp, ui: &mut egui::Ui) {
     // The document in the active tab may hide the menu or the tools (`crate::viewer_prefs`).
     let hidden = app.hidden_interface();
     egui::Panel::top("mode_bar")
-        .exact_size(48.0)
+        .exact_size(40.0)
         .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(10, 0)).stroke(Stroke::new(1.0, t.divider)))
         .show(ui, |ui| {
             ui.horizontal_centered(|ui| {
@@ -1044,11 +1052,70 @@ mod tab_widths {
     }
 
     #[test]
+    fn tab_and_open_labels_share_font_and_vertical_centre() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(crate::theme::font_definitions());
+        let mut app = crate::OpenPDFApp::new();
+        app.integrated_titlebar = true;
+        let bytes = openpdf_engine::Session::new().create_from_text("layout", "Layout").unwrap().to_vec();
+        app.open_bytes("main.pdf", None, bytes).unwrap();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| super::tab_strip(&mut app, ui));
+        let label = |name: &str| {
+            output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.job.text == name => Some(text),
+                    _ => None,
+                })
+                .expect("title label")
+        };
+        let tab = label("main.pdf");
+        let open = label("Open");
+        assert_eq!(tab.galley.job.sections[0].format.font_id, open.galley.job.sections[0].format.font_id);
+        let tab_y = tab.pos.y + tab.galley.size().y / 2.0;
+        let open_y = open.pos.y + open.galley.size().y / 2.0;
+        assert!((tab_y - 18.5).abs() < 0.1 && (open_y - tab_y).abs() < 0.1);
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn chrome_rows_have_balanced_heights() {
+        for integrated in [false, true] {
+            let mut app = crate::OpenPDFApp::new();
+            app.integrated_titlebar = integrated;
+            let bytes = openpdf_engine::Session::new().create_from_text("layout", "Layout check").expect("fixture").to_vec();
+            app.open_bytes("layout.pdf", None, bytes).expect("open fixture");
+            let ctx = egui::Context::default();
+            ctx.set_fonts(crate::theme::font_definitions());
+            for _ in 0..3 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0))),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        super::tab_strip(&mut app, ui);
+                        let strip = app.panes.main_strip.expect("tab strip");
+                        let before = ui.available_height();
+                        super::mode_bar(&mut app, ui);
+                        let tools_height = before - ui.available_height();
+                        assert!(strip.height() >= 35.0, "tabs need breathing room: {strip:?}");
+                        assert!(tools_height <= 42.0, "tools should stay compact: {tools_height}");
+                        assert!((tools_height - strip.height()).abs() <= 6.0, "rows should balance");
+                    },
+                );
+                output.textures_delta.clear();
+            }
+        }
+    }
+
+    #[test]
     fn the_mac_title_bar_centres_and_clears_the_traffic_lights() {
-        // The lights are centred in the bar, and content keeps the same gap after them (#789).
+        // Preserve native clearance and the extra separation before Home.
         let margin = (MAC_TITLE_BAR - MAC_LIGHT) / 2.0;
         let lights_end = MAC_LIGHTS_LEFT + 2.0 * MAC_LIGHT_PITCH + MAC_LIGHT;
-        assert_eq!(MAC_CONTENT_LEFT - lights_end, margin);
+        assert_eq!(MAC_CONTENT_LEFT - lights_end, margin + 16.0);
         // `egui::Margin` is in `i8`.
         assert!(MAC_CONTENT_LEFT <= f32::from(i8::MAX));
     }

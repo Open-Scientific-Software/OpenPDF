@@ -698,22 +698,22 @@ fn tabs_shrink_to_fit_then_arrows_step_through_them_and_open_stays_in_sight() {
     assert!(open.left() > 0.0 && open.right() <= discord.left(), "Open {open:?} stays in sight left of Discord {discord:?}");
 }
 
-/// macOS (#789): with the integrated title bar, the strip is the 28 pt band AppKit centres the
-/// traffic lights in, and everything in it fits that band and clears the lights.
+/// The taller integrated tab row keeps its controls inside the row and clears AppKit
+/// traffic lights, which are positioned separately through AppKit.
 #[cfg(target_os = "macos")]
 #[test]
-fn the_integrated_title_bar_is_the_traffic_light_band() {
+fn the_integrated_title_bar_fits_its_controls_and_clears_traffic_lights() {
     let h = harness(|app| {
         app.integrated_titlebar = true;
         app.open_bytes("band.pdf", None, FIXTURE.to_vec()).unwrap();
     });
-    let band = 28.0;
+    let band = 36.0;
     for label in ["Home", "band.pdf", "Open", "Discord", "Keyboard shortcuts"] {
         let r = h.get_by_label(label).rect();
         assert!(r.top() >= 0.0 && r.bottom() <= band, "{label}: {r:?} inside the {band} pt title bar");
         assert!(r.height() >= 24.0, "{label}: {r:?} stays clickable");
     }
-    // Content starts after the three lights (the last one ends 62 pt in) with a gap.
+    // Content reserves room for the three native lights and a gap before Home.
     let home = h.get_by_label("Home").rect();
     assert!(home.left() >= 62.0 + 4.0, "Home {home:?} clears the traffic lights");
 }
@@ -2099,4 +2099,49 @@ fn full_screen_neither_is_remembered_nor_hides_the_last_view() {
     let view = &mut h.state_mut().views[0];
     view.leave_presentation();
     assert_eq!((view.fit, view.zoom, view.layout, view.continuous), (Fit::None, 0.5, PageLayout::TwoUp, false), "the remembered view");
+}
+
+#[test]
+fn chrome_controls_share_sizes_and_search_has_vertical_padding() {
+    let h = harness(|app| {
+        app.integrated_titlebar = true;
+        app.open_bytes("spacing.pdf", None, FIXTURE.to_vec()).unwrap();
+    });
+    let search = h.get_by_label("Find tools and commands").rect();
+    let help = h.get_by_label("Keyboard shortcuts").rect();
+    assert_eq!(help.height(), 32.0, "title-bar icons match the tools row");
+    assert_eq!(search.height(), 28.0, "search leaves breathing room in the 40 pt row");
+    let edit = h.query_all_by_label("Edit").map(|node| node.rect()).find(|rect| rect.height() == 36.0).expect("Edit mode tab");
+    assert!((search.center().y - edit.center().y).abs() < 1.0, "search aligns with the tools");
+    assert!(search.top() - edit.top() >= 4.0 && edit.bottom() - search.bottom() >= 4.0);
+    if cfg!(target_os = "macos") {
+        assert!(h.get_by_label("Home").rect().left() >= 86.0, "Home clears the window controls comfortably");
+    }
+}
+
+#[test]
+fn tools_controls_fit_inside_the_row_without_shifting_its_centre() {
+    let h = harness(|app| {
+        app.integrated_titlebar = true;
+        app.open_bytes("padding.pdf", None, FIXTURE.to_vec()).unwrap();
+    });
+    let tab = h.get_by_label("padding.pdf").rect();
+    assert!((tab.height() - 35.0).abs() < 0.5, "keep the 36 pt tab row including its separator");
+    let search = h.get_by_label("Find tools and commands").rect();
+    assert!(search.center().y >= 55.0 && search.center().y <= 56.0, "search must centre inside the 40 pt tools row: {search:?}");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn scaled_interface_keeps_space_for_native_window_buttons() {
+    for scale in ["50", "75", "100", "150"] {
+        let h = harness(|app| {
+            app.integrated_titlebar = true;
+            app.set_option("ui-scale", scale).unwrap();
+            app.open_bytes("scaled.pdf", None, FIXTURE.to_vec()).unwrap();
+        });
+        let zoom = h.ctx.zoom_factor();
+        assert!(h.get_by_label("Home").rect().left() * zoom >= 85.5, "native buttons stay clear at {scale}%");
+        assert!(h.get_by_label("scaled.pdf").rect().height() * zoom >= 27.0, "native buttons fit vertically at {scale}%");
+    }
 }

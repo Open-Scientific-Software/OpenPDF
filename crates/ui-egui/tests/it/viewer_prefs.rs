@@ -147,7 +147,7 @@ fn each_preference_hides_its_own_part() {
     // With both the tools and the menu hidden, the mode bar goes and the document moves up.
     let h = harness(|_| {}, &["/ViewerPreferences << /HideToolbar true /HideMenubar true >>"]);
     assert_eq!(shown(&h), (false, false, true));
-    assert!(top(&h) < with_bar - 40.0, "{} against {with_bar}", top(&h));
+    assert!(top(&h) <= with_bar - 40.0, "{} against {with_bar}", top(&h));
 }
 
 #[test]
