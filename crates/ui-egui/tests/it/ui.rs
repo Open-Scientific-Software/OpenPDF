@@ -116,6 +116,23 @@ fn home_removes_one_recent_file_or_clears_them_all() {
 }
 
 #[test]
+fn tools_expansion_label_aligns_with_tool_labels() {
+    let mut h = harness(|_| {});
+    let text = painted_text(&h);
+    let tool = text.iter().find(|(s, ..)| s == "Use a certificate").unwrap().2;
+    let more = text.iter().find(|(s, ..)| s == "View more").unwrap().2;
+    assert!((more.left() - tool.left()).abs() < 2.0, "expansion text aligns with tool labels");
+    h.get_by_label("View more").click();
+    h.run_steps(3);
+    assert!(h.state().all_tools_expanded);
+    h.get_by_label("View less").scroll_to_me();
+    h.run_steps(5);
+    h.get_by_label("View less").click();
+    h.run_steps(3);
+    assert!(!h.state().all_tools_expanded);
+}
+
+#[test]
 fn every_catalog_tool_is_listed_after_view_more() {
     let mut h = harness(|_| {});
     h.get_by_label("View more").click();

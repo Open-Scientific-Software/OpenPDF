@@ -92,15 +92,27 @@ fn all_tools(app: &mut OpenPDFApp, ui: &mut egui::Ui, t: &Tokens) {
         }
         ui.add_space(4.0);
         let more = if app.all_tools_expanded { "View less" } else { "View more" };
-        if ui
-            .add(
-                egui::Label::new(egui::RichText::new(tl!(more)).color(t.accent_text).font(theme::medium(13.0)))
-                    .selectable(false)
-                    .sense(Sense::click()),
-            )
-            .on_hover_cursor(egui::CursorIcon::PointingHand)
-            .clicked()
-        {
+        // Match the tool rows' icon and label columns so the list's final action
+        // stays aligned, with the whole row available as a click/keyboard target.
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tl!(more)));
+        let press = theme::Press::track(ui, &resp);
+        press.wash(ui, rect, 6, false);
+        if resp.has_focus() {
+            ui.painter().rect_stroke(rect, 6, Stroke::new(1.0, t.accent_text), egui::StrokeKind::Inside);
+        }
+        let body = rect.translate(press.offset());
+        icons::paint(
+            ui,
+            Rect::from_min_size(body.min + vec2(6.0, 7.0), vec2(20.0, 20.0)),
+            if app.all_tools_expanded { "chevron-up" } else { "chevron-down" },
+            16.0,
+            t.accent_text,
+        );
+        let clipped = row_label(ui, tl!(more), theme::medium(13.0), t.accent_text, body.left_center() + vec2(36.0, 0.0), rect.width() - 44.0);
+        let resp = theme::hand(resp);
+        let resp = if clipped { resp.on_hover_text(tl!(more)) } else { resp };
+        if resp.clicked() {
             app.all_tools_expanded = !app.all_tools_expanded;
         }
     });
