@@ -183,6 +183,13 @@ OpenPDF opens files from strangers, and people trust it with their work. A malfo
 - `plan/` is an optional gitignored notebook. Do not ask for it and do not stop when it is absent. Public status is [`ROADMAP.md`](ROADMAP.md), [`docs/gaps.md`](docs/gaps.md) and [`docs/roadmap.md`](docs/roadmap.md). "Shipped" in `parity/` means exists and tested, not parity with Acrobat.
 - `cargo run -p openpdf -- <file.pdf>` opens the app. `openpdf-cli run` drives the engine headlessly. `cargo xtask fuzz` findings stay in `fuzz-out/` and become synthetic tests. For UI work, look at a screenshot from `--control` or the `shot` example.
 
+## Upstream authorization
+
+- Work requested for OpenPDF authorizes work in this fork only. Before contacting upstream maintainers or making any externally visible change involving an upstream repository, obtain the user's explicit authorization for the named repository and action.
+- This includes creating or editing issues, comments, discussions, reviews or pull requests; pushing branches or tags; changing settings; and creating forks for upstream contributions. It applies to `storytold/pdfcraft`, `storytold/craft-common-actions`, and all other upstream or dependency repositories.
+- Permission to fix a bug, configure CI, or release OpenPDF does not authorize upstream outreach. Instructions elsewhere to claim an issue, open an upstream issue or PR, or propose a shared change do not supply that authorization. Prepare a local proposal and explain the blocker first; ask before submitting anything upstream.
+- Read-only inspection of public upstream code, documentation, issues and history is allowed. Do not post messages or disclose local information as part of that inspection.
+
 ## Branch naming
 
 - Use a purpose-based prefix followed by a short, lowercase, hyphen-separated description: `fix/` for bug fixes, `feat/` for new features, `update/` for updates to existing behavior or project configuration, `refactor/` for refactoring, `docs/` for documentation, and `chore/` for maintenance.
@@ -205,6 +212,7 @@ OpenPDF opens files from strangers, and people trust it with their work. A malfo
   GitHub profiles). Never hand-edit `contributors.json`.
 
 ## CI workflows
+- **OpenPDF-only unsigned release exception (owner authorized, 2026-11-11).** OpenPDF may maintain its own `.github/workflows/release.yml`, supporting local actions, packaging checks and documentation to build and publish unsigned releases, including 0.18.2. macOS packages may use ad-hoc signatures without notarization. Keep this work in OpenPDF, in a separate CI PR; do not contact or modify upstream repositories. Existing read-only build dependencies and third-party actions remain allowed. This exception overrides the shared-workflow-only restrictions for this release pipeline alone.
 - Workflows in `.github/workflows/` call the shared workflows in [`storytold/craft-common-actions`](https://github.com/storytold/craft-common-actions) at `@main`, with their inputs and secrets. No other jobs: if no shared workflow does what's needed, it doesn't go here.
-- Don't add or change CI in a feature or fix PR. If the existing workflows can't build or test a change, link an existing craft-common-actions issue or PR, or open a new issue, or a PR only for a small fix that is safe for every app and does not increase CI time.
+- Don't add or change CI in a feature or fix PR. If the existing workflows can't build or test a change, link an existing craft-common-actions issue or PR. Opening a new upstream issue or PR requires explicit user authorization under "Upstream authorization" above; any proposed PR must be a small fix that is safe for every app and does not increase CI time.
 - Some workflow files here still run their own jobs. Don't add to them. Moving a job into craft-common-actions is its own task, never part of another PR, and the job stays here until a shared workflow runs it.
