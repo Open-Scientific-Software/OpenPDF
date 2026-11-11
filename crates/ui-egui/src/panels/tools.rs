@@ -315,7 +315,7 @@ fn tool_detail(app: &mut OpenPDFApp, ui: &mut egui::Ui, t: &Tokens, g: &'static 
             }
             // Where the signing happens, not only in Preferences, and once: not also in the Sign
             // menu over the page, where it was easy to miss (#2149).
-            ui.add(widgets::checkbox(&mut app.flatten_fill_sign_on_save, tl!("Lock into the page when saving")));
+            lock_on_save_row(ui, &mut app.flatten_fill_sign_on_save);
         }
     });
     if footer {
@@ -343,5 +343,45 @@ fn tool_detail(app: &mut OpenPDFApp, ui: &mut egui::Ui, t: &Tokens, g: &'static 
     }
     if let Some(cmd) = run {
         app.run_command(cmd);
+    }
+}
+
+/// Match the signature rows' icon centre (15 pt) and label inset (30 pt).
+fn lock_on_save_row(ui: &mut egui::Ui, checked: &mut bool) -> egui::Response {
+    egui::Frame::new()
+        .inner_margin(egui::Margin { left: 8, right: 0, top: 0, bottom: 0 })
+        .show(ui, |ui| {
+            ui.spacing_mut().icon_spacing = 8.0;
+            ui.spacing_mut().interact_size.y = 30.0;
+            ui.add(widgets::checkbox(checked, egui::RichText::new(tl!("Lock into the page when saving")).font(theme::regular(13.0))))
+        })
+        .inner
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    #[test]
+    fn lock_on_save_matches_signature_label_inset() {
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx, crate::theme::ThemeKind::Dark);
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            ui.set_width(248.0);
+            widgets::ghost_button(ui, "plus", "Add signature");
+            lock_on_save_row(ui, &mut false);
+        });
+        let texts: Vec<_> = output
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+        let signature = texts.iter().find(|t| t.galley.job.text == "Add signature").unwrap();
+        let lock = texts.iter().find(|t| t.galley.job.text == "Lock into the page when saving").unwrap();
+        assert!((signature.pos.x - lock.pos.x).abs() < 0.5, "labels must share the same inset: {} vs {}", signature.pos.x, lock.pos.x);
+        output.drop_without_applying_deltas();
     }
 }
