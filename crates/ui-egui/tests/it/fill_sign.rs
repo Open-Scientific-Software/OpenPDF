@@ -387,6 +387,8 @@ fn the_type_box_text_matches_the_page_zoom_in_a_turned_view() {
 #[test]
 fn the_toolbar_shows_and_changes_the_selected_texts_border() {
     let mut h = harness();
+    // Keep coverage of the inline controls in the horizontal toolbar.
+    h.state_mut().set_option("hotbar-side", "top").unwrap();
     h.state_mut().execute("sign.fill.text");
     click(&mut h, 50.0, 250.0);
     h.event(egui::Event::Text("Framed".into()));
@@ -433,6 +435,8 @@ fn the_toolbar_shows_and_changes_the_selected_texts_border() {
 fn typed_text_takes_an_oval_or_a_circle_from_the_toolbar() {
     use openpdf_engine::BorderShape;
     let mut h = harness();
+    // Keep coverage of the inline controls in the horizontal toolbar.
+    h.state_mut().set_option("hotbar-side", "top").unwrap();
     h.state_mut().execute("sign.fill.text");
     h.run_steps(2);
     assert_eq!(h.query_all_by_label("Border shape").count(), 0, "no shape without a border");
@@ -504,6 +508,8 @@ fn typed_text_takes_an_oval_or_a_circle_from_the_toolbar() {
 fn no_border_takes_the_oval_or_circle_away_too() {
     use openpdf_engine::BorderShape;
     let mut h = harness();
+    // Keep coverage of the inline controls in the horizontal toolbar.
+    h.state_mut().set_option("hotbar-side", "top").unwrap();
     h.state_mut().execute("sign.fill.text");
     h.state_mut().fill_text_border = 1.0;
     h.state_mut().fill_text_border_shape = BorderShape::Circle;
@@ -550,6 +556,8 @@ fn no_border_takes_the_oval_or_circle_away_too() {
 #[test]
 fn fill_text_border_frames_new_and_selected_text() {
     let mut h = harness();
+    // Keep coverage of the inline controls in the horizontal toolbar.
+    h.state_mut().set_option("hotbar-side", "top").unwrap();
     h.state_mut().execute("sign.fill.text");
     h.run_steps(2);
     h.get_by_label("Border:");
@@ -2895,4 +2903,36 @@ fn fill_sign_enter_adds_lines_outside_click_commits_and_escape_cancels() {
     assert!(h.state().views[0].fill_text.is_none());
     assert_eq!(unchanged(&h), before, "Escape cancels without writing");
     assert_eq!(items(&h), [("FreeText".to_owned(), Some(text.to_owned()))]);
+}
+
+#[test]
+fn vertical_border_popup_keeps_the_tool_column_compact() {
+    let mut h = harness();
+    h.state_mut().execute("sign.fill.text");
+    h.run_steps(10);
+    let button = h.get_by_role_and_label(egui::accesskit::Role::Button, "Border:").rect();
+    let font = h.get_by_label("Font size").rect();
+    let settings = h.get_by_label("Hotbar settings").rect();
+    assert_eq!(button.width(), font.width());
+    assert!((button.center().x - font.center().x).abs() < 0.5);
+    h.get_by_role_and_label(egui::accesskit::Role::Button, "Border:").click();
+    h.run_steps(2);
+    h.get_by_label("1 pt").click();
+    h.run_steps(2);
+    h.get_by_label("Circle").click();
+    h.run_steps(2);
+    h.get_by_label("Red").click();
+    h.run_steps(2);
+    assert_eq!(h.state().fill_text_border, 1.0);
+    assert_eq!(h.state().fill_text_border_shape, openpdf_engine::BorderShape::Circle);
+    assert_eq!(h.state().fill_text_border_color, Some([0.89, 0.13, 0.13]));
+    assert_eq!(h.get_by_label("Hotbar settings").rect(), settings);
+    h.get_by_label("None").click();
+    h.run_steps(2);
+    assert_eq!(h.state().fill_text_border, 0.0);
+    assert_eq!(h.state().fill_text_border_shape, openpdf_engine::BorderShape::Rectangle);
+    h.get_by_label("Font size").click();
+    h.run_steps(2);
+    assert_eq!(h.query_all_by_label("1 pt").count(), 0);
+    assert_eq!(h.get_by_role_and_label(egui::accesskit::Role::Button, "Border:").rect(), button);
 }

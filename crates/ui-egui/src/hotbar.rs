@@ -330,8 +330,7 @@ fn selected_fill_text(app: &OpenPDFApp) -> Option<(usize, usize)> {
 }
 
 /// Fill & Sign's Border controls for typed text: its width, colour and shape, for the selected
-/// text (`picked`), or for new text when none is selected. The label shows in a vertical bar, as the
-/// font size's does.
+/// text (`picked`), or for new text when none is selected. A vertical bar uses a compact popup.
 fn fill_text_border_controls(ui: &mut egui::Ui, app: &mut OpenPDFApp, picked: Option<(usize, usize)>, vertical: bool) {
     // The selected text's own border (Comment Properties may have changed it
     // since): the controls below show it and change only it. Without one they
@@ -349,42 +348,61 @@ fn fill_text_border_controls(ui: &mut egui::Ui, app: &mut OpenPDFApp, picked: Op
     let mut border = was;
     // A border around the text, in its colour; the text keeps its place.
     let border_label = |w: f64| if w > 0.0 { format!("{w} pt") } else { tl!("None").to_string() };
-    let label = vertical.then(|| ui.label(tl!("Border:")));
-    let combo = craft_ui::ComboBox::from_id_salt("fill-text-border")
-        .selected_text(border_label(was.width))
-        .width(72.0)
-        .show_ui(ui, |ui| {
-            for w in crate::fill_sign::TEXT_BORDERS {
-                ui.selectable_value(&mut border.width, w, border_label(w));
-            }
-        })
-        .response;
-    match label {
-        Some(label) => {
-            combo.labelled_by(label.id);
-        }
-        None => {
-            combo.on_hover_text(tl!("Border:"));
-        }
-    }
-    // The border's own colour (the text's unless picked).
-    if was.width > 0.0
-        && let Some(color) = comments::border_colour_button(ui, was.color, [0.0; 3])
-    {
-        border.color = color;
-    }
-    // Its shape: an oval or a circle goes around the text, which keeps its place.
-    if was.width > 0.0 {
-        craft_ui::ComboBox::from_id_salt("fill-text-border-shape")
-            .selected_text(tl!(was.shape.name()))
-            .width(96.0)
+    if vertical {
+        // Wide controls belong in a popup, never in the narrow tool column.
+        let button = icons::button(ui, "square-dashed", 32.0, false, tl!("Border:"));
+        egui::Popup::menu(&button)
+            .align(popup_align_for(app.hotbar.dock.as_deref(), true))
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+            .show(|ui| {
+                ui.label(tl!("Border:"));
+                for width in crate::fill_sign::TEXT_BORDERS {
+                    ui.selectable_value(&mut border.width, width, border_label(width));
+                }
+                if border.width > 0.0 {
+                    ui.separator();
+                    ui.label(tl!("Border shape"));
+                    for shape in openpdf_engine::BorderShape::ALL {
+                        ui.selectable_value(&mut border.shape, shape, tl!(shape.name()));
+                    }
+                    ui.separator();
+                    ui.label(tl!("Border colour"));
+                    ui.selectable_value(&mut border.color, None, tl!("Same as text"));
+                    if let Some(color) = comments::swatch_grid(ui, border.color) {
+                        border.color = Some(color);
+                    }
+                }
+            });
+    } else {
+        let combo = craft_ui::ComboBox::from_id_salt("fill-text-border")
+            .selected_text(border_label(was.width))
+            .width(72.0)
             .show_ui(ui, |ui| {
-                for shape in openpdf_engine::BorderShape::ALL {
-                    ui.selectable_value(&mut border.shape, shape, tl!(shape.name()));
+                for w in crate::fill_sign::TEXT_BORDERS {
+                    ui.selectable_value(&mut border.width, w, border_label(w));
                 }
             })
-            .response
-            .on_hover_text(tl!("Border shape"));
+            .response;
+        combo.on_hover_text(tl!("Border:"));
+        // The border's own colour (the text's unless picked).
+        if was.width > 0.0
+            && let Some(color) = comments::border_colour_button(ui, was.color, [0.0; 3])
+        {
+            border.color = color;
+        }
+        // Its shape: an oval or a circle goes around the text, which keeps its place.
+        if was.width > 0.0 {
+            craft_ui::ComboBox::from_id_salt("fill-text-border-shape")
+                .selected_text(tl!(was.shape.name()))
+                .width(96.0)
+                .show_ui(ui, |ui| {
+                    for shape in openpdf_engine::BorderShape::ALL {
+                        ui.selectable_value(&mut border.shape, shape, tl!(shape.name()));
+                    }
+                })
+                .response
+                .on_hover_text(tl!("Border shape"));
+        }
     }
     // No border, no shape: an oval or a circle left without its line would
     // keep its box grown around a shape that isn't drawn.
