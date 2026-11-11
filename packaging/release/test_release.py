@@ -50,6 +50,40 @@ class ReleaseTests(unittest.TestCase):
             self.assertTrue(release.existing_release("v0.18.2"))
             self.assertFalse(release.existing_release("v0.18.3"))
 
+    def test_existing_tag_must_match_build_commit(self):
+        for kind, sha in (("commit", "b" * 40), ("tag", "a" * 40)):
+            refs = [{"ref": "refs/tags/v0.18.2", "object": {"type": kind, "sha": sha}}]
+            with self.subTest(kind=kind), patch.object(release, "gh", return_value=json.dumps(refs)):
+                with self.assertRaisesRegex(ValueError, "does not point directly"):
+                    release.validate_tag("v0.18.2", "a" * 40)
+
+    def test_draft_does_not_write_when_tag_names_another_commit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "Cargo.toml").write_text('[workspace.package]\nversion="0.18.2"\n')
+            packages = root / "dist/release"
+            packages.mkdir(parents=True)
+            self.populate(packages)
+
+            def respond(*args):
+                if args[0] == "api" and "matching-refs" in args[1]:
+                    return json.dumps([{"ref": "refs/tags/v0.18.2", "object": {"type": "commit", "sha": "b" * 40}}])
+                if args[0] == "api":
+                    return "[[]]"
+                return ""
+
+            env = {"GITHUB_REPOSITORY": release.REPOSITORY, "GITHUB_REF": "refs/heads/release", "GITHUB_SHA": "a" * 40}
+            with patch.dict("os.environ", env, clear=True), patch.object(release, "gh", side_effect=respond) as gh:
+                with self.assertRaisesRegex(ValueError, "does not point directly"):
+                    release.draft(root)
+                self.assertTrue(all(call.args[0] == "api" for call in gh.call_args_list))
+
+    def test_absent_matching_or_longer_tag_is_allowed(self):
+        for refs in ([], [{"ref": "refs/tags/v0.18.2", "object": {"type": "commit", "sha": "a" * 40}}],
+                     [{"ref": "refs/tags/v0.18.20", "object": {"type": "commit", "sha": "b" * 40}}]):
+            with patch.object(release, "gh", return_value=json.dumps(refs)):
+                release.validate_tag("v0.18.2", "a" * 40)
+
     def test_wrong_repository_or_branch_cannot_create_release(self):
         for env in ({"GITHUB_REPOSITORY": "other/repo", "GITHUB_REF": "refs/heads/release"},
                     {"GITHUB_REPOSITORY": release.REPOSITORY, "GITHUB_REF": "refs/heads/main"}):
