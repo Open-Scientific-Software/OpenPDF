@@ -417,13 +417,10 @@ fn run_edit_page_image(doc: &mut openpdf_cos::Document, page: usize, index: usiz
     if let Some((added_idx, added_item)) = matched_added
         && let AddedContent::Image(ai) = added_item.content.clone()
     {
+        // Page visibility alone is not a crop: dragging an added image over the page edge
+        // must not discard its editable added-item identity on the next resize.
         let has_active_crop = ai.crop.iter().any(|v| v.abs() > 1e-6)
-            || img.visible_rect.is_some_and(|v| {
-                (v[0] - img.rect[0]).abs() > 1e-4
-                    || (v[1] - img.rect[1]).abs() > 1e-4
-                    || (v[2] - img.rect[2]).abs() > 1e-4
-                    || (v[3] - img.rect[3]).abs() > 1e-4
-            });
+            || img.frame_rect().is_none_or(|frame| frame.iter().zip(img.rect).any(|(a, b)| (a - b).abs() > 1e-4));
         let non_axis_transform = matches!(change, ImageEdit::Transform([a, b, c, d, _, _])
             if !((b.abs() < 1e-5 && c.abs() < 1e-5) || (a.abs() < 1e-5 && d.abs() < 1e-5)));
         let should_promote = has_active_crop
@@ -508,6 +505,14 @@ fn run_edit_page_image(doc: &mut openpdf_cos::Document, page: usize, index: usiz
     Ok(())
 }
 
+/// After an edit that changes fields, their scripts or the calculation order: the edit's
+/// script runner reads the document as it now is, and builds its `calculateNow()` list again.
+fn invalidate_calculations(cx: &mut EditCtx, doc: &openpdf_cos::Document) {
+    if let Some(js) = cx.js.as_mut() {
+        js.invalidate_calculations(doc);
+    }
+}
+
 /// Perform an edit on a working copy (the caller discards it on error).
 pub(crate) fn run_edit(doc: &mut openpdf_cos::Document, edit: &Edit, cx: &mut EditCtx) -> Result<(), EditError> {
     match edit {
@@ -536,6 +541,7 @@ pub(crate) fn run_edit(doc: &mut openpdf_cos::Document, edit: &Edit, cx: &mut Ed
             let title = std::path::Path::new(name).file_stem().map_or_else(|| name.clone(), |s| s.to_string_lossy().into_owned());
             let outcome = openpdf_organize::insert_file_pages(doc, &src, &title, &pages, *at, *field_conflicts)?;
             cx.renamed_fields = outcome.renamed_fields;
+            invalidate_calculations(cx, doc);
         }
         Edit::AddBookmark { parent, index, title, page, left, top } => {
             openpdf_organize::add_bookmark_at(doc, parent, *index, title, *page, *left, *top)?;
@@ -788,22 +794,32 @@ pub(crate) fn run_edit(doc: &mut openpdf_cos::Document, edit: &Edit, cx: &mut Ed
         }
         Edit::AddField { page, rect, kind, name } => {
             openpdf_forms::add_field(doc, *page, *rect, kind, name.as_deref())?;
+            invalidate_calculations(cx, doc);
         }
         Edit::SetFieldProps { name, props } => {
             openpdf_forms::set_props(doc, name, props)?;
+            invalidate_calculations(cx, doc);
         }
         Edit::DuplicateField { name, pages } => {
             if openpdf_forms::duplicate_field(doc, name, pages)? == 0 {
                 return Err(EditError::Form(openpdf_forms::FormError::Invalid(format!("{name} is already on those pages"))));
             }
+            invalidate_calculations(cx, doc);
         }
-        Edit::DeleteField { name } => openpdf_forms::delete_field(doc, name)?,
-        Edit::DeleteWidget { name, widget } => openpdf_forms::delete_widget(doc, name, *widget)?,
+        Edit::DeleteField { name } => {
+            openpdf_forms::delete_field(doc, name)?;
+            invalidate_calculations(cx, doc);
+        }
+        Edit::DeleteWidget { name, widget } => {
+            openpdf_forms::delete_widget(doc, name, *widget)?;
+            invalidate_calculations(cx, doc);
+        }
         Edit::SetTabOrder { pages, order } => openpdf_forms::set_tab_order(doc, pages, *order)?,
         Edit::MoveInTabOrder { name, earlier } => openpdf_forms::move_in_tab_order(doc, name, *earlier)?,
         // As after a script edit: the values the new order gives show at once.
         Edit::SetCalculationOrder { names } => {
             openpdf_forms::set_calculation_order(doc, names)?;
+            invalidate_calculations(cx, doc);
             match cx.js.as_mut() {
                 Some(js) => openpdf_forms::recalculate_with(doc, js)?,
                 None => openpdf_forms::recalculate(doc)?,
@@ -831,6 +847,7 @@ pub(crate) fn run_edit(doc: &mut openpdf_cos::Document, edit: &Edit, cx: &mut Ed
         }
         Edit::SetFieldScript { name, event, script } => {
             openpdf_forms::set_field_script(doc, name, event, script.as_deref())?;
+            invalidate_calculations(cx, doc);
             match cx.js.as_mut() {
                 Some(js) => openpdf_forms::recalculate_with(doc, js)?,
                 None => openpdf_forms::recalculate(doc)?,

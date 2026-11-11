@@ -15,13 +15,10 @@ pub(crate) fn xfa_layout(doc: &mut openpdf_cos::Document) -> Result<XfaLayout, S
 /// Give the fields of a laid-out XFA form their appearances. A signed signature box keeps the
 /// picture its signer's application drew.
 pub(crate) fn xfa_redraw(doc: &mut openpdf_cos::Document) -> Result<(), String> {
-    for f in openpdf_forms::fields(doc) {
-        if f.kind == openpdf_forms::FieldKind::Signature && doc.get(f.obj).as_dict().is_some_and(|d| d.contains(b"V")) {
-            continue;
-        }
-        openpdf_forms::redraw_field(doc, &f.name).map_err(|e| format!("{}: {e}", f.name))?;
-    }
-    Ok(())
+    let signed = |doc: &openpdf_cos::Document, f: &openpdf_forms::Field| {
+        f.kind == openpdf_forms::FieldKind::Signature && doc.get(f.obj).as_dict().is_some_and(|d| d.contains(b"V"))
+    };
+    openpdf_forms::redraw_fields(doc, |doc, f| !signed(doc, f)).map_err(|e| e.to_string())
 }
 
 /// A warning for each field whose appearance OpenPDF drew with `?` for a character its font

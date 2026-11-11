@@ -201,10 +201,11 @@ pub(super) fn run_button(app: &mut OpenPDFApp, index: usize, name: &str, action:
                 .map(|name| openpdf_engine::FieldChange {
                     name,
                     value: None,
+                    formatted: false,
                     read_only: None,
                     required: None,
                     display: Some(if hide { 1 } else { 0 }),
-                    rect: None,
+                    ..Default::default()
                 })
                 .collect();
             if !changes.is_empty() {
