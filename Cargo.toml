@@ -5,7 +5,7 @@ exclude = ["vendor"]
 default-members = ["crates/*", "apps/openpdf", "apps/openpdf-cli", "xtask"]
 
 [workspace.package]
-version = "0.18.1"
+version = "0.18.2"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
@@ -32,41 +32,41 @@ craft-docpath = { version = "0.1.0", git = "https://github.com/storytold/craft-l
 # craft-update: app-specific pretend versions apply to startup and manual checks.
 craft-update = { git = "https://github.com/storytold/craft-libs", version = "=0.1.0", rev = "1b34eba41e62138fc2438d2734523b302840b45d", features = ["egui"] }
 # internal
-openpdf-geom = { path = "crates/geom", version = "0.18.1" }
-openpdf-filters = { path = "crates/filters", version = "0.18.1" }
-openpdf-cos = { path = "crates/cos", version = "0.18.1" }
-openpdf-crypt = { path = "crates/crypt", version = "0.18.1" }
-openpdf-organize = { path = "crates/organize", version = "0.18.1" }
-openpdf-measure = { path = "crates/measure", version = "0.18.1" }
-openpdf-annot = { path = "crates/annot", version = "0.18.1" }
-openpdf-audit = { path = "crates/audit", version = "0.18.1" }
-openpdf-fonts = { path = "crates/fonts", version = "0.18.1" }
-openpdf-model = { path = "crates/model", version = "0.18.1" }
-openpdf-content = { path = "crates/content", version = "0.18.1" }
-openpdf-redact = { path = "crates/redact", version = "0.18.1" }
-openpdf-print = { path = "crates/print", version = "0.18.1" }
-openpdf-xfdf = { path = "crates/xfdf", version = "0.18.1" }
-openpdf-sign = { path = "crates/sign", version = "0.18.1" }
-openpdf-optimize = { path = "crates/optimize", version = "0.18.1" }
-openpdf-a11y = { path = "crates/a11y", version = "0.18.1" }
-openpdf-oracle = { path = "crates/oracle", version = "0.18.1" }
-openpdf-testkit = { path = "crates/testkit", version = "0.18.1" }
-openpdf-ocr = { path = "crates/ocr", version = "0.18.1" }
-openpdf-js = { path = "crates/js", version = "0.18.1" }
-openpdf-compare = { path = "crates/compare", version = "0.18.1" }
-openpdf-preflight = { path = "crates/preflight", version = "0.18.1" }
-openpdf-export = { path = "crates/export", version = "0.18.1" }
-openpdf-edit = { path = "crates/edit", version = "0.18.1" }
-openpdf-create = { path = "crates/create", version = "0.18.1" }
-openpdf-forms = { path = "crates/forms", version = "0.18.1" }
-openpdf-xfa = { path = "crates/xfa", version = "0.18.1" }
-openpdf-render = { path = "crates/render", version = "0.18.1" }
-openpdf-engine = { path = "crates/engine", version = "0.18.1" }
-openpdf-platform = { path = "crates/platform", version = "0.18.1" }
-openpdf-ui-egui = { path = "crates/ui-egui", version = "0.18.1" }
-openpdf-automation = { path = "crates/automation", version = "0.18.1", default-features = false }
-openpdf-prc = { path = "crates/prc", version = "0.18.1" }
-openpdf-prc-render = { path = "crates/prc-render", version = "0.18.1" }
+openpdf-geom = { path = "crates/geom", version = "0.18.2" }
+openpdf-filters = { path = "crates/filters", version = "0.18.2" }
+openpdf-cos = { path = "crates/cos", version = "0.18.2" }
+openpdf-crypt = { path = "crates/crypt", version = "0.18.2" }
+openpdf-organize = { path = "crates/organize", version = "0.18.2" }
+openpdf-measure = { path = "crates/measure", version = "0.18.2" }
+openpdf-annot = { path = "crates/annot", version = "0.18.2" }
+openpdf-audit = { path = "crates/audit", version = "0.18.2" }
+openpdf-fonts = { path = "crates/fonts", version = "0.18.2" }
+openpdf-model = { path = "crates/model", version = "0.18.2" }
+openpdf-content = { path = "crates/content", version = "0.18.2" }
+openpdf-redact = { path = "crates/redact", version = "0.18.2" }
+openpdf-print = { path = "crates/print", version = "0.18.2" }
+openpdf-xfdf = { path = "crates/xfdf", version = "0.18.2" }
+openpdf-sign = { path = "crates/sign", version = "0.18.2" }
+openpdf-optimize = { path = "crates/optimize", version = "0.18.2" }
+openpdf-a11y = { path = "crates/a11y", version = "0.18.2" }
+openpdf-oracle = { path = "crates/oracle", version = "0.18.2" }
+openpdf-testkit = { path = "crates/testkit", version = "0.18.2" }
+openpdf-ocr = { path = "crates/ocr", version = "0.18.2" }
+openpdf-js = { path = "crates/js", version = "0.18.2" }
+openpdf-compare = { path = "crates/compare", version = "0.18.2" }
+openpdf-preflight = { path = "crates/preflight", version = "0.18.2" }
+openpdf-export = { path = "crates/export", version = "0.18.2" }
+openpdf-edit = { path = "crates/edit", version = "0.18.2" }
+openpdf-create = { path = "crates/create", version = "0.18.2" }
+openpdf-forms = { path = "crates/forms", version = "0.18.2" }
+openpdf-xfa = { path = "crates/xfa", version = "0.18.2" }
+openpdf-render = { path = "crates/render", version = "0.18.2" }
+openpdf-engine = { path = "crates/engine", version = "0.18.2" }
+openpdf-platform = { path = "crates/platform", version = "0.18.2" }
+openpdf-ui-egui = { path = "crates/ui-egui", version = "0.18.2" }
+openpdf-automation = { path = "crates/automation", version = "0.18.2", default-features = false }
+openpdf-prc = { path = "crates/prc", version = "0.18.2" }
+openpdf-prc-render = { path = "crates/prc-render", version = "0.18.2" }
 
 # pdf
 hayro = "0.7.1"
