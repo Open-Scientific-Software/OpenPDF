@@ -1,0 +1,24 @@
+# OpenPDF-only unsigned release exception: AGENTS.md (2026-11-11).
+# No signing secrets; macOS uses ad-hoc signatures without notarization.
+name: OpenPDF release inputs
+description: Load pinned fonts, translations and refreshed credits.
+inputs:
+  contributors:
+    description: Contributor snapshot artifact from this run
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+      with:
+        name: ${{ inputs.contributors }}
+        path: contributors
+    - uses: storytold/craft-common-actions/actions/checkout-craft-fonts@main
+      with:
+        ref: b076417b5880bd4154bd22f00695b1d28c6bea83
+    - uses: storytold/craft-common-actions/actions/checkout-craft-i18n@main
+    - name: Require release fonts
+      run: |-
+        echo "CRAFT_FONTS_DIR=$GITHUB_WORKSPACE/craft-fonts" >> "$GITHUB_ENV"
+        echo "CRAFT_FONTS_REQUIRED=1" >> "$GITHUB_ENV"
+      shell: bash

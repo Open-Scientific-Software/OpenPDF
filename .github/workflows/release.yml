@@ -1,53 +1,265 @@
+# OpenPDF-only unsigned release exception: AGENTS.md (2026-11-11).
+# No signing secrets; macOS uses ad-hoc signatures without notarization.
 name: Release
-
-on:
+'on':
   push:
-    branches: [release]
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Version override for a test run, e.g. 0.2.0-rc.1 (empty: Cargo.toml)"
-        type: string
-        default: ""
-
+    branches:
+      - release
+  workflow_dispatch: {}
 permissions:
-  contents: write
-  packages: write
-
+  contents: read
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
-
+env:
+  CARGO_INCREMENTAL: '0'
+  CARGO_TERM_COLOR: always
+  OPENPDF_BUILD_SHA: ${{ github.sha }}
 jobs:
-  # Regenerates contributors/contributors.json for the release commit; every build bundles it.
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check release tooling
+        run: python3 -B -m unittest discover -s packaging/release -p 'test_*.py' -v
+      - name: Validate sources and resolve version
+        run: |-
+          cargo metadata --locked --format-version 1 > /dev/null
+          python3 packaging/release/release.py prepare >> "$GITHUB_OUTPUT"
+        id: version
   credits:
+    needs: prepare
     permissions:
       contents: read
       pull-requests: read
     uses: storytold/craft-common-actions/.github/workflows/refresh-contributors.yml@main
-  release:
-    needs: credits
-    # Intentionally tracked at @main (not SHA-pinned) so org-wide CI improvements, security fixes, and build optimizations propagate without PR churn across all craftapp repos.
-    uses: storytold/craft-common-actions/.github/workflows/release.yml@main
-    with:
-      app-name: openpdf
-      app-title: OpenPDF
-      craft-fonts-ref: b076417b5880bd4154bd22f00695b1d28c6bea83
-      version: ${{ inputs.version }}
-      contributors-artifact: ${{ needs.credits.outputs.artifact-name }}
-    secrets:
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-      AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
-      AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
-      AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}
-      LINUX_SIGNING_KEY: ${{ secrets.LINUX_SIGNING_KEY }}
+  desktop:
+    needs:
+      - prepare
+      - credits
+    timeout-minutes: 180
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            arch: universal
+            os: macos-15
+            target: aarch64-apple-darwin,x86_64-apple-darwin
+          - platform: windows
+            arch: x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - platform: windows
+            arch: x86
+            os: windows-latest
+            target: i686-pc-windows-msvc
+          - platform: windows
+            arch: arm64
+            os: windows-latest
+            target: aarch64-pc-windows-msvc
+          - platform: linux
+            arch: x86_64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            deb: amd64
+          - platform: linux
+            arch: aarch64
+            os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            deb: arm64
+          - platform: riscv64
+            arch: riscv64
+            os: ubuntu-24.04
+            target: riscv64gc-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/release-inputs
+        with:
+          contributors: ${{ needs.credits.outputs.artifact-name }}
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          key: openpdf-unsigned-${{ matrix.platform }}-${{ matrix.arch }}
+      - uses: storytold/craft-common-actions/actions/install-wix@main
+        if: matrix.platform == 'windows'
+        with:
+          wix-version: 5.0.2
+      - uses: storytold/craft-common-actions/actions/install-linux-deps@main
+        if: matrix.platform == 'linux'
+        with:
+          deb-arch: ${{ matrix.deb }}
+          nfpm-version: 2.47.0
+      - uses: storytold/craft-common-actions/actions/install-riscv64-cross@main
+        if: matrix.platform == 'riscv64'
+      - name: Package macOS without notarization
+        run: packaging/macos/package.sh --arch universal
+        env:
+          MACOS_SIGN_IDENTITY: '-'
+        if: matrix.platform == 'macos'
+      - name: Package unsigned Windows binaries
+        run: ./packaging/windows/package.ps1 -Arch $env:PACKAGE_ARCH
+        shell: pwsh
+        env:
+          PACKAGE_ARCH: ${{ matrix.arch }}
+        if: matrix.platform == 'windows'
+      - name: Package Linux and smoke-test AppImage
+        run: |-
+          packaging/linux/package.sh
+          for package in dist/release/*.AppImage; do
+            chmod +x "$package"
+            APPIMAGE_EXTRACT_AND_RUN=1 "$package" --version
+          done
+        if: matrix.platform == 'linux'
+      - name: Package RISC-V tarballs
+        run: packaging/linux/package.sh --formats 'tar cli'
+        env:
+          CROSS_ARCH: riscv64
+          CROSS_TARGET: riscv64gc-unknown-linux-gnu
+          CROSS_COMPILE: riscv64-linux-gnu-
+          CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER: riscv64-linux-gnu-gcc
+          PKG_CONFIG_SYSROOT_DIR: /
+          PKG_CONFIG_PATH: /usr/lib/riscv64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+          PKG_CONFIG_ALLOW_CROSS: '1'
+          EMULATOR: qemu-riscv64
+          QEMU_LD_PREFIX: /usr/riscv64-linux-gnu
+        if: matrix.platform == 'riscv64'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: release-${{ matrix.platform }}-${{ matrix.arch }}
+          path: dist/release/*
+          if-no-files-found: error
+  flatpak:
+    needs: desktop
+    timeout-minutes: 45
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            os: ubuntu-24.04
+          - arch: aarch64
+            os: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: release-linux-${{ matrix.arch }}
+          path: dist/release
+      - name: Install Flatpak packaging tools
+        run: |-
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder librsvg2-common
+          # Allow the unprivileged namespace needed by the package smoke test.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Build and smoke-test bundle
+        run: packaging/linux/flatpak-bundle.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: release-flatpak-${{ matrix.arch }}
+          path: dist/release/*.flatpak
+          if-no-files-found: error
+  freebsd:
+    needs:
+      - prepare
+      - credits
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/release-inputs
+        with:
+          contributors: ${{ needs.credits.outputs.artifact-name }}
+      - uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc
+        with:
+          release: '14.3'
+          usesh: true
+          cpu: 4
+          mem: 12288
+          envs: OPENPDF_BUILD_SHA
+          prepare: |-
+            pkg install -y bash git curl pkgconf cmake python3 libxkbcommon wayland libX11 libXcursor libXrandr libXi libxcb mesa-libs vulkan-loader gtk3 fontconfig freetype2 alsa-lib
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+          run: |-
+            set -eu
+            . "$HOME/.cargo/env"
+            export CRAFT_FONTS_DIR="$PWD/craft-fonts" CRAFT_FONTS_REQUIRED=1
+            export CRAFT_I18N_DIR="$PWD/craft-i18n" CRAFT_I18N_REQUIRED=1
+            export CARGO_INCREMENTAL=0
+            bash packaging/freebsd/package.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: release-freebsd-x86_64
+          path: dist/release/*.tar.gz
+          if-no-files-found: error
+  web:
+    needs:
+      - prepare
+      - credits
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/release-inputs
+        with:
+          contributors: ${{ needs.credits.outputs.artifact-name }}
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          key: openpdf-unsigned-web
+      - uses: storytold/craft-common-actions/actions/install-trunk@main
+        with:
+          trunk-version: 0.21.14
+      - name: Package web site
+        run: packaging/web/package.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: release-web
+          path: dist/release/*.zip
+          if-no-files-found: error
+  draft:
+    if: github.ref == 'refs/heads/release'
+    needs:
+      - prepare
+      - desktop
+      - flatpak
+      - freebsd
+      - web
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: release-*
+          path: dist/release
+          merge-multiple: true
+      - name: Verify complete artifact set and create unsigned draft
+        run: python3 packaging/release/release.py draft
+        env:
+          GH_TOKEN: ${{ github.token }}
