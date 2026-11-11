@@ -194,3 +194,6 @@ sync_github_name = false
 
 [people.changkai-zhang]
 sync_github_name = true
+
+[people.enriquemelzer-bit]
+sync_github_name = true
