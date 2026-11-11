@@ -1,4 +1,4 @@
-use super::{GridDrop, GridFile, PdfCraftApp};
+use super::{GridDrop, GridFile, OpenPDFApp};
 #[cfg(not(target_arch = "wasm32"))]
 use super::{OpenRequest, open_worker};
 
@@ -11,7 +11,7 @@ fn read_grid_file((name, source): GridFile) -> Result<(String, Vec<u8>), (String
     Ok((name, bytes))
 }
 
-impl PdfCraftApp {
+impl OpenPDFApp {
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn open_dropped(&mut self, f: egui::DroppedFileHandle, _ctx: &egui::Context) {
         let p = f.path().to_string_lossy().into_owned();
@@ -46,14 +46,14 @@ impl PdfCraftApp {
     }
 
     /// The document whose page grid is showing and may take pages, if any.
-    fn grid_target(&self) -> Option<pdfcraft_engine::DocId> {
+    fn grid_target(&self) -> Option<openpdf_engine::DocId> {
         let view = self.active.and_then(|i| self.views.get(i)).filter(|v| v.organize)?;
         (self.dialog.is_none() && self.session.get(view.id)?.allows_assembly()).then_some(view.id)
     }
 
     /// The document whose Pages panel is under the pointer and may take pages, if any.
     #[cfg(not(target_arch = "wasm32"))]
-    fn panel_target(&self, ctx: &egui::Context) -> Option<pdfcraft_engine::DocId> {
+    fn panel_target(&self, ctx: &egui::Context) -> Option<openpdf_engine::DocId> {
         let view = self.active.and_then(|i| self.views.get(i))?;
         let pointer = ctx.input(|i| i.pointer.hover_pos())?;
         let over = view.pages_panel.is_some_and(|panel| panel.contains(pointer));
@@ -129,7 +129,9 @@ impl PdfCraftApp {
         self.startup_superseded = true;
         let inbox = self.inbox.clone();
         let ctx = ctx.clone();
+        let read = WebRead::start(&self.web_reads);
         wasm_bindgen_futures::spawn_local(async move {
+            let _read = read;
             let name = crate::files::dropped_name(&f);
             if let Ok(bytes) = f.bytes_async().await
                 && let Ok(mut q) = inbox.lock()
@@ -138,5 +140,27 @@ impl PdfCraftApp {
                 ctx.request_repaint();
             }
         });
+    }
+}
+
+/// One browser file read counted in `OpenPDFApp::web_reads` for as long as it lives, so the
+/// count falls however the read ends.
+#[cfg(target_arch = "wasm32")]
+pub(super) struct WebRead(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+#[cfg(target_arch = "wasm32")]
+impl WebRead {
+    /// Count a read starting in `reads`.
+    pub(super) fn start(reads: &std::sync::Arc<std::sync::atomic::AtomicUsize>) -> Self {
+        reads.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Self(reads.clone())
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for WebRead {
+    /// The read is over, whether its file arrived or not.
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
 }

@@ -1,5 +1,5 @@
 [package]
-name = "pdfcraft-ocr"
+name = "openpdf-ocr"
 description = "Scan & OCR: recognise text in page images (ocrs) and write it as an invisible, searchable text layer"
 version.workspace = true
 edition.workspace = true
@@ -11,9 +11,10 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-pdfcraft-fonts = { workspace = true }
+openpdf-fonts = { workspace = true }
 ocrs = { version = "0.13.1", default-features = false, features = ["rten"] }
 rten = { version = "0.26.0", default-features = false, features = ["onnx_format", "rten_format"] }
+rten-imageproc = "0.26.0"
 serde_json.workspace = true
 sha2 = "0.11"
 thiserror.workspace = true

@@ -116,7 +116,7 @@ fn convert_fixes_all_but_fonts() {
     assert_eq!(xmp::value(&x, "dc:title").as_deref(), Some("Report"));
     assert_eq!(xmp::value(&x, "xmp:CreateDate").as_deref(), Some("2024-01-05T09:30:00Z"));
     // It survives a save.
-    let bytes = pdfcraft_cos::write_full(&doc, &Default::default()).unwrap();
+    let bytes = openpdf_cos::write_full(&doc, &Default::default()).unwrap();
     let back = Document::open(std::sync::Arc::new(bytes)).unwrap();
     assert_eq!(verify(&back, Level::A2b).len(), 1);
 }
@@ -458,8 +458,8 @@ fn forbidden_actions_chained_behind_allowed_ones_are_found_and_removed() {
         assert!(found, "case {i}: {:#?}", verify(&doc, Level::A2b));
         let r = convert(&mut doc, Level::A2b).unwrap();
         assert!(!r.remaining.iter().any(|x| x.clause == "6.5.1"), "case {i}: {:#?}", r.remaining);
-        let plain = pdfcraft_cos::SaveOptions { object_streams: false, ..Default::default() };
-        let bytes = pdfcraft_cos::write_full(&doc, &plain).unwrap();
+        let plain = openpdf_cos::SaveOptions { object_streams: false, ..Default::default() };
+        let bytes = openpdf_cos::write_full(&doc, &plain).unwrap();
         assert!(!bytes.windows(11).any(|w| w == b"/JavaScript"), "case {i}: {}", String::from_utf8_lossy(&bytes));
     }
 }
@@ -490,9 +490,92 @@ fn an_output_intent_profile_header_is_read_within_a_size_cap() {
         let mut doc = build(&[&format!("<< /Type /Catalog {intent} >>"), "null"], "");
         let mut profile = vec![0; size];
         profile[16..20].copy_from_slice(b"CMYK");
-        doc.set(pdfcraft_cos::ObjRef::new(2, 0), Object::Stream(pdfcraft_cos::Stream::flate(Dict::new(), &profile)));
+        doc.set(openpdf_cos::ObjRef::new(2, 0), Object::Stream(openpdf_cos::Stream::flate(Dict::new(), &profile)));
         assert_eq!(pdfa_intent_profile(&doc), Some(n), "a {size}-byte profile");
     }
+}
+
+#[test]
+fn typeless_annotations_indexed_cmyk_and_indirect_filter_elements_are_handled() {
+    // Annotations in /Annots that omit optional /Type /Annot and /P (while keeping required /Subtype
+    // and /Rect), whether indirect or direct dictionaries, are still verified and fixed by convert.
+    // A malformed /Annots dictionary without /Type /Annot and without /Rect is not treated as an
+    // annotation or destructively removed by convert.
+    let mut doc = build(
+        &[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 200] >>",
+            "<< /Type /Page /Parent 2 0 R /Annots [4 0 R 5 0 R 6 0 R 8 0 R << /Subtype /Movie /Rect [60 10 70 30] >> << /Subtype /Sound >> << /Subtype /Sound /Rect null >> << /Subtype /Sound /Rect 9 0 R >>] >>",
+            "<< /Subtype /Text /Rect [10 10 30 30] /P 3 0 R /AP << /N 7 0 R >> >>",
+            "<< /Subtype /Sound /Rect [50 10 60 30] >>",
+            "<< /Subtype /Widget /FT /Tx /T (f) /Rect [70 10 90 30] /F 4 /AA << /E << /S /URI /URI (https://example.com) >> >> /AP << /N 7 0 R >> >>",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] /Length 0 >>\nstream\n\nendstream",
+            "<< /Subtype /Movie >>",
+            "null",
+        ],
+        "",
+    );
+    let issues = verify(&doc, Level::A2b);
+    let msgs = messages(&issues);
+    assert!(msgs.contains(&"A Text annotation isn't set to print, or is hidden"), "{msgs:#?}");
+    assert!(msgs.contains(&"Sound annotations aren't allowed"), "{msgs:#?}");
+    assert!(msgs.contains(&"Movie annotations aren't allowed"), "{msgs:#?}");
+    assert!(msgs.contains(&"A Widget annotation has additional actions"), "{msgs:#?}");
+    assert!(!msgs.contains(&"A form field has additional actions"), "{msgs:#?}");
+    let r = convert(&mut doc, Level::A2b).unwrap();
+    assert!(r.remaining.is_empty(), "{:#?}", r.remaining);
+    // The two /Rect-bearing forbidden annotations (5 0 R and the inline /Movie with /Rect) were
+    // removed, while the /Rect-less or null-/Rect dictionaries (8 0 R and the inline /Sound
+    // entries) without /Type /Annot are left untouched rather than destructively stripped.
+    assert_eq!(&*doc.get(ObjRef::new(5, 0)), &Object::Null);
+    assert!(doc.get(ObjRef::new(8, 0)).as_dict().is_some());
+    let page_annots = doc.get(ObjRef::new(3, 0)).as_dict().and_then(|d| d.get(b"Annots")).and_then(Object::as_array).cloned().unwrap();
+    assert_eq!(page_annots.len(), 6, "{page_annots:#?}");
+    assert!(page_annots.iter().any(|entry| entry.as_ref() == Some(ObjRef::new(8, 0))));
+    assert_eq!(page_annots.iter().filter(|entry| entry.as_dict().is_some_and(|d| d.name(b"Subtype") == Some(b"Sound"))).count(), 3);
+
+    // Indexed and Separation colour spaces over DeviceCMYK on image XObjects or /ColorSpace resources count as CMYK.
+    let indexed_img = build(
+        &[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 200] >>",
+            "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /XObject << /Im0 5 0 R >> >> >>",
+            "<< /Length 7 >>\nstream\n/Im0 Do\nendstream",
+            "<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace [/Indexed /DeviceCMYK 0 <00000000>] /BitsPerComponent 8 /Length 1 >>\nstream\n\u{0}\nendstream",
+        ],
+        "",
+    );
+    assert!(uses_cmyk(&indexed_img));
+
+    let res_cmyk = drawing("/CS0 cs 0 sc 0 0 10 10 re f", "/ColorSpace << /CS0 [/Indexed /DeviceCMYK 0 <00000000>] >>", &[]);
+    assert!(uses_cmyk(&res_cmyk));
+    let pattern_cmyk = drawing("0 0 10 10 re f", "/ColorSpace << /CS0 [/Pattern /DeviceCMYK] >>", &[]);
+    assert!(uses_cmyk(&pattern_cmyk));
+    let chained_cs = drawing("0 0 10 10 re f", "/ColorSpace << /CS0 5 0 R >>", &["6 0 R", "[7 0 R 8 0 R]", "/Pattern", "/DeviceCMYK"]);
+    assert!(uses_cmyk(&chained_cs));
+
+    // An indirect filter name inside a /Filter array or the /LZW abbreviation is still checked for LZWDecode.
+    let indirect_lzw = build(
+        &[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 200] >>",
+            "<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
+            "<< /Filter [5 0 R] /Length 0 >>\nstream\n\nendstream",
+            "/LZWDecode",
+        ],
+        "",
+    );
+    assert!(messages(&verify(&indirect_lzw, Level::A2b)).contains(&"A stream uses LZW compression"));
+    let abbrev_lzw = build(
+        &[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 200] >>",
+            "<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
+            "<< /Filter /LZW /Length 0 >>\nstream\n\nendstream",
+        ],
+        "",
+    );
+    assert!(messages(&verify(&abbrev_lzw, Level::A2b)).contains(&"A stream uses LZW compression"));
 }
 
 /// PDF/A-2 6.1.13 holds a file to the implementation limits of ISO 32000-1 Annex C (Table C.1):
@@ -1575,7 +1658,7 @@ fn file_header_is_checked_and_rewritten() {
     assert!(report.fixed.iter().any(|f| f == "Rewrote the file header"));
     assert_eq!(doc.version(), "1.7");
     assert!(verify(&doc, Level::A2b).iter().all(|i| i.clause != "6.1.2"));
-    let saved = pdfcraft_cos::write_full(&doc, &Default::default()).unwrap();
+    let saved = openpdf_cos::write_full(&doc, &Default::default()).unwrap();
     assert!(saved.starts_with(b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n"));
     // A good version with a short comment is rewritten too, keeping its version.
     let mut doc = build_with_header(b"%PDF-1.4\n%ab\n", &objs, "");
@@ -1712,7 +1795,7 @@ fn trailer_file_identifier_is_checked_and_added() {
         let report = convert(&mut doc, Level::A2b).unwrap();
         assert!(report.fixed.iter().any(|f| f == "Added a file identifier (ID)"), "{extra}");
         assert!(verify(&doc, Level::A2b).iter().all(|i| i.clause != "6.1.3"), "{extra}");
-        let saved = pdfcraft_cos::write_incremental(&doc, &Default::default()).unwrap();
+        let saved = openpdf_cos::write_incremental(&doc, &Default::default()).unwrap();
         let saved = Document::open(std::sync::Arc::new(saved)).unwrap();
         assert!(verify(&saved, Level::A2b).iter().all(|i| i.clause != "6.1.3"), "{extra}");
     }
@@ -1832,7 +1915,7 @@ fn set_state_no_op_and_named_actions_are_checked_wherever_actions_are() {
         ("<< /S /Named /N /Print >>", "A Named Print action isn't allowed"),
         ("<< /S /Named /N 6 0 R >>", "A Named Print action isn't allowed"),
     ];
-    let plain = pdfcraft_cos::SaveOptions { object_streams: false, ..Default::default() };
+    let plain = openpdf_cos::SaveOptions { object_streams: false, ..Default::default() };
     for (action, message) in forbidden {
         for (place, mut doc) in placed(action) {
             let issues = verify(&doc, Level::A2b);
@@ -1841,7 +1924,7 @@ fn set_state_no_op_and_named_actions_are_checked_wherever_actions_are() {
             let r = convert(&mut doc, Level::A2b).unwrap();
             let left: Vec<_> = r.remaining.iter().filter(|i| i.clause.starts_with("6.5")).collect();
             assert!(left.is_empty(), "{action} in {place}: {left:#?}");
-            let bytes = pdfcraft_cos::write_full(&doc, &plain).unwrap();
+            let bytes = openpdf_cos::write_full(&doc, &plain).unwrap();
             for kind in [&b"/SetState"[..], b"/NOP", b"/Named"] {
                 assert!(!bytes.windows(kind.len()).any(|w| w == kind), "{action} in {place}: {}", String::from_utf8_lossy(&bytes));
             }
@@ -1852,7 +1935,7 @@ fn set_state_no_op_and_named_actions_are_checked_wherever_actions_are() {
         let issues = verify(&doc, Level::A2b);
         assert!(!issues.iter().any(|i| i.clause == "6.5.1"), "{place}: {issues:#?}");
         convert(&mut doc, Level::A2b).unwrap();
-        let bytes = pdfcraft_cos::write_full(&doc, &plain).unwrap();
+        let bytes = openpdf_cos::write_full(&doc, &plain).unwrap();
         let kept = bytes.windows(6).any(|w| w == b"/Named");
         assert_eq!(kept, place != "a page's /AA", "{place}: {}", String::from_utf8_lossy(&bytes));
     }
@@ -2130,7 +2213,7 @@ fn pages_sharing_a_form_read_it_once() {
     }
     let objs: Vec<&str> = objs.iter().map(String::as_str).collect();
     let doc = build(&objs, "");
-    let list = pdfcraft_model::pages(&doc);
+    let list = openpdf_model::pages(&doc);
     let mut shared = transparency::Shared::default();
     let reads: Vec<usize> = list.iter().map(|p| transparency::page_reads(&doc, &p.dict, &mut shared)).collect();
     assert!(reads.first().is_some_and(|&n| n > 200), "the first page reads the chain: {reads:?}");

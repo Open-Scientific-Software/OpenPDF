@@ -2,11 +2,11 @@
 //! the JavaScript console (⌘J), Document JavaScripts, and Preferences ▸ JavaScript.
 
 use egui::{Align, Layout};
-use pdfcraft_engine::js::{JsOutput, Message, MessageIcon, Panel, Request};
-use pdfcraft_engine::{DocId, Edit};
+use openpdf_engine::js::{JsOutput, Message, MessageIcon, Panel, Request};
+use openpdf_engine::{DocId, Edit};
 
 use crate::theme::{self, Tokens};
-use crate::{PdfCraftApp, widgets};
+use crate::{OpenPDFApp, widgets};
 
 /// The JavaScript console: the input and the output so far.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -43,7 +43,7 @@ pub(crate) fn scripts_off_notice() -> String {
     tl!("This form's scripts are turned off because one ran too long. Reopen the document to run them again.").to_string()
 }
 
-impl PdfCraftApp {
+impl OpenPDFApp {
     /// Act on what scripts produced in document `id`: alerts are shown, console output goes to
     /// the console, print and page requests are carried out, links wait for the user's permission
     /// (form submissions are reported, never sent).
@@ -78,10 +78,12 @@ impl PdfCraftApp {
                 }
                 Request::LaunchUrl(u) => self.request_document_url(&u, crate::LinkOrigin::Script),
                 Request::Submit(u) => self.notify_fmt(
-                    "The form asks to be submitted to {u}; PdfCraft doesn't send form data. Save the document to keep your entries.",
+                    "The form asks to be submitted to {u}; OpenPDF doesn't send form data. Save the document to keep your entries.",
                     &[("u", &u)],
                 ),
                 Request::SaveAs => self.run_command("file.save_as"),
+                Request::OpenAttachment { name, open } => self.open_script_attachment(id, &name, open),
+                Request::Highlight(on) => self.script_highlight(id, on),
                 Request::ShowPanel(p) => {
                     let panel = match p {
                         Panel::Bookmarks => crate::RightPanel::Bookmarks,
@@ -111,6 +113,33 @@ impl PdfCraftApp {
         if self.toast.is_none() {
             self.next_script_message();
         }
+    }
+
+    /// A form button's `exportDataObject`: the attached file `name` (its key in the document's
+    /// embedded files, else its file name), opened in a new tab when the script asks to open a
+    /// PDF, and otherwise offered to save. Other files aren't launched in other programs.
+    fn open_script_attachment(&mut self, id: DocId, name: &str, open: bool) {
+        let Some(doc) = self.session.get(id) else { return };
+        let keyed = |a: &openpdf_render::Attachment| matches!(&a.source, openpdf_render::AttachmentSource::Document { key } if key == name);
+        let index = doc.info.attachments.iter().position(keyed).or_else(|| doc.info.attachments.iter().position(|a| a.name == name));
+        let Some(i) = index else {
+            // The name is the form's own text: shortened, as file names are elsewhere.
+            let shown = crate::dialogs::shorten_middle(name, 80);
+            self.notify_fmt("The form asks for the attached file {name}, which this document doesn't have.", &[("name", &shown)]);
+            return;
+        };
+        // Whether it is a PDF is decided by its bytes, not its name (`attachment_action`).
+        self.attachment_action(id, i, open);
+    }
+
+    /// A form's script turned field highlighting on or off (`app.runtimeHighlight`): as the
+    /// Highlight fields button does, for document `id` and the next ones.
+    pub(crate) fn script_highlight(&mut self, id: DocId, on: bool) {
+        if let Some(v) = self.views.iter_mut().find(|v| v.id == id) {
+            v.highlight_fields = on;
+        }
+        self.view_defaults.highlight_fields = on;
+        self.session.set_field_highlight(on);
     }
 
     /// Put the next waiting script message in the toast, or, once none waits, a notice of how many
@@ -228,7 +257,7 @@ fn buttons(ui: &mut egui::Ui, primary: &str, others: &[&str]) -> Option<String> 
 }
 
 /// The JavaScript console. Returns `true` to close.
-pub(crate) fn console_body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> bool {
+pub(crate) fn console_body(ui: &mut egui::Ui, app: &mut OpenPDFApp, t: &Tokens) -> bool {
     ui.label(egui::RichText::new(tl!("JavaScript Console")).font(theme::semibold(18.0)));
     ui.add_space(6.0);
     if !app.session.javascript() {
@@ -269,7 +298,7 @@ pub(crate) fn console_body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens)
 }
 
 /// Document JavaScripts: list, edit, add and delete. Returns `true` to close.
-pub(crate) fn document_js_body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> bool {
+pub(crate) fn document_js_body(ui: &mut egui::Ui, app: &mut OpenPDFApp, t: &Tokens) -> bool {
     ui.label(egui::RichText::new(tl!("Document JavaScripts")).font(theme::semibold(18.0)));
     ui.add_space(6.0);
     let scripts = app.active_ids().and_then(|(_, id)| app.session.get(id)).map(|d| d.document_scripts()).unwrap_or_default();
@@ -330,13 +359,13 @@ mod tests {
         if !crate::i18n::needs_catalogs() {
             return;
         }
-        let date_language = |code: &str| pdfcraft_engine::dates::DATE_LANGUAGES.iter().find(|l| l.code == code).expect("date language");
+        let date_language = |code: &str| openpdf_engine::dates::DATE_LANGUAGES.iter().find(|l| l.code == code).expect("date language");
         let hindi = date_language("hi");
         assert_eq!(date_language_picker_name(hindi, |_| true), hindi.name, "the native name is kept when it can be drawn");
         assert_eq!(date_language_picker_name(hindi, |_| false), "Hindi", "no Devanagari face: show the English name");
         let chinese = date_language("zh-hans");
         assert_eq!(date_language_picker_name(chinese, |_| false), "Simplified Chinese");
-        for language in &pdfcraft_engine::dates::DATE_LANGUAGES {
+        for language in &openpdf_engine::dates::DATE_LANGUAGES {
             assert!(!date_language_picker_name(language, |_| false).is_empty(), "{}", language.code);
         }
     }

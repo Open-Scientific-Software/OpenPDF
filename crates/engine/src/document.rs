@@ -2,8 +2,8 @@
 
 use std::sync::{Arc, OnceLock};
 
-use pdfcraft_cos::{SaveOptions, write_incremental};
-use pdfcraft_render::{DocInfo, RenderConfig, RenderPool};
+use openpdf_cos::{SaveOptions, write_incremental};
+use openpdf_render::{DocInfo, RenderConfig, RenderPool};
 
 use crate::history::Editor;
 use crate::{
@@ -38,27 +38,31 @@ pub struct Document {
     /// Why the document cannot be edited (e.g. encryption), if so.
     pub read_only_reason: Option<String>,
     /// Interactive form fields of the current state (empty without a form).
-    pub form: Arc<Vec<pdfcraft_forms::Field>>,
-    pub(crate) marker_scan: OnceLock<pdfcraft_edit::MarkerScan>,
-    pub(crate) links: OnceLock<Vec<pdfcraft_annot::links::LinkItem>>,
+    pub form: Arc<Vec<openpdf_forms::Field>>,
+    pub(crate) marker_scan: OnceLock<openpdf_edit::MarkerScan>,
+    pub(crate) links: OnceLock<Vec<openpdf_annot::links::LinkItem>>,
     /// Signature fields, validated against the session's trust store (Signatures panel).
     pub signatures: Arc<Vec<SignatureInfo>>,
     pub(crate) trust: Arc<TrustStore>,
     /// The words signature status layers are drawn with (the session's, see
     /// [`Session::set_signature_captions`](crate::Session::set_signature_captions)).
     pub(crate) captions: Arc<StatusCaptions>,
-    pub(crate) sig_cache: Arc<pdfcraft_sign::DigestCache>,
+    pub(crate) sig_cache: Arc<openpdf_sign::DigestCache>,
     pub(crate) editor: Option<Editor>,
     pub(crate) config: RenderConfig,
     /// What field scripts printed or asked for (see [`Session::take_js_output`]).
     pub(crate) js_output: js::JsOutput,
     /// Dynamic XFA forms: what laying the template out produced (pages and fields are
-    /// PdfCraft's; Adobe's viewers draw the form from the XFA packets themselves).
+    /// OpenPDF's; Adobe's viewers draw the form from the XFA packets themselves).
     pub xfa: Option<XfaLayout>,
     /// The parsed template of a laid-out XFA form, for its scripts.
-    pub(crate) xfa_template: Option<Arc<pdfcraft_xfa::model::Template>>,
+    pub(crate) xfa_template: Option<Arc<openpdf_xfa::model::Template>>,
     /// A script of the XFA form ran away, so its scripts are off (see [`Document::xfa_scripts_off`]).
     pub(crate) xfa_scripts_off: bool,
+    /// SOM paths of the XFA fields whose exit scripts ran with a value change ([`xfa::on_changes`])
+    /// since they last gained focus: their exit on losing focus has run already
+    /// ([`Session::field_focus`]).
+    pub(crate) xfa_exited: std::collections::HashSet<String>,
     /// A content-only refresh keeps `info` from before the edit; an edit may have added or
     /// embedded fonts, so the font list is read again on demand ([`Session::refresh_fonts`]).
     pub(crate) fonts_stale: bool,
@@ -66,8 +70,9 @@ pub struct Document {
     /// (also in `info.warnings`, kept there when the document is re-read).
     pub xfa_warnings: Vec<String>,
     /// What the last successful [`Session::apply`](crate::Session::apply) wants said (see
-    /// [`EditNotice`]): text its fonts can't draw, pages whose own backdrop stays off. The
-    /// interface shows it; tools return it.
+    /// [`EditNotice`]): text its fonts can't draw, pages whose own backdrop stays off, places
+    /// applied redactions left that still hold the removed text. The interface shows it; tools
+    /// return it.
     pub edit_notices: Vec<EditNotice>,
 }
 
@@ -79,9 +84,24 @@ pub enum EditNotice {
     Undrawn(TextNotice),
     /// Remove background couldn't turn back on the white backdrop these pages (0-based,
     /// ascending) paint themselves: their content changed after the background replaced it, so
-    /// turning it on could paint over something (`pdfcraft_edit::backdrops_left_off`). They look
+    /// turning it on could paint over something (`openpdf_edit::backdrops_left_off`). They look
     /// the same on white paper.
     BackdropsLeftOff { pages: Vec<usize> },
+    /// Applying redactions left these places as they were, and they still hold the removed text
+    /// (bookmark titles, attachments, the comments that remain, XMP on other objects; see
+    /// [`RedactionElsewhere`](crate::RedactionElsewhere)). Only when one is counted, or the text
+    /// couldn't be searched for.
+    RedactionElsewhere(openpdf_redact::Elsewhere),
+    /// Applying redactions removed the document's XMP packet, which held the removed text and
+    /// said the file conforms to PDF/A or PDF/UA: each claim was written back in a packet of its
+    /// own, or lost (see [`RedactionIdentification`](crate::RedactionIdentification)).
+    RedactionIdentification(openpdf_redact::Identification),
+}
+
+/// The standards whose identification `id` has as `claim`: "PDF/A", "PDF/UA" or both, joined.
+pub(crate) fn standards_with(id: &openpdf_redact::Identification, claim: openpdf_redact::Claim) -> Option<String> {
+    let names: Vec<&str> = [("PDF/A", id.pdfa), ("PDF/UA", id.pdfua)].into_iter().filter(|(_, c)| *c == claim).map(|(n, _)| n).collect();
+    (!names.is_empty()).then(|| names.join(" and "))
 }
 
 impl std::fmt::Display for EditNotice {
@@ -96,7 +116,47 @@ impl std::fmt::Display for EditNotice {
                     page_runs(pages)
                 )
             }
+            EditNotice::RedactionElsewhere(e) => elsewhere_text(e, f),
+            EditNotice::RedactionIdentification(id) => {
+                use openpdf_redact::Claim;
+                write!(f, "the document's XMP metadata held the redacted text and was removed")?;
+                if let Some(kept) = standards_with(id, Claim::Kept) {
+                    write!(f, "; its {kept} identification was written back on its own")?;
+                }
+                match standards_with(id, Claim::Lost) {
+                    Some(lost) => write!(f, "; its {lost} identification couldn't be kept, so the file no longer says it conforms to {lost}"),
+                    None => Ok(()),
+                }
+            }
         }
+    }
+}
+
+/// [`EditNotice::RedactionElsewhere`] in words (English; the interface has its own wording).
+fn elsewhere_text(e: &openpdf_redact::Elsewhere, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let count = |n: usize, one: &str, many: &str| match n {
+        0 => None,
+        1 => Some(format!("1 {one}")),
+        n => Some(format!("{n} {many}")),
+    };
+    let places: Vec<String> = [
+        count(e.bookmarks, "bookmark title", "bookmark titles"),
+        count(e.attachments, "attachment", "attachments"),
+        count(e.comments, "comment", "comments"),
+        count(e.xmp, "other metadata stream", "other metadata streams"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let list = match places.split_last() {
+        None => "no place counted".to_string(),
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+    };
+    if e.unsearched {
+        write!(f, "the redacted text couldn't be searched for, so {list} may still hold it (Remove hidden information removes them)")
+    } else {
+        write!(f, "the redacted text also appears in {list}, which redaction doesn't change (Remove hidden information removes them)")
     }
 }
 
@@ -115,7 +175,7 @@ pub(crate) fn page_runs(pages: &[usize]) -> String {
 
 /// Text an edit stored as typed but drew with `?` in place of `ch`, because the font it is drawn
 /// with (a form field's, or the standard fonts for comments) can't draw that character. Acrobat
-/// keeps such text too, drawing it with fonts PdfCraft can't embed yet.
+/// keeps such text too, drawing it with fonts OpenPDF can't embed yet.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TextNotice {
     /// The form field's full name, or `None` for a comment.
@@ -135,7 +195,7 @@ impl std::fmt::Display for TextNotice {
         match (&self.field, self.redrawn_elsewhere) {
             (Some(name), true) => write!(
                 f,
-                "form field {name:?} (page {page}) holds {ch}, which its font can't draw: the value is saved, PdfCraft shows ? in its place, and other PDF viewers redraw the field from the value"
+                "form field {name:?} (page {page}) holds {ch}, which its font can't draw: the value is saved, OpenPDF shows ? in its place, and other PDF viewers redraw the field from the value"
             ),
             (Some(name), false) => write!(
                 f,
@@ -150,26 +210,26 @@ impl std::fmt::Display for TextNotice {
 }
 
 /// What `next` drew with `?` that `prev` didn't (a new or redrawn appearance carrying
-/// `pdfcraft_fonts::UNDRAWN_MARK`), one notice per field or comment, in page order.
-pub(crate) fn undrawn_notices(prev: &pdfcraft_cos::Document, next: &pdfcraft_cos::Document) -> Vec<TextNotice> {
-    let Ok(pages) = pdfcraft_annot::page_refs(next) else { return Vec::new() };
-    let redrawn_elsewhere = pdfcraft_forms::need_appearances(next);
-    let mut names: Option<std::collections::HashMap<pdfcraft_cos::ObjRef, String>> = None;
+/// `openpdf_fonts::UNDRAWN_MARK`), one notice per field or comment, in page order.
+pub(crate) fn undrawn_notices(prev: &openpdf_cos::Document, next: &openpdf_cos::Document) -> Vec<TextNotice> {
+    let Ok(pages) = openpdf_annot::page_refs(next) else { return Vec::new() };
+    let redrawn_elsewhere = openpdf_forms::need_appearances(next);
+    let mut names: Option<std::collections::HashMap<openpdf_cos::ObjRef, String>> = None;
     let mut out: Vec<TextNotice> = Vec::new();
     for (page, p) in pages.iter().enumerate() {
         let annots = next.get(*p).as_dict().and_then(|d| d.get(b"Annots").cloned()).map(|a| next.resolve(&a));
-        for r in annots.as_deref().and_then(pdfcraft_cos::Object::as_array).into_iter().flatten().filter_map(pdfcraft_cos::Object::as_ref) {
+        for r in annots.as_deref().and_then(openpdf_cos::Object::as_array).into_iter().flatten().filter_map(openpdf_cos::Object::as_ref) {
             let now = next.get(r);
             let Some(d) = now.as_dict() else { continue };
-            let Some(ch) = pdfcraft_fonts::undrawn_mark(d) else { continue };
+            let Some(ch) = openpdf_fonts::undrawn_mark(d) else { continue };
             // Only what this edit drew: a new annotation, or a new appearance.
             let was = prev.get(r);
-            if was.as_dict().is_some_and(|w| w.get(b"AP") == d.get(b"AP") && pdfcraft_fonts::undrawn_mark(w) == Some(ch)) {
+            if was.as_dict().is_some_and(|w| w.get(b"AP") == d.get(b"AP") && openpdf_fonts::undrawn_mark(w) == Some(ch)) {
                 continue;
             }
             let field = (d.name(b"Subtype") == Some(b"Widget")).then(|| {
                 let names = names.get_or_insert_with(|| {
-                    pdfcraft_forms::fields(next)
+                    openpdf_forms::fields(next)
                         .into_iter()
                         .flat_map(|f| f.widgets.iter().map(|w| (w.obj, f.name.clone())).collect::<Vec<_>>())
                         .collect()
@@ -186,6 +246,26 @@ pub(crate) fn undrawn_notices(prev: &pdfcraft_cos::Document, next: &pdfcraft_cos
 }
 
 impl Document {
+    /// The places the last edit's applied redactions left that still hold the removed text
+    /// ([`EditNotice::RedactionElsewhere`]), or `None` when there are none or the last edit
+    /// applied none.
+    pub fn redaction_elsewhere(&self) -> Option<openpdf_redact::Elsewhere> {
+        self.edit_notices.iter().find_map(|n| match n {
+            EditNotice::RedactionElsewhere(e) => Some(*e),
+            _ => None,
+        })
+    }
+
+    /// What became of the PDF/A and PDF/UA identification when the last edit's applied
+    /// redactions removed the document's XMP packet ([`EditNotice::RedactionIdentification`]),
+    /// or `None` when no packet that made such a claim was removed.
+    pub fn redaction_identification(&self) -> Option<openpdf_redact::Identification> {
+        self.edit_notices.iter().find_map(|n| match n {
+            EditNotice::RedactionIdentification(id) => Some(*id),
+            _ => None,
+        })
+    }
+
     /// How the document opens (Document Properties ▸ Initial View).
     /// Accessibility ▸ Check for accessibility: the full check (`None` if the document can't be
     /// read for editing).
@@ -206,29 +286,29 @@ impl Document {
     }
 
     /// The backdrop `page` (0-based) paints itself, which hides a background (Add Background).
-    pub fn page_backdrop(&self, page: usize) -> Option<pdfcraft_edit::Backdrop> {
-        self.editor.as_ref().and_then(|e| pdfcraft_edit::page_backdrop(&e.cos, page).ok().flatten())
+    pub fn page_backdrop(&self, page: usize) -> Option<openpdf_edit::Backdrop> {
+        self.editor.as_ref().and_then(|e| openpdf_edit::page_backdrop(&e.cos, page).ok().flatten())
     }
 
     /// [`Self::page_backdrop`] for each of `pages`, in order, walking the page tree once: the
     /// way to check many pages. A page out of range has none.
-    pub fn page_backdrops(&self, pages: &[usize]) -> Vec<Option<pdfcraft_edit::Backdrop>> {
+    pub fn page_backdrops(&self, pages: &[usize]) -> Vec<Option<openpdf_edit::Backdrop>> {
         match &self.editor {
-            Some(e) => pdfcraft_edit::page_backdrops(&e.cos, pages),
+            Some(e) => openpdf_edit::page_backdrops(&e.cos, pages),
             None => vec![None; pages.len()],
         }
     }
 
     /// Edit a PDF: the images `page` draws (0-based).
-    pub fn page_images(&self, page: usize) -> Vec<pdfcraft_edit::PageImage> {
-        self.editor.as_ref().and_then(|e| pdfcraft_edit::page_images(&e.cos, page).ok()).unwrap_or_default()
+    pub fn page_images(&self, page: usize) -> Vec<openpdf_edit::PageImage> {
+        self.editor.as_ref().and_then(|e| openpdf_edit::page_images(&e.cos, page).ok()).unwrap_or_default()
     }
 
     /// Mixed editable objects on one page. Source inventories are zero-based and added items
     /// appear once. Rectangles are user-space points, independent of the viewer's zoom.
     pub fn editable_objects(&self, page: usize) -> Result<Vec<EditableObject>, String> {
         let editor = self.editor.as_ref().ok_or("the document can't be read")?;
-        pdfcraft_edit::editable_objects(&editor.cos, page).map_err(|e| e.to_string())
+        openpdf_edit::editable_objects(&editor.cos, page).map_err(|e| e.to_string())
     }
 
     /// Displayed top-left-origin motion to a user-space vector. Use the linear map only,
@@ -258,7 +338,7 @@ impl Document {
         if img.is_form {
             return Err("grouped Form artwork is not a bitmap; Save Image As is only available for raster images".into());
         }
-        pdfcraft_create::image_file(&editor.cos, img.object.ok_or("the image has no object")?)
+        openpdf_create::image_file(&editor.cos, img.object.ok_or("the image has no object")?)
     }
 
     /// Edit text: whether grouped artwork `index` on `page` (0-based, as [`Self::page_images`]
@@ -267,11 +347,11 @@ impl Document {
     /// opened or a page that can't be read.
     pub fn grouped_text_at(&self, page: usize, index: usize) -> bool {
         let Some(editor) = self.editor.as_ref() else { return false };
-        crate::guard(|| pdfcraft_edit::text::forms::grouped_text_at(&editor.cos, page, index)).is_ok_and(|r| r.is_ok_and(|yes| yes))
+        crate::guard(|| openpdf_edit::text::forms::grouped_text_at(&editor.cos, page, index)).is_ok_and(|r| r.is_ok_and(|yes| yes))
     }
 
     /// Edit a PDF ▸ Edit text: the paragraphs on `page` (0-based).
-    pub fn text_blocks(&self, page: usize) -> Vec<pdfcraft_edit::TextBlock> {
+    pub fn text_blocks(&self, page: usize) -> Vec<openpdf_edit::TextBlock> {
         self.editor.as_ref().and_then(|e| e.text_blocks(page).ok()).map(|b| b.as_ref().clone()).unwrap_or_default()
     }
 
@@ -336,19 +416,19 @@ impl Document {
     }
 
     /// Edit a PDF ▸ Edit text: the lines of existing text on `page` (0-based).
-    pub fn text_lines(&self, page: usize) -> Vec<pdfcraft_edit::TextLine> {
-        self.editor.as_ref().and_then(|e| pdfcraft_edit::text_lines(&e.cos, page).ok()).unwrap_or_default()
+    pub fn text_lines(&self, page: usize) -> Vec<openpdf_edit::TextLine> {
+        self.editor.as_ref().and_then(|e| openpdf_edit::text_lines(&e.cos, page).ok()).unwrap_or_default()
     }
 
     /// The form's calculation order: its calculated fields in the order they calculate, what each
     /// formula reads, what is wrong with the order, and the order Fix order writes.
     pub fn calculation_order(&self) -> CalculationOrder {
-        self.editor.as_ref().map(|e| pdfcraft_forms::calculation_order(&e.cos, &self.form)).unwrap_or_default()
+        self.editor.as_ref().map(|e| openpdf_forms::calculation_order(&e.cos, &self.form)).unwrap_or_default()
     }
 
     /// Page properties ▸ Tab order: each page's tab order, in page order.
     pub fn tab_orders(&self) -> Vec<TabOrder> {
-        self.editor.as_ref().map(|e| pdfcraft_forms::tab_orders(&e.cos)).unwrap_or_default()
+        self.editor.as_ref().map(|e| openpdf_forms::tab_orders(&e.cos)).unwrap_or_default()
     }
 
     /// Add alternate text: the figures, in document order.
@@ -362,7 +442,7 @@ impl Document {
     }
 
     /// Marked-content items directly owned by one reachable indirect structure tag.
-    pub fn tag_content(&self, object: pdfcraft_cos::ObjRef) -> Result<Vec<a11y::TagContentItem>, a11y::TagError> {
+    pub fn tag_content(&self, object: openpdf_cos::ObjRef) -> Result<Vec<a11y::TagContentItem>, a11y::TagError> {
         self.editor.as_ref().map(|e| a11y::tag_content(&e.cos, object)).unwrap_or_else(|| Ok(Vec::new()))
     }
 
@@ -395,7 +475,7 @@ impl Document {
     }
 
     pub fn initial_view(&self) -> InitialView {
-        self.editor.as_ref().map(|e| pdfcraft_organize::initial_view(&e.cos)).unwrap_or_default()
+        self.editor.as_ref().map(|e| openpdf_organize::initial_view(&e.cos)).unwrap_or_default()
     }
 
     /// Signed: at least one signature field holds a signature.
@@ -412,15 +492,21 @@ impl Document {
     /// engine's own check (it, and every reply that would go with it, unlocked), for a Delete
     /// command to ask before it is offered.
     pub fn annotation_deletable(&self, page: usize, index: usize) -> bool {
-        self.editor.as_ref().is_some_and(|e| pdfcraft_annot::deletable(&e.cos, page, index).is_ok())
+        self.editor.as_ref().is_some_and(|e| openpdf_annot::deletable(&e.cos, page, index).is_ok())
     }
 
     pub fn can_undo(&self) -> Option<&str> {
         self.undo_label().map(Label::as_str)
     }
 
+    /// What Redo would redo, in English, when there is something to redo.
     pub fn can_redo(&self) -> Option<&str> {
         self.redo_label().map(Label::as_str)
+    }
+
+    /// How many steps Undo can take back: a step still at this depth is still the last one.
+    pub fn undo_depth(&self) -> usize {
+        self.editor.as_ref().map_or(0, |e| e.undo.len())
     }
 
     /// What Undo would undo, in parts, for an interface that says it in another language.
@@ -438,7 +524,7 @@ impl Document {
     }
 
     /// What the opening password allows; `None` when the document is not encrypted.
-    pub fn permissions(&self) -> Option<pdfcraft_cos::Permissions> {
+    pub fn permissions(&self) -> Option<openpdf_cos::Permissions> {
         self.editor.as_ref().and_then(|e| e.cos.permissions())
     }
 
@@ -485,7 +571,7 @@ impl Document {
                     .map(|e| {
                         #[cfg(test)]
                         record_marker_scan();
-                        pdfcraft_edit::scan_markers(&e.cos)
+                        openpdf_edit::scan_markers(&e.cos)
                     })
                     .unwrap_or_default()
             })
@@ -493,7 +579,7 @@ impl Document {
     }
 
     /// Text and images added with Edit a PDF ▸ Add content (still editable).
-    pub fn added(&self) -> &[pdfcraft_edit::Added] {
+    pub fn added(&self) -> &[openpdf_edit::Added] {
         &self
             .marker_scan
             .get_or_init(|| {
@@ -502,7 +588,7 @@ impl Document {
                     .map(|e| {
                         #[cfg(test)]
                         record_marker_scan();
-                        pdfcraft_edit::scan_markers(&e.cos)
+                        openpdf_edit::scan_markers(&e.cos)
                     })
                     .unwrap_or_default()
             })
@@ -510,14 +596,14 @@ impl Document {
     }
 
     /// Link annotations, for Edit a PDF ▸ Link.
-    pub fn links(&self) -> &[pdfcraft_annot::links::LinkItem] {
+    pub fn links(&self) -> &[openpdf_annot::links::LinkItem] {
         self.links.get_or_init(|| {
             self.editor
                 .as_ref()
                 .map(|e| {
                     #[cfg(test)]
                     record_link_scan();
-                    pdfcraft_annot::links::list(&e.cos)
+                    openpdf_annot::links::list(&e.cos)
                 })
                 .unwrap_or_default()
         })
@@ -570,80 +656,80 @@ impl Document {
         let stream = d.crypt_filters.iter().find(|(name, _)| *name == d.stm_f).map(|(_, m)| *m);
         let method = match (d.v, stream) {
             (1..=3, _) if d.length_bits <= 40 => "RC4, 40-bit",
-            (1..=3, _) | (_, Some(pdfcraft_cos::CryptMethod::Rc4)) => "RC4, 128-bit",
-            (_, Some(pdfcraft_cos::CryptMethod::Aes128)) => "AES, 128-bit",
-            (_, Some(pdfcraft_cos::CryptMethod::Aes256)) => "AES, 256-bit",
+            (1..=3, _) | (_, Some(openpdf_cos::CryptMethod::Rc4)) => "RC4, 128-bit",
+            (_, Some(openpdf_cos::CryptMethod::Aes128)) => "AES, 128-bit",
+            (_, Some(openpdf_cos::CryptMethod::Aes256)) => "AES, 256-bit",
             _ => "Attachments only",
         };
         let pending = editor.cos.encryption_changed();
-        let permissions = if pending { pdfcraft_cos::Permissions { owner: false, ..h.permissions() } } else { h.permissions() };
-        Some(SecuritySummary { method: method.into(), owner: h.auth() == pdfcraft_cos::Auth::Owner && !pending, permissions, pending })
+        let permissions = if pending { openpdf_cos::Permissions { owner: false, ..h.permissions() } } else { h.permissions() };
+        Some(SecuritySummary { method: method.into(), owner: h.auth() == openpdf_cos::Auth::Owner && !pending, permissions, pending })
     }
 
     /// Comment properties of the comment at `(page, index)` (Comment Properties dialog).
-    pub fn comment_props(&self, page: usize, index: usize) -> Option<pdfcraft_annot::Props> {
-        self.editor.as_ref().and_then(|e| pdfcraft_annot::props(&e.cos, page, index))
+    pub fn comment_props(&self, page: usize, index: usize) -> Option<openpdf_annot::Props> {
+        self.editor.as_ref().and_then(|e| openpdf_annot::props(&e.cos, page, index))
     }
 
     /// A form field's Appearance-tab look (borders, colours, font).
-    pub fn field_look(&self, name: &str) -> Option<pdfcraft_forms::Look> {
+    pub fn field_look(&self, name: &str) -> Option<openpdf_forms::Look> {
         let e = self.editor.as_ref()?;
         let f = self.form.iter().find(|f| f.name == name)?;
-        Some(pdfcraft_forms::look(&e.cos, f))
+        Some(openpdf_forms::look(&e.cos, f))
     }
 
     /// A check box's or radio button's mark (Field Properties ▸ Options), `None` for other fields.
     pub fn field_check_style(&self, name: &str) -> Option<CheckStyle> {
         let e = self.editor.as_ref()?;
         let f = self.form.iter().find(|f| f.name == name)?;
-        matches!(f.kind, FormFieldKind::CheckBox | FormFieldKind::Radio).then(|| pdfcraft_forms::check_style(&e.cos, f))
+        matches!(f.kind, FormFieldKind::CheckBox | FormFieldKind::Radio).then(|| openpdf_forms::check_style(&e.cos, f))
     }
 
     /// Whether text field `name`'s value is cut off by its box at the field's font size (#4018):
     /// the page (0-based) of the first widget that cuts it, and how.
-    pub fn field_overflow(&self, name: &str) -> Option<(Option<usize>, pdfcraft_forms::appearance::Overflow)> {
+    pub fn field_overflow(&self, name: &str) -> Option<(Option<usize>, openpdf_forms::appearance::Overflow)> {
         let e = self.editor.as_ref()?;
         let f = self.form.iter().find(|f| f.name == name)?;
-        f.widgets.iter().find_map(|w| pdfcraft_forms::appearance::value_overflow(&e.cos, f, w).map(|o| (w.page, o)))
+        f.widgets.iter().find_map(|w| openpdf_forms::appearance::value_overflow(&e.cos, f, w).map(|o| (w.page, o)))
     }
 
     /// Remove Hidden Information: what each category would remove.
     pub fn hidden_info(&self) -> Vec<(Hidden, usize)> {
-        self.editor.as_ref().map(|e| pdfcraft_redact::sanitize::scan(&e.cos)).unwrap_or_default()
+        self.editor.as_ref().map(|e| openpdf_redact::sanitize::scan(&e.cos)).unwrap_or_default()
     }
 
     /// [`Self::hidden_info`] for the categories in `which` alone, without the reading the others
-    /// need (see [`pdfcraft_redact::sanitize::scan_only`]).
+    /// need (see [`openpdf_redact::sanitize::scan_only`]).
     pub fn hidden_info_of(&self, which: &[Hidden]) -> Vec<(Hidden, usize)> {
-        self.editor.as_ref().map(|e| pdfcraft_redact::sanitize::scan_only(&e.cos, which)).unwrap_or_default()
+        self.editor.as_ref().map(|e| openpdf_redact::sanitize::scan_only(&e.cos, which)).unwrap_or_default()
     }
 
     /// Verification: faux redactions (opaque covers over extractable text) and redaction
     /// marks that were never applied. Fails closed: any read error is returned, never an
     /// empty list.
-    pub fn audit_redactions(&self) -> Result<Vec<pdfcraft_audit::AuditFinding>, String> {
+    pub fn audit_redactions(&self) -> Result<Vec<openpdf_audit::AuditFinding>, String> {
         let editor = self.editor.as_ref().ok_or("the document can't be read")?;
-        pdfcraft_audit::audit_redactions(&editor.cos).map_err(|e| e.to_string())
+        openpdf_audit::audit_redactions(&editor.cos).map_err(|e| e.to_string())
     }
 
     /// Every page's media, crop, bleed, trim and art boxes (user space), for Set Page Boxes.
     pub fn page_boxes(&self) -> Vec<[[f64; 4]; 5]> {
-        self.editor.as_ref().and_then(|e| pdfcraft_organize::page_boxes(&e.cos).ok()).unwrap_or_default()
+        self.editor.as_ref().and_then(|e| openpdf_organize::page_boxes(&e.cos).ok()).unwrap_or_default()
     }
 
     /// Current value of a document-information entry (Title, Author, …).
     pub fn info_value(&self, key: &str) -> Option<String> {
-        self.editor.as_ref().and_then(|e| pdfcraft_organize::info(&e.cos, key))
+        self.editor.as_ref().and_then(|e| openpdf_organize::info(&e.cos, key))
     }
 
     /// Whether the document information has an entry `key`, of any type, listed or not.
     pub fn has_info(&self, key: &str) -> bool {
-        self.editor.as_ref().is_some_and(|e| pdfcraft_organize::has_info(&e.cos, key))
+        self.editor.as_ref().is_some_and(|e| openpdf_organize::has_info(&e.cos, key))
     }
 
     /// The custom document properties as they are now (name, text), Document Properties ▸ Custom.
     pub fn custom_info(&self) -> Vec<(String, String)> {
-        self.editor.as_ref().map(|e| pdfcraft_organize::custom_info(&e.cos)).unwrap_or_default()
+        self.editor.as_ref().map(|e| openpdf_organize::custom_info(&e.cos)).unwrap_or_default()
     }
 
     /// The name shown on the tab and window: the document title when the document asks for it
@@ -651,8 +737,8 @@ impl Document {
     pub fn display_name(&self) -> String {
         self.editor
             .as_ref()
-            .filter(|e| pdfcraft_organize::displays_doc_title(&e.cos))
-            .and_then(|e| pdfcraft_organize::info(&e.cos, "Title"))
+            .filter(|e| openpdf_organize::displays_doc_title(&e.cos))
+            .and_then(|e| openpdf_organize::info(&e.cos, "Title"))
             .map(|t| t.trim().to_owned())
             .filter(|t| !t.is_empty() && !is_placeholder_title(t))
             .unwrap_or_else(|| self.name.clone())
@@ -676,7 +762,7 @@ impl Document {
     }
 
     /// Objects of the file that could not be read and read as null, one line each (see
-    /// [`pdfcraft_cos::Document::unreadable_objects`]): only those read so far.
+    /// [`openpdf_cos::Document::unreadable_objects`]): only those read so far.
     pub fn unreadable_objects(&self) -> Vec<String> {
         self.editor.as_ref().map(|e| e.cos.unreadable_objects()).unwrap_or_default()
     }
@@ -693,9 +779,9 @@ pub(crate) fn is_placeholder_title(title: &str) -> bool {
 }
 
 /// What is displayed: the working file plus, in memory only and never saved, the appearances
-/// PdfCraft draws for comments that have none ([`pdfcraft_annot::with_missing_appearances`]) and
+/// OpenPDF draws for comments that have none ([`openpdf_annot::with_missing_appearances`]) and
 /// for form fields the file leaves to the viewer (#3470), and the signature states drawn into
-/// named-layer signature appearances ([`pdfcraft_sign::show_status_layers`]). The working file is
+/// named-layer signature appearances ([`openpdf_sign::show_status_layers`]). The working file is
 /// unchanged, and so is everything that reads it (saving, signatures, …). Image and text exports
 /// and Print as Image read these bytes, so they show the page as displayed; validation badges
 /// belong to the viewer and never enter them.
@@ -713,20 +799,20 @@ pub(crate) fn display_bytes(
         sig.verdict_shown = false;
     }
     let Some(e) = editor else { return bytes.clone() };
-    let comments = pdfcraft_annot::with_missing_appearances_cached(&e.cos, &mut e.appearances);
-    let fields = pdfcraft_forms::with_field_appearances_cached(comments.as_ref().unwrap_or(&e.cos), &mut e.field_appearances);
+    let comments = openpdf_annot::with_missing_appearances_cached(&e.cos, &mut e.appearances);
+    let fields = openpdf_forms::with_field_appearances_cached(comments.as_ref().unwrap_or(&e.cos), &mut e.field_appearances);
     if let Some(mut display) = fields.or(comments) {
         // Written whether or not a signature changed: the copy exists for the comments and fields.
-        let _ = pdfcraft_sign::show_status_layers(&mut display, signatures, captions);
+        let _ = openpdf_sign::show_status_layers(&mut display, signatures, captions);
         return write_display_copy(e, bytes, &display, signatures);
     }
     // No comment or field needed an appearance, so there is no copy yet: build one only when a
     // signature's state would change it.
-    if !pdfcraft_sign::has_status_layers(&e.cos, signatures) {
+    if !openpdf_sign::has_status_layers(&e.cos, signatures) {
         return bytes.clone();
     }
     let mut display = e.cos.clone();
-    if !pdfcraft_sign::show_status_layers(&mut display, signatures, captions) {
+    if !openpdf_sign::show_status_layers(&mut display, signatures, captions) {
         return bytes.clone();
     }
     write_display_copy(e, bytes, &display, signatures)
@@ -738,7 +824,7 @@ pub(crate) fn display_bytes(
 pub(crate) fn write_display_copy(
     e: &mut Editor,
     bytes: &Arc<Vec<u8>>,
-    display: &pdfcraft_cos::Document,
+    display: &openpdf_cos::Document,
     signatures: &mut [SignatureInfo],
 ) -> Arc<Vec<u8>> {
     match write_incremental(display, &SaveOptions::default()) {
@@ -757,11 +843,11 @@ pub(crate) fn write_display_copy(
 }
 
 /// `doc` as the reader shows it: comments without an appearance stream drawn
-/// (`pdfcraft_annot::with_missing_appearances`) and form fields drawn from their values where the
+/// (`openpdf_annot::with_missing_appearances`) and form fields drawn from their values where the
 /// file leaves that to the viewer. `None` when `doc` needs neither. The vector print draws from
 /// this copy too, so what prints is what the page shows (#371, #3475 draw them for display only).
-pub(crate) fn as_displayed(doc: &pdfcraft_cos::Document) -> Option<pdfcraft_cos::Document> {
-    with_field_appearances(pdfcraft_annot::with_missing_appearances(doc), doc)
+pub(crate) fn as_displayed(doc: &openpdf_cos::Document) -> Option<openpdf_cos::Document> {
+    with_field_appearances(openpdf_annot::with_missing_appearances(doc), doc)
 }
 
 /// Carry the marks across a revalidation that leaves the display copy alone, when it may: only
@@ -780,20 +866,20 @@ pub(crate) fn carry_verdict_marks(previous: &[SignatureInfo], next: &mut [Signat
 
 /// `comments` (the display copy with comment appearances, if it needed any; else the document
 /// itself) with its form fields drawn from their values where the file leaves that to the viewer.
-fn with_field_appearances(comments: Option<pdfcraft_cos::Document>, doc: &pdfcraft_cos::Document) -> Option<pdfcraft_cos::Document> {
-    pdfcraft_forms::with_field_appearances(comments.as_ref().unwrap_or(doc)).or(comments)
+fn with_field_appearances(comments: Option<openpdf_cos::Document>, doc: &openpdf_cos::Document) -> Option<openpdf_cos::Document> {
+    openpdf_forms::with_field_appearances(comments.as_ref().unwrap_or(doc)).or(comments)
 }
 
 /// The reader shows the same pages in `a` and `b`: count, displayed size and rotation.
-pub(crate) fn same_pages(a: &[pdfcraft_render::PageInfo], b: &[pdfcraft_render::PageInfo]) -> bool {
+pub(crate) fn same_pages(a: &[openpdf_render::PageInfo], b: &[openpdf_render::PageInfo]) -> bool {
     a.len() == b.len()
         && a.iter().zip(b).all(|(x, y)| (x.width - y.width).abs() < 0.01 && (x.height - y.height).abs() < 0.01 && x.rotation == y.rotation)
 }
 
 /// Each document-information field of `info` with its value in `cos` (`/Info`, else XMP), read
 /// the way the full inspection reads them: NULs and spaces trimmed, empty is none.
-pub(crate) fn info_fields<'a>(info: &'a mut DocInfo, cos: &pdfcraft_cos::Document) -> [(&'a mut Option<String>, Option<String>); 6] {
-    let read = |key| pdfcraft_organize::info(cos, key).map(|v| v.trim_matches('\0').trim().to_string()).filter(|v| !v.is_empty());
+pub(crate) fn info_fields<'a>(info: &'a mut DocInfo, cos: &openpdf_cos::Document) -> [(&'a mut Option<String>, Option<String>); 6] {
+    let read = |key| openpdf_organize::info(cos, key).map(|v| v.trim_matches('\0').trim().to_string()).filter(|v| !v.is_empty());
     [
         (&mut info.title, read("Title")),
         (&mut info.author, read("Author")),
@@ -804,7 +890,7 @@ pub(crate) fn info_fields<'a>(info: &'a mut DocInfo, cos: &pdfcraft_cos::Documen
     ]
 }
 
-/// The copy PDFCraft displays when opening `bytes` with no trusted certificates and English
+/// The copy OpenPDF displays when opening `bytes` with no trusted certificates and English
 /// captions ([`display_bytes`]): appearances drawn, in memory only, for comments that have none
 /// and form fields the file leaves to the viewer, and the state of each named-layer signature.
 /// Render paths outside the app, such as the CLI, use this so their page images agree with the app
@@ -812,16 +898,16 @@ pub(crate) fn info_fields<'a>(info: &'a mut DocInfo, cos: &pdfcraft_cos::Documen
 /// unparseable file, a write failure or a parser panic gives back the original bytes.
 pub fn display_bytes_for(bytes: Arc<Vec<u8>>, password: Option<&str>) -> Arc<Vec<u8>> {
     guard(|| {
-        let cos = pdfcraft_cos::Document::open_with_password(bytes.clone(), password).ok()?;
-        let mut signatures = signatures_of(&cos, &bytes, &TrustStore::default(), &pdfcraft_sign::DigestCache::default());
-        let layered = pdfcraft_sign::has_status_layers(&cos, &signatures);
+        let cos = openpdf_cos::Document::open_with_password(bytes.clone(), password).ok()?;
+        let mut signatures = signatures_of(&cos, &bytes, &TrustStore::default(), &openpdf_sign::DigestCache::default());
+        let layered = openpdf_sign::has_status_layers(&cos, &signatures);
         let (mut display, added) = match as_displayed(&cos) {
             Some(display) => (display, true),
             None if layered => (cos, false),
             None => return None,
         };
         // As in the app, a layer recognised but not drawn after all makes no copy.
-        let drawn = layered && pdfcraft_sign::show_status_layers(&mut display, &mut signatures, &StatusCaptions::default());
+        let drawn = layered && openpdf_sign::show_status_layers(&mut display, &mut signatures, &StatusCaptions::default());
         if !(added || drawn) {
             return None;
         }
@@ -841,12 +927,12 @@ pub fn display_bytes_for(bytes: Arc<Vec<u8>>, password: Option<&str>) -> Arc<Vec
 pub fn render_password_for(bytes: Arc<Vec<u8>>, password: Option<&str>) -> Option<String> {
     let password = password?;
     let recovered =
-        guard(|| pdfcraft_cos::Document::open_with_password(bytes, Some(password)).ok().and_then(|d| recovered_render_password(&d))).ok().flatten();
+        guard(|| openpdf_cos::Document::open_with_password(bytes, Some(password)).ok().and_then(|d| recovered_render_password(&d))).ok().flatten();
     Some(recovered.unwrap_or_else(|| password.to_owned()))
 }
 
 /// The user password owner authentication recovered from an R2–R4 `cos`, as the renderer takes it.
-pub(crate) fn recovered_render_password(cos: &pdfcraft_cos::Document) -> Option<String> {
+pub(crate) fn recovered_render_password(cos: &openpdf_cos::Document) -> Option<String> {
     cos.security().and_then(|s| s.recovered_user_password()).map(|user| renderer_password(&user))
 }
 
@@ -862,14 +948,14 @@ pub(crate) fn recovered_render_password(cos: &pdfcraft_cos::Document) -> Option<
 /// text is extracted, and a glyph still mostly inside a mark fails the edit: the caller keeps
 /// the document as it was.
 pub(crate) fn shown_under_redactions(
-    after: &pdfcraft_cos::Document,
-    marks: &[pdfcraft_redact::Mark],
-    overlays: &[pdfcraft_cos::ObjRef],
-    pages: &[pdfcraft_render::PageInfo],
+    after: &openpdf_cos::Document,
+    marks: &[openpdf_redact::Mark],
+    overlays: &[openpdf_cos::ObjRef],
+    pages: &[openpdf_render::PageInfo],
     password: Option<&str>,
 ) -> Result<(), EditError> {
-    use pdfcraft_cos::Object;
-    use pdfcraft_redact::RedactError;
+    use openpdf_cos::Object;
+    use openpdf_redact::RedactError;
     let mut marked: Vec<usize> = marks.iter().map(|m| m.page).collect();
     marked.sort_unstable();
     marked.dedup();
@@ -877,7 +963,7 @@ pub(crate) fn shown_under_redactions(
         return Ok(());
     }
     let mut shown = after.clone();
-    let model = pdfcraft_model::pages(&shown);
+    let model = openpdf_model::pages(&shown);
     for &pi in &marked {
         let Some(page) = model.get(pi) else { continue };
         let Some(Object::Array(list)) = page.dict.get(b"Contents").map(|c| (*shown.resolve(c)).clone()) else { continue };
@@ -886,10 +972,10 @@ pub(crate) fn shown_under_redactions(
     }
     let bytes = write_incremental(&shown, &SaveOptions::default()).map_err(|e| EditError::Write(e.to_string()))?;
     let config = RenderConfig { password: password.map(Arc::from), ..Default::default() };
-    let mut renderer = pdfcraft_render::PageRenderer::new(Arc::new(bytes), config);
+    let mut renderer = openpdf_render::PageRenderer::new(Arc::new(bytes), config);
     let mut residue = 0;
     for &pi in &marked {
-        let request = pdfcraft_render::RenderRequest { page: pi, kind: pdfcraft_render::RequestKind::Text, scale: 1.0, ..Default::default() };
+        let request = openpdf_render::RenderRequest { page: pi, kind: openpdf_render::RequestKind::Text, scale: 1.0, ..Default::default() };
         // A page that cannot be read back cannot be confirmed clean.
         let (Some(info), Some(text)) = (pages.get(pi), renderer.render(request).text) else { return Err(RedactError::Unreadable(pi + 1).into()) };
         let rects: Vec<[f64; 4]> = marks

@@ -3,10 +3,10 @@
 //! printing, changes, copying, screen readers). Execution plan M8.1.
 
 use egui::{Align, Color32, Layout};
-use pdfcraft_engine::{Changes, Edit, Printing, Protection};
+use openpdf_engine::{Changes, Edit, Printing, Protection};
 
 use crate::theme::{self, Tokens};
-use crate::{PdfCraftApp, widgets};
+use crate::{OpenPDFApp, widgets};
 
 /// The dialog's state while it is open.
 #[derive(Clone, Debug, PartialEq)]
@@ -25,6 +25,20 @@ impl Default for ProtectDraft {
     }
 }
 
+impl Drop for ProtectDraft {
+    fn drop(&mut self) {
+        use zeroize::Zeroize as _;
+        self.password.zeroize();
+        self.confirm.zeroize();
+        if let Some(pw) = &mut self.protection.open_password {
+            pw.zeroize();
+        }
+        if let Some(pw) = &mut self.protection.permissions_password {
+            pw.zeroize();
+        }
+    }
+}
+
 impl ProtectDraft {
     /// Why Apply is disabled, if it is.
     pub fn problem(&self) -> Option<&'static str> {
@@ -32,7 +46,7 @@ impl ProtectDraft {
             Some("Type a password.")
         } else if self.password != self.confirm {
             Some("The passwords don't match.")
-        } else if self.protection.algorithm != pdfcraft_engine::Algorithm::Aes256 && !self.password.chars().all(|c| (' '..='~').contains(&c)) {
+        } else if self.protection.algorithm != openpdf_engine::Algorithm::Aes256 && !self.password.chars().all(|c| (' '..='~').contains(&c)) {
             Some("This compatibility level supports only plain ASCII passwords.")
         } else {
             None
@@ -91,8 +105,8 @@ fn radio(ui: &mut egui::Ui, t: &Tokens, on: bool, label: &str) -> egui::Response
 }
 
 /// Draw the dialog body; returns (apply, cancel).
-pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> (bool, bool) {
-    use pdfcraft_engine::Algorithm as A;
+pub(crate) fn body(ui: &mut egui::Ui, app: &mut OpenPDFApp, t: &Tokens) -> (bool, bool) {
+    use openpdf_engine::Algorithm as A;
     let d = &mut app.protect_draft;
     ui.label(egui::RichText::new(tl!("Protect Using Password")).font(theme::semibold(18.0)));
     ui.add_space(4.0);
@@ -250,5 +264,41 @@ mod tests {
         assert_eq!(strength("abc").0, "Weak");
         assert_eq!(strength("Abcdefg1").0, "Medium");
         assert_eq!(strength("Correct-Horse-9").0, "Strong");
+    }
+
+    #[test]
+    fn closing_the_protect_dialog_clears_the_password_draft() {
+        use egui_kittest::{Harness, kittest::Queryable};
+
+        let mut h = Harness::builder().with_size(egui::vec2(1200.0, 800.0)).build_eframe(|_| {
+            let mut app = OpenPDFApp::new();
+            app.set_option("language", "en").unwrap();
+            app.dialog = Some(crate::Dialog::Protect);
+            app.protect_draft.password = "TopSecret123!".into();
+            app.protect_draft.confirm = "TopSecret123!".into();
+            app
+        });
+        h.run_steps(2);
+
+        // Clicking Cancel closes Dialog::Protect and clears the draft passwords.
+        h.get_by_label("Cancel").click();
+        h.run_steps(2);
+        assert_eq!(h.state().dialog, None);
+        assert!(h.state().protect_draft.password.is_empty(), "password must not linger after cancelling Dialog::Protect");
+        assert!(h.state().protect_draft.confirm.is_empty(), "confirm must not linger after cancelling Dialog::Protect");
+
+        // Pressing Escape on Dialog::Protect also clears the draft passwords.
+        {
+            let app = h.state_mut();
+            app.dialog = Some(crate::Dialog::Protect);
+            app.protect_draft.password = "AnotherSecret!".into();
+            app.protect_draft.confirm = "AnotherSecret!".into();
+        }
+        h.run_steps(2);
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        assert_eq!(h.state().dialog, None);
+        assert!(h.state().protect_draft.password.is_empty(), "password must not linger after closing Dialog::Protect");
+        assert!(h.state().protect_draft.confirm.is_empty(), "confirm must not linger after closing Dialog::Protect");
     }
 }

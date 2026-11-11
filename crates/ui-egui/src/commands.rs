@@ -1,14 +1,14 @@
-//! What each registered command does in this frontend (`pdfcraft_engine::commands` says
+//! What each registered command does in this frontend (`openpdf_engine::commands` says
 //! what it is called, where it appears, which key runs it and when it is enabled).
 //!
 //! Menus, keyboard shortcuts, the palette, the tool panels and automation (`set_option`, and
-//! the control channel later) all call `PdfCraftApp::execute`.
+//! the control channel later) all call `OpenPDFApp::execute`.
 
-use pdfcraft_engine::Edit;
-use pdfcraft_engine::commands::{self, COMMANDS, CommandSpec, Shortcut};
+use openpdf_engine::Edit;
+use openpdf_engine::commands::{self, COMMANDS, CommandSpec, Shortcut};
 
 use crate::{
-    Dialog, Mode, PdfCraftApp, PropsTab, RightPanel, SaveTarget,
+    Dialog, Mode, OpenPDFApp, PropsTab, RightPanel, SaveTarget,
     theme::{ThemeKind, ThemePreference},
 };
 
@@ -79,7 +79,7 @@ pub(crate) fn command_tip(ctx: &egui::Context, template: &str, id: &str) -> Stri
     crate::i18n::fmt(template, &[("key", &command_shortcut_label(ctx, id))])
 }
 
-impl PdfCraftApp {
+impl OpenPDFApp {
     /// Whether a registered command can run now. The engine judges the document (security,
     /// contents, undo history); view state it can't see is checked here.
     pub(crate) fn command_enabled(&self, spec: &CommandSpec) -> bool {
@@ -113,7 +113,7 @@ impl PdfCraftApp {
     /// Last-resort guard (AGENTS.md §4): a command that panics is reported and the app, with its
     /// open documents, keeps running. Edits are applied to a copy, so the document is unchanged.
     pub fn execute(&mut self, id: &str) -> bool {
-        match pdfcraft_engine::guard(|| self.execute_unguarded(id)) {
+        let done = match openpdf_engine::guard(|| self.execute_unguarded(id)) {
             Ok(done) => done,
             Err(m) => {
                 // A command stopped part way through closing or replacing a tab must not leave
@@ -122,7 +122,9 @@ impl PdfCraftApp {
                 self.notify_fmt("That didn't work: an internal error stopped it ({m}). Your documents are unchanged.", &[("m", m.as_str())]);
                 true
             }
-        }
+        };
+        crate::dialogs::discard_inactive_password_drafts(self);
+        done
     }
 
     /// Why the command can't run right now, for the user.
@@ -138,9 +140,10 @@ impl PdfCraftApp {
             }
             commands::Needs::Marks(k) if self.active.is_some() => {
                 let kind = match k {
-                    pdfcraft_engine::MarkKind::HeaderFooter => tl!("header or footer"),
-                    pdfcraft_engine::MarkKind::Watermark => tl!("watermark"),
-                    pdfcraft_engine::MarkKind::Background => tl!("background"),
+                    openpdf_engine::MarkKind::HeaderFooter => tl!("header or footer"),
+                    openpdf_engine::MarkKind::Watermark => tl!("watermark"),
+                    openpdf_engine::MarkKind::Background => tl!("background"),
+                    openpdf_engine::MarkKind::PrinterMarks => tl!("printer marks"),
                 };
                 crate::i18n::fmt(tl!("This document has no {kind} to change"), &[("kind", kind)])
             }
@@ -218,14 +221,15 @@ impl PdfCraftApp {
                 self.protect_draft = Default::default();
                 self.dialog = Some(Dialog::Protect);
             }
+            "prepress.convert_colors" => self.dialog = Some(Dialog::ConvertColours),
             "prepress.hairlines" => self.dialog = Some(Dialog::FixHairlines),
             "protect.remove" => {
                 if self.apply_edit(Edit::RemoveProtection) {
                     self.notify_tr("Security will be removed when you save");
                 }
             }
-            link if pdfcraft_engine::links::for_command(link).is_some() => {
-                if let Some(l) = pdfcraft_engine::links::for_command(link) {
+            link if openpdf_engine::links::for_command(link).is_some() => {
+                if let Some(l) = openpdf_engine::links::for_command(link) {
                     self.open_url(l.url);
                 }
             }
@@ -271,6 +275,16 @@ impl PdfCraftApp {
             }
             "view.select_tool" => self.quick_tool = crate::QuickTool::Select,
             "view.hand_tool" => self.quick_tool = crate::QuickTool::Hand,
+            // Find and replace changes page text, so it runs in Edit text mode (as Acrobat's
+            // does): the command turns the mode on, and the find bar shows its Replace row there.
+            "edit.replace" => {
+                if let Some(i) = active {
+                    self.quick_tool = crate::QuickTool::EditText;
+                    self.left = crate::LeftPanel::Tool("edit");
+                    self.reveal_tools();
+                    self.views[i].open_replace();
+                }
+            }
             "view.side_panel" => self.toggle_side_panel(),
             "view.tools_pane" => self.left_open = !self.left_open,
             "view.focus_page_input" => {
@@ -332,6 +346,7 @@ impl PdfCraftApp {
             }
             "view.read_mode" => self.switch_mode(if self.mode == Mode::Read { Mode::AllTools } else { Mode::Read }, false),
             "view.split" => self.toggle_split(),
+            crate::viewer_prefs::TOGGLE => self.toggle_interface(),
             "view.previous_view" | "view.next_view" => {
                 if let Some(v) = active.and_then(|i| self.views.get_mut(i)) {
                     return Some(v.view_history(id == "view.next_view"));
@@ -483,8 +498,8 @@ impl PdfCraftApp {
                         self.views[i].clear_selection();
                         let style = self.comment_prefs.style(tool);
                         let author = self.comment_prefs.author.clone();
-                        let shape = pdfcraft_engine::Shape::TextMarkup { kind, quads };
-                        self.apply_edit(Edit::AddAnnotation(pdfcraft_engine::NewAnnotation { page, shape, style, contents: String::new(), author }));
+                        let shape = openpdf_engine::Shape::TextMarkup { kind, quads };
+                        self.apply_edit(Edit::AddAnnotation(openpdf_engine::NewAnnotation { page, shape, style, contents: String::new(), author }));
                     }
                 }
             }
@@ -497,7 +512,7 @@ impl PdfCraftApp {
             | "edit.header_footer.update"
             | "edit.watermark.update"
             | "edit.background.update" => {
-                use pdfcraft_engine::MarkKind as K;
+                use openpdf_engine::MarkKind as K;
                 let kind = if id.starts_with("edit.header_footer") {
                     K::HeaderFooter
                 } else if id.starts_with("edit.watermark") {
@@ -519,13 +534,15 @@ impl PdfCraftApp {
                 }
                 self.marks_draft.focused_box = 5;
                 self.marks_draft.preview = None;
-                self.dialog = Some(Dialog::Marks(pdfcraft_engine::MarkKind::HeaderFooter));
+                self.dialog = Some(Dialog::Marks(openpdf_engine::MarkKind::HeaderFooter));
             }
-            "edit.header_footer.remove" | "edit.watermark.remove" | "edit.background.remove" => {
-                use pdfcraft_engine::MarkKind as K;
+            "prepress.marks" => self.dialog = Some(Dialog::PrinterMarks),
+            "edit.header_footer.remove" | "edit.watermark.remove" | "edit.background.remove" | "prepress.marks.remove" => {
+                use openpdf_engine::MarkKind as K;
                 let kind = match id {
                     "edit.header_footer.remove" => K::HeaderFooter,
                     "edit.watermark.remove" => K::Watermark,
+                    "prepress.marks.remove" => K::PrinterMarks,
                     _ => K::Background,
                 };
                 self.apply_edit(Edit::RemoveMarks { kind });
@@ -599,10 +616,10 @@ impl PdfCraftApp {
                     }
                 }
             }
-            "export.docx" => self.export_office_dialog(pdfcraft_engine::compare::OfficeFormat::Docx),
-            "export.pptx" => self.export_office_dialog(pdfcraft_engine::compare::OfficeFormat::Pptx),
-            "export.html" => self.export_office_dialog(pdfcraft_engine::compare::OfficeFormat::Html),
-            "export.rtf" => self.export_office_dialog(pdfcraft_engine::compare::OfficeFormat::Rtf),
+            "export.docx" => self.export_office_dialog(openpdf_engine::compare::OfficeFormat::Docx),
+            "export.pptx" => self.export_office_dialog(openpdf_engine::compare::OfficeFormat::Pptx),
+            "export.html" => self.export_office_dialog(openpdf_engine::compare::OfficeFormat::Html),
+            "export.rtf" => self.export_office_dialog(openpdf_engine::compare::OfficeFormat::Rtf),
             "ocr.enhance_camera" => {
                 // The corners start on the document's edges when they can be found, else
                 // inset on the current page (camera_ui::page_input).
@@ -651,9 +668,9 @@ impl PdfCraftApp {
             }
             "form.tab_order.row" | "form.tab_order.column" | "form.tab_order.structure" => {
                 let order = match id {
-                    "form.tab_order.row" => pdfcraft_engine::TabOrder::Row,
-                    "form.tab_order.column" => pdfcraft_engine::TabOrder::Column,
-                    _ => pdfcraft_engine::TabOrder::Structure,
+                    "form.tab_order.row" => openpdf_engine::TabOrder::Row,
+                    "form.tab_order.column" => openpdf_engine::TabOrder::Column,
+                    _ => openpdf_engine::TabOrder::Structure,
                 };
                 let n = active.and_then(|i| self.session.get(self.views[i].id)).map_or(0, |d| d.info.pages.len());
                 self.apply_edit(Edit::SetTabOrder { pages: (0..n).collect(), order });
@@ -742,7 +759,7 @@ impl PdfCraftApp {
             }
             "a11y.report" => self.show_accessibility_report(),
             "a11y.autotag" => {
-                if self.apply_edit(pdfcraft_engine::Edit::AutoTagText) {
+                if self.apply_edit(openpdf_engine::Edit::AutoTagText) {
                     self.choose_right_panel(Some(RightPanel::Tags));
                 }
             }
@@ -826,6 +843,11 @@ impl PdfCraftApp {
             let Some(s) = spec.shortcut else { continue };
             // Keep the canvas's silent no-op when there is no previous/next view to visit.
             if matches!(spec.id, "view.previous_view" | "view.next_view") && !self.command_enabled(spec) {
+                continue;
+            }
+            // The OCR Verify screen keeps the window's toolbars and owns F8 and Shift+F8 (the next
+            // and previous word to review), so they don't show or hide the interface there.
+            if spec.id == crate::viewer_prefs::TOGGLE && self.ocr_verify.open {
                 continue;
             }
             // A box typed into on the page (a paragraph being edited, added text) keeps Undo and

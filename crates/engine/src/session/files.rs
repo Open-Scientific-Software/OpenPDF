@@ -7,37 +7,37 @@ use super::{
 impl Session {
     /// The page count of another PDF (Replace Pages, Insert Pages dialogs).
     pub fn page_count_of(&self, name: &str, bytes: &Arc<Vec<u8>>) -> Result<usize, EditError> {
-        Ok(pdfcraft_organize::page_count(&open_source(name, bytes)?)?)
+        Ok(openpdf_organize::page_count(&open_source(name, bytes)?)?)
     }
 
     /// A new blank document (Create ▸ Blank page).
     pub fn create_blank(&self, width: f64, height: f64, pages: usize) -> Result<Arc<Vec<u8>>, EditError> {
-        self.write_new(&pdfcraft_create::blank(width, height, pages)?)
+        self.write_new(&openpdf_create::blank(width, height, pages)?)
     }
 
     /// A new document with one page per image (PNG, JPEG).
     pub fn create_from_images(&self, images: &[(String, Vec<u8>)]) -> Result<Arc<Vec<u8>>, EditError> {
-        self.write_new(&pdfcraft_create::from_images(images)?)
+        self.write_new(&openpdf_create::from_images(images)?)
     }
 
     /// Create image pages at embedded resolution or a fixed dpi, without resampling.
     pub fn create_from_images_with_resolution(&self, images: &[(String, Vec<u8>)], resolution: ImageResolution) -> Result<Arc<Vec<u8>>, EditError> {
-        self.write_new(&pdfcraft_create::from_images_with_resolution(images, resolution)?)
+        self.write_new(&openpdf_create::from_images_with_resolution(images, resolution)?)
     }
 
     /// A new document from plain text (US Letter, 11 pt Helvetica, or the bundled Inter face for
     /// text with Latin, Greek or Cyrillic letters Helvetica can't draw). Text neither can draw is
     /// refused, naming the line and the character (never set as `?`).
     pub fn create_from_text(&self, title: &str, text: &str) -> Result<Arc<Vec<u8>>, EditError> {
-        self.write_new(&pdfcraft_create::from_text(title, text, pdfcraft_create::LETTER, 11.0)?)
+        self.write_new(&openpdf_create::from_text(title, text, openpdf_create::LETTER, 11.0)?)
     }
 
-    /// [`Self::create_from_text`] for a report PdfCraft writes from documents (comment summaries,
+    /// [`Self::create_from_text`] for a report OpenPDF writes from documents (comment summaries,
     /// compare reports), which can quote any language: when the bundled Inter face can't draw it
     /// all, characters Helvetica can't draw are written as `[U+XXXX]`, and the report's first line
     /// says so, rather than the report being refused.
     pub(crate) fn create_report(&self, title: &str, text: &str) -> Result<Arc<Vec<u8>>, EditError> {
-        let (doc, _escaped) = pdfcraft_create::from_text_escaped(title, text, pdfcraft_create::LETTER, 11.0)?;
+        let (doc, _escaped) = openpdf_create::from_text_escaped(title, text, openpdf_create::LETTER, 11.0)?;
         self.write_new(&doc)
     }
 
@@ -96,7 +96,7 @@ impl Session {
         let cos = match doc.editor.as_ref() {
             Some(e) => e.cos.clone(),
             None => {
-                pdfcraft_cos::Document::open_with_password(doc.bytes.clone(), doc.password.as_deref()).map_err(|e| EditError::Write(e.to_string()))?
+                openpdf_cos::Document::open_with_password(doc.bytes.clone(), doc.password.as_deref()).map_err(|e| EditError::Write(e.to_string()))?
             }
         };
         // An XFA form's data is its datasets, as Acrobat exports it: XML or an XDP.
@@ -105,15 +105,33 @@ impl Session {
             return Err(EditError::Invalid("XDP holds XFA form data; this document is not an XFA form (use .xml, .csv or .txt)".into()));
         }
         guard(|| match format {
-            DataFormat::Xfdf => Ok(pdfcraft_xfdf::export_xfdf(&cos, comments, fields, &doc.name).into_bytes()),
-            DataFormat::Fdf => pdfcraft_xfdf::export_fdf(&cos, comments, fields, &doc.name).map_err(|e| e.to_string()),
+            DataFormat::Xfdf => Ok(openpdf_xfdf::export_xfdf(&cos, comments, fields, &doc.name).into_bytes()),
+            DataFormat::Fdf => openpdf_xfdf::export_fdf(&cos, comments, fields, &doc.name).map_err(|e| e.to_string()),
             DataFormat::Xml | DataFormat::Xdp if xfa => {
-                pdfcraft_xfa::export_data(&cos, format == DataFormat::Xdp, &doc.name).map(String::into_bytes).map_err(|e| e.to_string())
+                openpdf_xfa::export_data(&cos, format == DataFormat::Xdp, &doc.name).map(String::into_bytes).map_err(|e| e.to_string())
             }
-            other => Ok(pdfcraft_xfdf::export_data(&cos, other).into_bytes()),
+            other => Ok(openpdf_xfdf::export_data(&cos, other).into_bytes()),
         })
         .map_err(EditError::Write)?
         .map_err(EditError::Write)
+    }
+
+    /// What Convert colours would change on `pages` of `id`, without changing the document.
+    pub fn count_colours(&self, id: DocId, pages: &[usize], settings: &openpdf_edit::ConvertColours) -> openpdf_edit::ColoursConverted {
+        let Some(doc) = self.get(id) else { return Default::default() };
+        let Some(editor) = doc.editor.as_ref() else { return Default::default() };
+        let mut cos = editor.cos.clone();
+        let mut recolour = |doc: &openpdf_cos::Document, s: &openpdf_cos::Stream, t: openpdf_edit::ColourTarget| {
+            let target = match t {
+                openpdf_edit::ColourTarget::Gray => openpdf_optimize::ImageTarget::Gray,
+                openpdf_edit::ColourTarget::Rgb => openpdf_optimize::ImageTarget::Rgb,
+                openpdf_edit::ColourTarget::Cmyk => openpdf_optimize::ImageTarget::Cmyk,
+            };
+            openpdf_optimize::recolour_image(doc, s, target)
+        };
+        // The preview runs the image decoders over the document's own bytes; a panic in one is
+        // a count of nothing, not a crash.
+        guard(|| openpdf_edit::convert_colours(&mut cos, pages, settings, &mut recolour).unwrap_or_default()).unwrap_or_default()
     }
 
     /// How many hairlines [`Edit::FixHairlines`] would change on `pages` of `id`, and on how many
@@ -122,7 +140,7 @@ impl Session {
         let Some(doc) = self.get(id) else { return HairlinesFixed::default() };
         let Some(editor) = doc.editor.as_ref() else { return HairlinesFixed::default() };
         let mut cos = editor.cos.clone();
-        pdfcraft_edit::fix_hairlines(&mut cos, pages, settings).unwrap_or_default()
+        openpdf_edit::fix_hairlines(&mut cos, pages, settings).unwrap_or_default()
     }
 
     /// XFDF with these comments (0-based page, position in the page's `/Annots`) and their
@@ -132,13 +150,13 @@ impl Session {
         let cos = match doc.editor.as_ref() {
             Some(e) => e.cos.clone(),
             None => {
-                pdfcraft_cos::Document::open_with_password(doc.bytes.clone(), doc.password.as_deref()).map_err(|e| EditError::Write(e.to_string()))?
+                openpdf_cos::Document::open_with_password(doc.bytes.clone(), doc.password.as_deref()).map_err(|e| EditError::Write(e.to_string()))?
             }
         };
-        guard(|| pdfcraft_xfdf::export_xfdf_comments(&cos, which, &doc.name)).map_err(EditError::Write)
+        guard(|| openpdf_xfdf::export_xfdf_comments(&cos, which, &doc.name)).map_err(EditError::Write)
     }
 
-    /// The print-ready PDF for `settings` (sheets laid out for the paper; see `pdfcraft-print`).
+    /// The print-ready PDF for `settings` (sheets laid out for the paper; see `openpdf-print`).
     pub fn print_pdf(&self, id: DocId, settings: &print::Settings) -> Result<Vec<u8>, EditError> {
         let doc = self.get(id).ok_or(EditError::NoDocument)?;
         if !doc.allows_printing() {
@@ -160,19 +178,19 @@ impl Session {
                 }
             }
             let bytes = print_raster::rasterize(doc, &distinct, raster, settings.content).map_err(EditError::Print)?;
-            let pictures = pdfcraft_cos::Document::open(Arc::new(bytes)).map_err(|e| EditError::Print(e.to_string()))?;
+            let pictures = openpdf_cos::Document::open(Arc::new(bytes)).map_err(|e| EditError::Print(e.to_string()))?;
             let remapped = print::Settings {
                 pages: settings.pages.iter().map(|p| distinct.iter().position(|d| d == p).unwrap_or(0)).collect(),
                 content: print::Content::Document,
                 raster: None,
                 ..settings.clone()
             };
-            return pdfcraft_print::impose(&pictures, &remapped).map_err(|e| EditError::Print(e.to_string()));
+            return openpdf_print::impose(&pictures, &remapped).map_err(|e| EditError::Print(e.to_string()));
         }
         let mut cos = match doc.editor.as_ref() {
             Some(e) => e.cos.clone(),
             None => {
-                pdfcraft_cos::Document::open_with_password(doc.bytes.clone(), doc.password.as_deref()).map_err(|e| EditError::Write(e.to_string()))?
+                openpdf_cos::Document::open_with_password(doc.bytes.clone(), doc.password.as_deref()).map_err(|e| EditError::Write(e.to_string()))?
             }
         };
         // Comments and fields without an appearance print as the page shows them (and as Print
@@ -195,30 +213,36 @@ impl Session {
         // Signature states as the screen shows them, so not when its display copy could not be
         // written. This copy is only printed, never saved.
         if doc.signatures.iter().any(|s| s.verdict_shown) {
-            let _ = pdfcraft_sign::show_status_layers(&mut cos, &mut doc.signatures.to_vec(), &doc.captions);
+            let _ = openpdf_sign::show_status_layers(&mut cos, &mut doc.signatures.to_vec(), &doc.captions);
         }
-        pdfcraft_print::impose(&cos, settings).map_err(|e| EditError::Print(e.to_string()))
+        openpdf_print::impose(&cos, settings).map_err(|e| EditError::Print(e.to_string()))
     }
 
-    /// For each page, whether its text mostly runs bottom-to-top ([`pdfcraft_print::text_reads_up`]);
+    /// For each page, whether its text mostly runs bottom-to-top ([`openpdf_print::text_reads_up`]);
     /// only `pages` are read, the others are `false`.
     pub fn print_text_up(&self, id: DocId, pages: &[usize]) -> Vec<bool> {
         let Some(doc) = self.get(id) else { return Vec::new() };
         let cos = match doc.editor.as_ref() {
             Some(e) => e.cos.clone(),
-            None => match pdfcraft_cos::Document::open_with_password(doc.bytes.clone(), doc.password.as_deref()) {
+            None => match openpdf_cos::Document::open_with_password(doc.bytes.clone(), doc.password.as_deref()) {
                 Ok(c) => c,
                 Err(_) => return Vec::new(),
             },
         };
-        (0..doc.info.pages.len()).map(|i| pages.contains(&i) && pdfcraft_print::text_reads_up(&cos, i)).collect()
+        // The page tree is read once, and each page is looked up, not searched for, in `pages`.
+        let mut out = vec![false; doc.info.pages.len()];
+        let wanted: Vec<usize> = pages.iter().copied().filter(|&p| p < out.len()).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+        for (p, up) in wanted.iter().zip(openpdf_print::texts_read_up(&cos, &wanted)) {
+            out[*p] = up;
+        }
+        out
     }
 
     /// Combine whole files, in order, into new PDF bytes (one bookmark per file).
     pub fn combine(&self, sources: &[(String, Arc<Vec<u8>>)]) -> Result<Arc<Vec<u8>>, EditError> {
         let docs = sources.iter().map(|(n, b)| open_source(n, b)).collect::<Result<Vec<_>, _>>()?;
-        let named: Vec<(&str, &pdfcraft_cos::Document)> = sources.iter().map(|(n, _)| n.as_str()).zip(docs.iter()).collect();
-        let out = pdfcraft_organize::combine(&named)?;
+        let named: Vec<(&str, &openpdf_cos::Document)> = sources.iter().map(|(n, _)| n.as_str()).zip(docs.iter()).collect();
+        let out = openpdf_organize::combine(&named)?;
         self.write_new(&out)
     }
 
@@ -239,7 +263,7 @@ impl Session {
         I: IntoIterator<Item = Result<CombineSource, E>>,
         E: From<EditError>,
     {
-        let mut combiner = pdfcraft_organize::Combiner::new();
+        let mut combiner = openpdf_organize::Combiner::new();
         let mut added = false;
         for source in sources {
             let (title, bytes, range) = source?;
@@ -247,8 +271,8 @@ impl Session {
             let range = range.as_deref().map(str::trim).filter(|r| !r.is_empty());
             let pages = match range {
                 Some(r) => {
-                    let n = pdfcraft_organize::page_count(&doc).map_err(EditError::from)?;
-                    let p = pdfcraft_print::select_pages(n, Some(r), &[], pdfcraft_print::Subset::All, false)
+                    let n = openpdf_organize::page_count(&doc).map_err(EditError::from)?;
+                    let p = openpdf_print::select_pages(n, Some(r), &[], openpdf_print::Subset::All, false)
                         .map_err(|e| EditError::Print(format!("{title}: {e}")))?;
                     Some(p)
                 }
@@ -267,17 +291,17 @@ impl Session {
     /// [`Self::combine_ranges`] with the password each encrypted source is opened with, by
     /// position (missing or `None`: no password). The result is not encrypted.
     pub fn combine_unlocked(&self, sources: &[CombineSource], passwords: &[Option<&str>]) -> Result<Arc<Vec<u8>>, EditError> {
-        Ok(self.combine_unlocked_reporting(sources, passwords, pdfcraft_organize::FieldConflicts::Rename)?.bytes)
+        Ok(self.combine_unlocked_reporting(sources, passwords, openpdf_organize::FieldConflicts::Rename)?.bytes)
     }
 
     /// The pre-flight over byte sources: what combining them, in order, would rename in each one
     /// (whole files; page ranges are the combine's to apply). A source that cannot be opened
     /// previews as nothing — its row already says why it cannot be combined.
     pub fn combine_field_conflicts(&self, sources: &[CombineSource], passwords: &[Option<&str>]) -> Vec<Vec<(String, String)>> {
-        let docs: Vec<Option<pdfcraft_cos::Document>> =
+        let docs: Vec<Option<openpdf_cos::Document>> =
             sources.iter().enumerate().map(|(i, (n, b, _))| open_source_with(n, b, passwords.get(i).copied().flatten()).ok()).collect();
-        let refs: Vec<&pdfcraft_cos::Document> = docs.iter().filter_map(Option::as_ref).collect();
-        let mut opened = pdfcraft_organize::combine_field_conflicts(&refs).into_iter();
+        let refs: Vec<&openpdf_cos::Document> = docs.iter().filter_map(Option::as_ref).collect();
+        let mut opened = openpdf_organize::combine_field_conflicts(&refs).into_iter();
         // One preview per source, in step with it: a file that cannot be opened has none.
         docs.iter().map(|d| if d.is_some() { opened.next().unwrap_or_default() } else { Default::default() }).collect()
     }
@@ -287,7 +311,7 @@ impl Session {
         &self,
         sources: &[CombineSource],
         passwords: &[Option<&str>],
-        field_conflicts: pdfcraft_organize::FieldConflicts,
+        field_conflicts: openpdf_organize::FieldConflicts,
     ) -> Result<Combined, EditError> {
         let docs = sources
             .iter()
@@ -299,17 +323,17 @@ impl Session {
             let range = range.as_deref().map(str::trim).filter(|r| !r.is_empty());
             pages.push(match range {
                 Some(r) => {
-                    let n = pdfcraft_organize::page_count(d)?;
-                    let p = pdfcraft_print::select_pages(n, Some(r), &[], pdfcraft_print::Subset::All, false)
+                    let n = openpdf_organize::page_count(d)?;
+                    let p = openpdf_print::select_pages(n, Some(r), &[], openpdf_print::Subset::All, false)
                         .map_err(|e| EditError::Print(format!("{name}: {e}")))?;
                     Some(p)
                 }
                 None => None,
             });
         }
-        let named: Vec<(&str, &pdfcraft_cos::Document, Option<&[usize]>)> =
+        let named: Vec<(&str, &openpdf_cos::Document, Option<&[usize]>)> =
             sources.iter().zip(docs.iter()).zip(&pages).map(|(((n, _, _), d), p)| (n.as_str(), d, p.as_deref())).collect();
-        let out = pdfcraft_organize::combine_selected_with(&named, field_conflicts)?;
+        let out = openpdf_organize::combine_selected_with(&named, field_conflicts)?;
         let bytes = self.write_new(&out.doc)?;
         Ok(Combined { bytes, renamed_fields: out.renamed_fields })
     }
@@ -318,10 +342,10 @@ impl Session {
     /// file split into several runs placed apart: each file is opened and copied once, so it keeps
     /// one bookmark, and its links between its own pages and its fields whole across its runs; its
     /// attachments come along when its runs use all of its pages (see
-    /// `pdfcraft_organize::combine_grouped`). A group's later sources use its first source's bytes
+    /// `openpdf_organize::combine_grouped`). A group's later sources use its first source's bytes
     /// and password; a source without a key is a file of its own.
     pub fn combine_grouped(&self, sources: &[CombineSource], groups: &[u64], passwords: &[Option<&str>]) -> Result<Arc<Vec<u8>>, EditError> {
-        Ok(self.combine_grouped_reporting(sources, groups, passwords, pdfcraft_organize::FieldConflicts::Rename)?.bytes)
+        Ok(self.combine_grouped_reporting(sources, groups, passwords, openpdf_organize::FieldConflicts::Rename)?.bytes)
     }
 
     /// [`Self::combine_grouped`] reporting what the conflict resolution renamed.
@@ -330,9 +354,9 @@ impl Session {
         sources: &[CombineSource],
         groups: &[u64],
         passwords: &[Option<&str>],
-        field_conflicts: pdfcraft_organize::FieldConflicts,
+        field_conflicts: openpdf_organize::FieldConflicts,
     ) -> Result<Combined, EditError> {
-        let (mut keys, mut docs, mut file): (Vec<Option<u64>>, Vec<pdfcraft_cos::Document>, Vec<usize>) = (Vec::new(), Vec::new(), Vec::new());
+        let (mut keys, mut docs, mut file): (Vec<Option<u64>>, Vec<openpdf_cos::Document>, Vec<usize>) = (Vec::new(), Vec::new(), Vec::new());
         for (i, (name, bytes, _)) in sources.iter().enumerate() {
             let key = groups.get(i).copied();
             let known = key.and_then(|k| keys.iter().position(|g| *g == Some(k)));
@@ -352,20 +376,20 @@ impl Session {
             let Some(d) = docs.get(*at) else { return Err(EditError::Write(format!("{name}: not opened"))) };
             pages.push(match range {
                 Some(r) => {
-                    let n = pdfcraft_organize::page_count(d)?;
-                    let p = pdfcraft_print::select_pages(n, Some(r), &[], pdfcraft_print::Subset::All, false)
+                    let n = openpdf_organize::page_count(d)?;
+                    let p = openpdf_print::select_pages(n, Some(r), &[], openpdf_print::Subset::All, false)
                         .map_err(|e| EditError::Print(format!("{name}: {e}")))?;
                     Some(p)
                 }
                 None => None,
             });
         }
-        let mut runs: Vec<pdfcraft_organize::Run<'_>> = Vec::with_capacity(sources.len());
+        let mut runs: Vec<openpdf_organize::Run<'_>> = Vec::with_capacity(sources.len());
         for (((name, _, _), at), p) in sources.iter().zip(&file).zip(&pages) {
             let Some(d) = docs.get(*at) else { return Err(EditError::Write(format!("{name}: not opened"))) };
             runs.push((*at, name.as_str(), d, p.as_deref()));
         }
-        let out = pdfcraft_organize::combine_grouped_with(&runs, field_conflicts)?;
+        let out = openpdf_organize::combine_grouped_with(&runs, field_conflicts)?;
         let bytes = self.write_new(&out.doc)?;
         Ok(Combined { bytes, renamed_fields: out.renamed_fields })
     }
@@ -376,21 +400,21 @@ impl Session {
         if src.permissions().is_some_and(|p| !p.assemble()) {
             return Err(EditError::NotPermitted("extracting pages"));
         }
-        let out = pdfcraft_organize::extract_pages(src, pages)?;
+        let out = openpdf_organize::extract_pages(src, pages)?;
         self.write_new(&out)
     }
 
     /// Split the document into several new PDFs.
-    pub fn split(&self, id: DocId, by: &pdfcraft_organize::SplitBy) -> Result<Vec<SplitPart>, EditError> {
+    pub fn split(&self, id: DocId, by: &openpdf_organize::SplitBy) -> Result<Vec<SplitPart>, EditError> {
         let src = self.cos(id)?;
         if src.permissions().is_some_and(|p| !p.assemble()) {
             return Err(EditError::NotPermitted("splitting the document"));
         }
-        let n = pdfcraft_organize::page_count(src)?;
-        pdfcraft_organize::split_ranges(n, by)
+        let n = openpdf_organize::page_count(src)?;
+        openpdf_organize::split_ranges(n, by)
             .into_iter()
             .map(|r| {
-                let doc = pdfcraft_organize::extract_pages(src, &r.clone().collect::<Vec<_>>())?;
+                let doc = openpdf_organize::extract_pages(src, &r.clone().collect::<Vec<_>>())?;
                 Ok((r.start + 1, r.end, self.write_new(&doc)?))
             })
             .collect()
@@ -404,40 +428,40 @@ impl Session {
         if src.permissions().is_some_and(|p| !p.assemble()) {
             return Err(EditError::NotPermitted("splitting the document"));
         }
-        let n = pdfcraft_organize::page_count(src)?;
+        let n = openpdf_organize::page_count(src)?;
         let mut cuts = Vec::new();
         let mut used = 0usize;
         for p in 0..n {
-            let size = self.write_unchecked(&pdfcraft_organize::extract_pages(src, &[p])?)?.len();
+            let size = self.write_unchecked(&openpdf_organize::extract_pages(src, &[p])?)?.len();
             if used > 0 && used + size > max_bytes {
                 cuts.push(p);
                 used = 0;
             }
             used += size;
         }
-        self.split(id, &pdfcraft_organize::SplitBy::Before(cuts))
+        self.split(id, &openpdf_organize::SplitBy::Before(cuts))
     }
 
-    fn cos(&self, id: DocId) -> Result<&pdfcraft_cos::Document, EditError> {
+    fn cos(&self, id: DocId) -> Result<&openpdf_cos::Document, EditError> {
         let doc = self.get(id).ok_or(EditError::NoDocument)?;
         doc.editor.as_ref().map(|e| &e.cos).ok_or_else(|| EditError::ReadOnly(doc.read_only_reason.clone().unwrap_or_default()))
     }
 
     /// A new file (Combine, Extract, Split, Create) as bytes, checked like a save before anyone
     /// writes it (#1698, #2166): it reopens, and shows the pages it was built from.
-    pub(crate) fn write_new(&self, doc: &pdfcraft_cos::Document) -> Result<Arc<Vec<u8>>, EditError> {
+    pub(crate) fn write_new(&self, doc: &openpdf_cos::Document) -> Result<Arc<Vec<u8>>, EditError> {
         let bytes = self.write_unchecked(doc)?;
-        let expected = pdfcraft_organize::page_count(doc)?;
-        pdfcraft_cos::Document::open(bytes.clone()).map_err(|e| EditError::Reopen(e.to_string()))?;
-        pdfcraft_render::check_pages(bytes.clone(), None, expected).map_err(|e| EditError::Reopen(e.to_string()))?;
+        let expected = openpdf_organize::page_count(doc)?;
+        openpdf_cos::Document::open(bytes.clone()).map_err(|e| EditError::Reopen(e.to_string()))?;
+        openpdf_render::check_pages(bytes.clone(), None, expected).map_err(|e| EditError::Reopen(e.to_string()))?;
         Ok(bytes)
     }
 
     /// [`Self::write_new`] without the check, for bytes nobody writes: measuring a part's size.
     /// Like a save, a new file never carries a typed Password-field value (#3926): Extract and
     /// Split copy the fields of the pages they take.
-    fn write_unchecked(&self, doc: &pdfcraft_cos::Document) -> Result<Arc<Vec<u8>>, EditError> {
-        let opts = SaveOptions { mod_date: self.now().map(pdfcraft_cos::pdf_date), ..SaveOptions::default() };
+    fn write_unchecked(&self, doc: &openpdf_cos::Document) -> Result<Arc<Vec<u8>>, EditError> {
+        let opts = SaveOptions { mod_date: self.now().map(openpdf_cos::pdf_date), ..SaveOptions::default() };
         let doc = writable(doc)?;
         write_full(&doc, &opts).map(Arc::new).map_err(|e| EditError::Write(e.to_string()))
     }

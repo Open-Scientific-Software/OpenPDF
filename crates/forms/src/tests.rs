@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use pdfcraft_cos::{Document, Object, SaveOptions, write_incremental};
+use openpdf_cos::{Document, Object, SaveOptions, write_incremental};
 
 use super::*;
 
@@ -184,7 +184,7 @@ fn button_caption_preserves_other_widgets_and_shared_dictionaries() {
         }
         let af = doc.get(doc.root().unwrap()).as_dict().unwrap().reference(b"AcroForm").unwrap();
         doc.update_dict(af, |d| d.set(b"Fields".to_vec(), Object::Array(vec![Object::Ref(parent)]))).unwrap();
-        let original = pdfcraft_cos::write_full(&doc, &SaveOptions::default()).unwrap();
+        let original = openpdf_cos::write_full(&doc, &SaveOptions::default()).unwrap();
         let original = Document::open(Arc::new(original)).unwrap();
         // Full saves can renumber objects: reacquire references from the reopened model.
         let f = field(&fields(&original), "clear_button").clone();
@@ -199,7 +199,7 @@ fn button_caption_preserves_other_widgets_and_shared_dictionaries() {
             assert_eq!(doc.get(first), untouched, "the other widget and all its appearances are untouched");
             assert_eq!(doc.get(mk), shared_mk, "shared MK is not patched in place");
             let bytes = if full {
-                pdfcraft_cos::write_full(&doc, &SaveOptions::default()).unwrap()
+                openpdf_cos::write_full(&doc, &SaveOptions::default()).unwrap()
             } else {
                 let bytes = write_incremental(&doc, &SaveOptions::default()).unwrap();
                 assert!(bytes.starts_with(original.bytes().as_slice()));
@@ -221,6 +221,24 @@ fn button_caption_preserves_other_widgets_and_shared_dictionaries() {
             assert!(!apd.contains(b"R") && !apd.contains(b"D"), "stale hover/pressed text must not survive");
             assert!(ap(&doc, &f.widgets[1]).contains("(Clear Form) Tj"));
         }
+        let mut doc = original.clone();
+        set_props(&mut doc, "clear_button", &FieldProps { caption_all: Some("Continue".into()), ..Default::default() }).unwrap();
+        let doc = Document::open(Arc::new(openpdf_cos::write_full(&doc, &SaveOptions::default()).unwrap())).unwrap();
+        let f = field(&fields(&doc), "clear_button").clone();
+        assert_eq!(f.widgets.iter().map(|w| w.caption.as_deref()).collect::<Vec<_>>(), [Some("Continue"), Some("Continue")]);
+        assert!(f.widgets.iter().all(|w| ap(&doc, w).contains("(Continue) Tj")));
+
+        let mut doc = original.clone();
+        apply_script_changes(
+            &mut doc,
+            &[FieldChange { name: "clear_button".into(), caption: Some("Proceed".into()), ..Default::default() }],
+            &mut NoScripts,
+        )
+        .unwrap();
+        let doc = Document::open(Arc::new(openpdf_cos::write_full(&doc, &SaveOptions::default()).unwrap())).unwrap();
+        let f = field(&fields(&doc), "clear_button").clone();
+        assert_eq!(f.widgets.iter().map(|w| w.caption.as_deref()).collect::<Vec<_>>(), [Some("Proceed"), Some("Proceed")]);
+        assert!(f.widgets.iter().all(|w| ap(&doc, w).contains("(Proceed) Tj")));
     }
 }
 
@@ -228,10 +246,10 @@ fn button_caption_preserves_other_widgets_and_shared_dictionaries() {
 fn button_caption_rejects_wrong_type_and_index_before_mutation() {
     let mut doc = fixture();
     for (name, wi) in [("name", 0), ("agree", 0), ("go", usize::MAX)] {
-        let before = pdfcraft_cos::write_full(&doc, &SaveOptions::default()).unwrap();
+        let before = openpdf_cos::write_full(&doc, &SaveOptions::default()).unwrap();
         let props = FieldProps { caption: Some((wi, "Clear Form".into())), name: Some("renamed".into()), ..Default::default() };
         assert!(set_props(&mut doc, name, &props).is_err());
-        assert_eq!(pdfcraft_cos::write_full(&doc, &SaveOptions::default()).unwrap(), before);
+        assert_eq!(openpdf_cos::write_full(&doc, &SaveOptions::default()).unwrap(), before);
     }
     set_props(&mut doc, "go", &FieldProps { caption: Some((0, "提交".into())), ..Default::default() }).unwrap();
     assert_eq!(field(&fields(&doc), "go").widgets[0].caption.as_deref(), Some("提交"));
@@ -240,6 +258,26 @@ fn button_caption_rejects_wrong_type_and_index_before_mutation() {
     assert_eq!(field(&fields(&doc), "go").widgets[0].caption.as_deref(), Some(""));
     assert!(undrawn_fields(&doc).is_empty());
     assert!(!ap(&doc, &field(&fields(&doc), "go").widgets[0]).contains(" Tj"));
+}
+
+#[test]
+fn field_wide_button_caption_rejects_a_field_without_widgets() {
+    let objs = vec![
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>".into(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 600 800] >>".into(),
+        "<< /Type /Page /Parent 2 0 R /Annots [] >>".into(),
+        "<< /Fields [5 0 R] >>".into(),
+        "<< /FT /Btn /T (empty) /Ff 65536 /Kids [] >>".into(),
+    ];
+    let mut doc = document(&objs);
+    let all_fields = fields(&doc);
+    let button = field(&all_fields, "empty");
+    assert_eq!(button.kind, FieldKind::PushButton);
+    assert!(button.widgets.is_empty());
+    let before = openpdf_cos::write_full(&doc, &SaveOptions::default()).unwrap();
+    let result = set_props(&mut doc, "empty", &FieldProps { caption_all: Some("Caption".into()), ..Default::default() });
+    assert!(result.is_err());
+    assert_eq!(openpdf_cos::write_full(&doc, &SaveOptions::default()).unwrap(), before);
 }
 
 /// Read the drawn strings together with the appearance's actual font after saving and reopening.
@@ -251,7 +289,7 @@ fn appearance_text(doc: &Document, w: &Widget, font_name: &[u8]) -> (Object, Vec
     let resources = doc.resolve(stream.dict.get(b"Resources").unwrap());
     let fonts = doc.resolve(resources.as_dict().unwrap().get(b"Font").unwrap());
     let font = doc.resolve(fonts.as_dict().unwrap().get(font_name).unwrap());
-    let shown = pdfcraft_content::parse(&stream.decoded().unwrap())
+    let shown = openpdf_content::parse(&stream.decoded().unwrap())
         .ops
         .into_iter()
         .filter(|op| op.is("Tj"))
@@ -497,6 +535,31 @@ fn opt_export_values_select_button_states() {
     assert!(err.to_string().contains("options: Post, Pick-up"), "{err}");
 }
 
+/// Export values that are themselves numbers (`/Opt [(1) (2)]`, as static XFA forms write their
+/// items) name the buttons in `/Opt` order when read as export values, though `1` is also the
+/// second button's on-state name (`/0`, `/1` by position; ISO 32000-2 Table 230).
+#[test]
+fn numeric_opt_export_values_name_their_own_buttons() {
+    let objs: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>".into(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 600 800] >>".into(),
+        "<< /Type /Page /Parent 2 0 R /Annots [6 0 R 7 0 R] >>".into(),
+        "<< /Fields [5 0 R] /DA (/Helv 0 Tf 0 g) >>".into(),
+        "<< /FT /Btn /T (lang) /Ff 49152 /Opt [(1) (2)] /V /Off /Kids [6 0 R 7 0 R] >>".into(),
+        "<< /Type /Annot /Subtype /Widget /Parent 5 0 R /AS /Off /Rect [100 700 115 715] /P 3 0 R /AP << /N << /0 8 0 R /Off 8 0 R >> >> >>".into(),
+        "<< /Type /Annot /Subtype /Widget /Parent 5 0 R /AS /Off /Rect [200 700 215 715] /P 3 0 R /AP << /N << /1 8 0 R /Off 8 0 R >> >> >>".into(),
+        "<< /Length 0 >>\nstream\n\nendstream".into(),
+    ];
+    let doc = document(&objs);
+    let all = fields(&doc);
+    let lang = field(&all, "lang");
+    assert_eq!((lang.state_for_export("1"), lang.state_for_export("2")), (Some("0"), Some("1")));
+    // A state name no export value matches still names its button; anything else names none.
+    assert_eq!((lang.state_for_export("0"), lang.state_for_export("3")), (Some("0"), None));
+    // On-state names keep their meaning where the caller has one (a click sends the state).
+    assert_eq!(lang.state_for("1"), Some("1"));
+}
+
 /// What fits a text field is measured as its appearance draws it: in the field's own font (its
 /// `/DR` font, Helvetica where that can't show the text), inside the border and padding, at its
 /// size, wrapped for multi-line, at the smallest automatic size, as asterisks for a password,
@@ -528,7 +591,7 @@ fn a_text_field_says_what_fits_it_as_its_appearance_draws_it() {
         let f = field(&all, name);
         appearance::text_box(&doc, f, &f.widgets[0])
     };
-    let helv = |s: &str, size: f64| pdfcraft_fonts::helvetica_width(s, size);
+    let helv = |s: &str, size: f64| openpdf_fonts::helvetica_width(s, size);
     // Single line at 12 pt: as wide as the 96 pt inside, and no wider.
     let fits_12: String = std::iter::repeat_n('W', (96.0 / helv("W", 12.0)) as usize).collect();
     assert!(tb("one").fits(&fits_12) && !tb("one").fits(&format!("{fits_12}W")), "{}", fits_12.len());
@@ -826,7 +889,7 @@ fn existing_field_font_encoding_keeps_italian_punctuation_visible() {
     assert_eq!(f.value, [value], "the stored value and the drawn text must agree");
     let (font, lines) = appearance_text(&doc, &f.widgets[0], b"Helv");
     assert_eq!(font, original_font, "keep the existing field's font and encoding");
-    let metrics = pdfcraft_fonts::pdf::Metrics::from_dict(&doc, font.as_dict().unwrap());
+    let metrics = openpdf_fonts::pdf::Metrics::from_dict(&doc, font.as_dict().unwrap());
     let shown = lines.concat();
     assert_eq!(metrics.decode(&shown), value, "decode the appearance with its actual font");
     assert_eq!(shown, b"Citt\xe0 Sant\x90Angelo \x84 qualit\xe0");
@@ -857,7 +920,7 @@ fn unavailable_glyph_uses_an_appearance_font_without_changing_the_source_font() 
     let font = font.as_dict().unwrap();
     assert_eq!(font.name(b"BaseFont"), Some(&b"Helvetica"[..]));
     assert_eq!(font.name(b"Encoding"), Some(&b"WinAnsiEncoding"[..]));
-    let metrics = pdfcraft_fonts::pdf::Metrics::from_dict(&doc, font);
+    let metrics = openpdf_fonts::pdf::Metrics::from_dict(&doc, font);
     let shown = lines.concat();
     assert_eq!(metrics.decode(&shown), value);
     assert_eq!(shown, b"Citt\xe0 Sant\x92Angelo \x97 qualit\xe0");
@@ -886,7 +949,7 @@ fn multiline_wrapping_keeps_encodable_text_without_requiring_ascii_space() {
     let (font, lines) = appearance_text(&doc, &f.widgets[0], b"Helv");
     assert_eq!(font, original_font);
     assert!(lines.len() >= 3 && lines.iter().all(|line| !line.is_empty()));
-    let metrics = pdfcraft_fonts::pdf::Metrics::from_dict(&doc, font.as_dict().unwrap());
+    let metrics = openpdf_fonts::pdf::Metrics::from_dict(&doc, font.as_dict().unwrap());
     assert_eq!(metrics.decode(&lines.concat()), value.replace('\n', ""));
 }
 
@@ -924,7 +987,7 @@ fn reused_standard_fonts_wrap_and_align_with_their_own_widths() {
         let w = &field(&all, name).widgets[0];
         let n = doc.get(w.obj).as_dict().unwrap().get(b"AP").unwrap().as_dict().unwrap().reference(b"N").unwrap();
         let Object::Stream(s) = &*doc.get(n) else { panic!() };
-        let tm = pdfcraft_content::parse(&s.decoded().unwrap()).ops.into_iter().find(|op| op.is("Tm")).unwrap();
+        let tm = openpdf_content::parse(&s.decoded().unwrap()).ops.into_iter().find(|op| op.is("Tm")).unwrap();
         tm.operands[4].as_f64().unwrap()
     };
     assert!((start("code") - 174.0).abs() < 1e-3, "Courier: {}", start("code"));
@@ -958,7 +1021,7 @@ fn remapped_standard_fonts_are_measured_by_the_glyph_each_code_draws() {
         let w = &field(&all, name).widgets[0];
         let n = doc.get(w.obj).as_dict().unwrap().get(b"AP").unwrap().as_dict().unwrap().reference(b"N").unwrap();
         let Object::Stream(s) = &*doc.get(n) else { panic!() };
-        let tm = pdfcraft_content::parse(&s.decoded().unwrap()).ops.into_iter().find(|op| op.is("Tm")).unwrap();
+        let tm = openpdf_content::parse(&s.decoded().unwrap()).ops.into_iter().find(|op| op.is("Tm")).unwrap();
         tm.operands[4].as_f64().unwrap()
     };
     // The text ends at 198 (200 pt box, 2 pt padding): 26.68 pt of A's, or 20 pt by /Widths.
@@ -1043,7 +1106,7 @@ fn text_a_field_font_cannot_hold_is_kept_marked_and_redrawn_elsewhere() {
         let w = &field(&all, name).widgets[0];
         let n = doc.get(w.obj).as_dict().unwrap().get(b"AP").unwrap().as_dict().unwrap().reference(b"N").unwrap();
         let Object::Stream(s) = &*doc.get(n) else { panic!() };
-        let mark = doc.get(w.obj).as_dict().and_then(pdfcraft_fonts::undrawn_mark);
+        let mark = doc.get(w.obj).as_dict().and_then(openpdf_fonts::undrawn_mark);
         (String::from_utf8_lossy(&s.decoded().unwrap()).into_owned(), mark)
     };
     // A WinAnsi field: the Chinese value is kept and marked; Helvetica draws `?` for it.
@@ -1097,7 +1160,7 @@ fn thai_a_field_font_cannot_hold_is_drawn_from_the_thai_face() {
     ];
     let mut doc = document(&objs);
     let thai = "ชื่อ: บุญฤทธิ์ น้ำฎู";
-    if pdfcraft_fonts::document_thai_font().is_none() {
+    if openpdf_fonts::document_thai_font().is_none() {
         let err = set_value(&mut doc, "name", &FieldValue::Text(thai.into())).unwrap_err();
         assert!(matches!(&err, FormError::Invalid(m) if m.contains("Thai") && m.contains("CRAFT_FONTS_DIR")), "{err}");
         assert_eq!(field(&fields(&doc), "name").value, ["Ada"]);
@@ -1109,7 +1172,7 @@ fn thai_a_field_font_cannot_hold_is_drawn_from_the_thai_face() {
     set_value(&mut doc, "note", &FieldValue::Text(format!("น้ำฎู {thai}\nปั้น ฎู"))).unwrap();
     let doc = reopen(&doc);
     assert!(undrawn_fields(&doc).is_empty() && !need_appearances(&doc));
-    let (lo, hi) = (pdfcraft_fonts::shaped_text::thai_reach("ฎู").unwrap()[0], pdfcraft_fonts::shaped_text::thai_reach("น้ำ").unwrap()[1]);
+    let (lo, hi) = (openpdf_fonts::shaped_text::thai_reach("ฎู").unwrap()[0], openpdf_fonts::shaped_text::thai_reach("น้ำ").unwrap()[1]);
     for (name, height) in [("name", 20.0), ("big", 40.0), ("note", 100.0)] {
         let all = fields(&doc);
         let w = &field(&all, name).widgets[0];
@@ -1190,7 +1253,7 @@ fn check_boxes_and_radios_switch_states() {
     let size = field(&all, "size");
     assert_eq!(size.value, ["L"]);
     assert_eq!(size.widgets.iter().map(|w| w.state.clone().unwrap()).collect::<Vec<_>>(), ["Off", "L"]);
-    // The bare check box got PdfCraft's own appearances and kept its other keys.
+    // The bare check box got OpenPDF's own appearances and kept its other keys.
     let bare = field(&all, "bare");
     assert_eq!(bare.value, ["Yes"]);
     assert_eq!(bare.widgets[0].on_state.as_deref(), Some("Yes"));
@@ -1390,7 +1453,7 @@ fn every_field_type_can_be_added_named_and_drawn() {
     {
         // One page.
         let pages = doc.get(doc.root().unwrap()).as_dict().unwrap().reference(b"Pages").unwrap();
-        let mut p = pdfcraft_cos::Dict::new();
+        let mut p = openpdf_cos::Dict::new();
         p.set(b"Type".to_vec(), Object::name("Page"));
         p.set(b"Parent".to_vec(), Object::Ref(pages));
         p.set(b"MediaBox".to_vec(), Object::Array(vec![0.into(), 0.into(), 600.into(), 800.into()]));
@@ -1568,7 +1631,7 @@ fn renaming_a_top_level_field_is_still_checked_against_top_level_names() {
 fn deleting_works_with_a_form_dictionary_inside_the_catalog() {
     let mut doc = fixture();
     let root = doc.root().unwrap();
-    let af = doc.get(pdfcraft_cos::ObjRef::new(4, 0)).as_dict().cloned().unwrap();
+    let af = doc.get(openpdf_cos::ObjRef::new(4, 0)).as_dict().cloned().unwrap();
     doc.update_dict(root, |d| d.set(b"AcroForm".to_vec(), Object::Dict(af))).unwrap();
     let before = fields(&doc).len();
     delete_field(&mut doc, "name").unwrap();
@@ -1580,7 +1643,7 @@ fn deleting_works_with_a_form_dictionary_inside_the_catalog() {
 fn one_page() -> Document {
     let mut doc = Document::new_empty();
     let pages = doc.get(doc.root().unwrap()).as_dict().unwrap().reference(b"Pages").unwrap();
-    let mut p = pdfcraft_cos::Dict::new();
+    let mut p = openpdf_cos::Dict::new();
     p.set(b"Type".to_vec(), Object::name("Page"));
     p.set(b"Parent".to_vec(), Object::Ref(pages));
     p.set(b"MediaBox".to_vec(), Object::Array(vec![0.into(), 0.into(), 600.into(), 800.into()]));
@@ -1699,6 +1762,70 @@ fn a_script_that_spells_the_markers_in_a_string_runs_as_a_script() {
     assert_eq!((&total.calculate, total.scripts.calculate.as_deref()), (&af::Calculate::None, Some(js)));
     recalculate_with(&mut doc, &mut Ran).unwrap();
     assert_eq!(field(&fields(&doc), "total").value, ["ran"]);
+}
+
+/// The `/JS` string of field `name`'s `/AA /C` action, as stored.
+fn calculate_action_js(doc: &Document, name: &str) -> Option<PdfString> {
+    let f = field(&fields(doc), name).obj;
+    let aa = doc.get(f).as_dict().and_then(|d| d.get(b"AA").cloned()).map(|a| doc.resolve(&a))?;
+    let c = aa.as_dict().and_then(|aa| aa.get(b"C").cloned()).map(|c| doc.resolve(&c))?;
+    Some(c.as_dict().and_then(|c| c.get(b"JS")).and_then(|s| s.as_string()).expect("/JS is a string").clone())
+}
+
+/// Field Properties ▸ Calculate ▸ Custom calculation script (#6630): the script is written as
+/// given, as a text string, and reads back as the field's custom script, in the calculation
+/// order; a blank one removes the script and the field's place in the order.
+#[test]
+fn a_custom_calculation_script_is_written_as_given_and_a_blank_one_removes_it() {
+    use crate::af::Calculate;
+    let mut doc = one_page();
+    let text = NewField::Text { multiline: false };
+    add_field(&mut doc, 0, [50.0, 700.0, 250.0, 720.0], &text, Some("codice")).unwrap();
+    add_field(&mut doc, 0, [50.0, 660.0, 250.0, 680.0], &text, Some("barcode")).unwrap();
+    let js = "// Code 39: tra asterischi, così\r\nevent.value = \"*\" + this.getField(\"codice\").value + \"*\";";
+    let custom = |js: &str| FieldProps { calculate: Some(Calculate::Custom(js.into())), ..FieldProps::default() };
+    set_props(&mut doc, "barcode", &custom(js)).unwrap();
+    for doc in [doc.clone(), reopen(&doc)] {
+        let all = fields(&doc);
+        let actions = &field(&all, "barcode").actions;
+        assert_eq!((&actions.calculate, actions.scripts.calculate.as_deref()), (&Calculate::None, Some(js)), "read back as a script");
+        assert!(actions.unsupported.contains(&"calculate"));
+        let stored = calculate_action_js(&doc, "barcode").expect("an /AA /C action");
+        assert_eq!(stored.bytes, openpdf_cos::PdfString::text(js).bytes, "a text string, so ì isn't UTF-8 bytes another viewer reads as ì's pieces");
+        let order = calculation_order(&doc, &all);
+        assert_eq!(order.fields.iter().map(|f| (f.name.as_str(), f.listed)).collect::<Vec<_>>(), [("barcode", true)]);
+        assert_eq!(order.fields[0].reads, ["codice"]);
+    }
+    for blank in ["", " \n\t"] {
+        let mut doc = doc.clone();
+        set_props(&mut doc, "barcode", &custom(blank)).unwrap();
+        let all = fields(&doc);
+        let actions = &field(&all, "barcode").actions;
+        assert_eq!((&actions.calculate, actions.scripts.calculate.as_deref()), (&Calculate::None, None), "{blank:?}");
+        assert!(calculate_action_js(&doc, "barcode").is_none(), "{blank:?} writes no /C");
+        assert!(calculation_order(&doc, &all).fields.is_empty(), "{blank:?} leaves the calculation order");
+    }
+}
+
+/// A sum and a notation are still written as the AF calls they are, byte for byte, beside the
+/// custom script that is written as a text string (#6630).
+#[test]
+fn a_sum_and_a_notation_are_written_as_their_af_calls() {
+    use crate::af::{CalcOp, Calculate, calculate_js};
+    let mut doc = one_page();
+    let text = NewField::Text { multiline: false };
+    for (i, name) in ["a", "b", "total"].into_iter().enumerate() {
+        let y = 700.0 - 40.0 * i as f64;
+        add_field(&mut doc, 0, [50.0, y, 250.0, y + 20.0], &text, Some(name)).unwrap();
+    }
+    let sum = Calculate::Simple { op: CalcOp::Sum, fields: vec!["a".into(), "b".into()] };
+    for c in [sum, Calculate::Notation("a * b".into())] {
+        set_props(&mut doc, "total", &FieldProps { calculate: Some(c.clone()), ..FieldProps::default() }).unwrap();
+        let js = calculate_js(&c).unwrap();
+        assert_eq!(calculate_action_js(&doc, "total").map(|s| s.bytes), Some(js.into_bytes()), "{c:?}");
+        let all = fields(&reopen(&doc));
+        assert_eq!((&field(&all, "total").actions.calculate, &field(&all, "total").actions.scripts.calculate), (&c, &None));
+    }
 }
 
 /// An unsupported first AF call keeps the entire script and reaches the caller's interpreter.
@@ -2220,7 +2347,7 @@ fn rows_and_columns_tab_right_to_left_in_a_document_bound_on_the_right() {
         all.into_iter().map(|x| x.1).collect()
     };
     let root = doc.root().unwrap();
-    let mut prefs = pdfcraft_cos::Dict::new();
+    let mut prefs = openpdf_cos::Dict::new();
     prefs.set(b"Direction".to_vec(), Object::name("R2L"));
     let prefs = doc.add(prefs);
     doc.update_dict(root, |c| c.set(b"ViewerPreferences".to_vec(), Object::Ref(prefs))).unwrap();
@@ -2424,7 +2551,7 @@ fn ordering_tabs_manually() {
     }
     // A comment between the widgets keeps its place.
     let page = page_refs(&doc)[0];
-    let mut note = pdfcraft_cos::Dict::new();
+    let mut note = openpdf_cos::Dict::new();
     note.set(b"Type".to_vec(), Object::name("Annot"));
     note.set(b"Subtype".to_vec(), Object::name("Text"));
     note.set(b"Rect".to_vec(), Object::Array(vec![0.into(), 0.into(), 10.into(), 10.into()]));
@@ -2461,7 +2588,7 @@ fn duplicating_a_field_across_pages_shares_its_value() {
     // A second and third page.
     let pages = doc.get(doc.root().unwrap()).as_dict().unwrap().reference(b"Pages").unwrap();
     for _ in 0..2 {
-        let mut p = pdfcraft_cos::Dict::new();
+        let mut p = openpdf_cos::Dict::new();
         p.set(b"Type".to_vec(), Object::name("Page"));
         p.set(b"Parent".to_vec(), Object::Ref(pages));
         p.set(b"MediaBox".to_vec(), Object::Array(vec![0.into(), 0.into(), 600.into(), 800.into()]));
@@ -2884,7 +3011,7 @@ fn image_fields_ask_for_a_picture_and_show_it() {
     {
         d.set(k.to_vec(), v);
     }
-    let img = doc.add(Object::Stream(pdfcraft_cos::Stream::from_raw(d, vec![0; 24])));
+    let img = doc.add(Object::Stream(openpdf_cos::Stream::from_raw(d, vec![0; 24])));
     set_button_icon(&mut doc, &name, img, (4, 2)).unwrap();
     let w = doc.get(f.widgets[0].obj).as_dict().cloned().unwrap();
     let mk = w.get(b"MK").unwrap().as_dict().unwrap().clone();
@@ -3149,12 +3276,12 @@ fn detection_makes_a_row_of_touching_cells_one_comb_field() {
 #[test]
 fn page_shapes_reads_boxes_and_rules() {
     let mut doc = fixture();
-    let page = pdfcraft_model::pages(&doc)[0].obj;
-    let s = doc.add(pdfcraft_cos::Object::Stream(pdfcraft_cos::Stream::flate(
+    let page = openpdf_model::pages(&doc)[0].obj;
+    let s = doc.add(openpdf_cos::Object::Stream(openpdf_cos::Stream::flate(
         Default::default(),
         b"q 2 0 0 2 0 0 cm 10 10 6 6 re S 20 50 m 120 50 l S 0 0 m 5 5 l S 30 300 100 0.5 re f Q",
     )));
-    doc.update_dict(page, |d| d.set(b"Contents".to_vec(), pdfcraft_cos::Object::Ref(s))).unwrap();
+    doc.update_dict(page, |d| d.set(b"Contents".to_vec(), openpdf_cos::Object::Ref(s))).unwrap();
     let sh = crate::detect::page_shapes(&doc, 0);
     assert_eq!(sh.boxes, [[20.0, 20.0, 32.0, 32.0]]);
     assert_eq!(sh.rules, [[40.0, 100.0, 240.0, 100.0], [60.0, 600.5, 260.0, 600.5]]);
@@ -3165,9 +3292,9 @@ fn page_shapes_preserves_content_piece_boundaries() {
     use crate::detect::{Candidate, Kind, Shapes, detect, page_shapes};
     let read = |pieces: &[&[u8]]| {
         let mut doc = one_page();
-        let page = pdfcraft_model::pages(&doc)[0].obj;
+        let page = openpdf_model::pages(&doc)[0].obj;
         let contents =
-            pieces.iter().map(|bytes| Object::Ref(doc.add(Object::Stream(pdfcraft_cos::Stream::flate(Default::default(), bytes))))).collect();
+            pieces.iter().map(|bytes| Object::Ref(doc.add(Object::Stream(openpdf_cos::Stream::flate(Default::default(), bytes))))).collect();
         doc.update_dict(page, |d| d.set(b"Contents".to_vec(), Object::Array(contents))).unwrap();
         page_shapes(&doc, 0)
     };
@@ -3255,14 +3382,14 @@ fn rotated_fields_draw_in_their_quadrant() {
     let turned = field(&fields(&doc), "name").widgets[0].clone();
     assert_eq!(turned.rotation, 90);
     let r = turned.rect;
-    // [50 700 250 720] around its center becomes 20 wide and 200 tall.
-    assert!(close(r[0], 140.0) && close(r[1], 610.0) && close(r[2], 160.0) && close(r[3], 810.0), "{r:?}");
+    // The field stays where it was: only its content turns.
+    assert!(r.iter().zip(before).all(|(a, b)| close(*a, b)), "{r:?} moved from {before:?}");
     let widget = doc.get(turned.obj);
     let mk = widget.as_dict().unwrap().get(b"MK").unwrap().as_dict().cloned().unwrap();
     assert!(mk.contains(b"BG") && mk.contains(b"BC") && mk.int(b"R") == Some(90));
     let (_, matrix) = appearance_box(&doc, &turned);
     assert!(matrix.is_some());
-    // 270 stays on the vertical axis, so the rectangle is not swapped again.
+    // 270 keeps the rectangle too.
     set_props(&mut doc, "name", &FieldProps { rotation: Some((0, 270)), ..FieldProps::default() }).unwrap();
     let r270 = field(&fields(&doc), "name").widgets[0].rect;
     assert!(r270.iter().zip(r).all(|(a, b)| close(*a, b)), "{r270:?}");
@@ -3285,18 +3412,26 @@ fn rotated_fields_draw_in_their_quadrant() {
     assert!(text.contains("(Go) Tj") && matrix.is_some(), "{text}");
 }
 
+/// #4296: a tall field turned a quarter keeps its place, and its text is laid out along the long
+/// side (the appearance box is as wide as the field is tall) and turned onto the field.
 #[test]
-fn a_rotation_refused_as_too_small_changes_nothing_else() {
+fn a_tall_field_turned_a_quarter_keeps_its_place_and_runs_its_text_up_it() {
     let mut doc = one_page();
-    add_field(&mut doc, 0, [50.0, 700.0, 250.0, 720.0], &NewField::Text { multiline: false }, Some("thin")).unwrap();
-    // 200 x 3: turned a quarter it would be 3 wide, too small to use.
-    let obj = field(&fields(&doc), "thin").widgets[0].obj;
-    doc.update_dict(obj, |d| d.set(b"Rect".to_vec(), Object::Array([50.0, 700.0, 250.0, 703.0].iter().map(|v| Object::Real(*v)).collect()))).unwrap();
-    let props = FieldProps { tooltip: Some("changed".into()), rotation: Some((0, 90)), ..FieldProps::default() };
-    assert!(set_props(&mut doc, "thin", &props).is_err());
-    let f = field(&fields(&doc), "thin").clone();
-    assert_eq!(f.tooltip, None, "the tooltip was written before the rotation was refused");
-    assert_eq!(f.widgets[0].rotation, 0);
+    let rect = [50.0, 600.0, 70.0, 760.0];
+    add_field(&mut doc, 0, rect, &NewField::Text { multiline: false }, Some("tall")).unwrap();
+    set_value(&mut doc, "tall", &FieldValue::Text("Ada".into())).unwrap();
+    let props = FieldProps { tooltip: Some("Name".into()), rotation: Some((0, 90)), ..FieldProps::default() };
+    set_props(&mut doc, "tall", &props).unwrap();
+    let f = field(&fields(&doc), "tall").clone();
+    let w = &f.widgets[0];
+    assert_eq!((w.rotation, f.tooltip.as_deref()), (90, Some("Name")));
+    assert!(w.rect.iter().zip(rect).all(|(a, b)| close(*a, b)), "the field moved: {:?} -> {:?}", rect, w.rect);
+    let (bbox, matrix) = appearance_box(&doc, w);
+    assert!(close(bbox[2], 160.0) && close(bbox[3], 20.0), "the text is laid out across the field, not up it: {bbox:?}");
+    let m = matrix.unwrap();
+    // (x, y) -> (20 - y, x): the box's 160 pt run goes up the field.
+    assert!(close(m[1], 1.0) && close(m[2], -1.0) && close(m[4], 20.0), "{m:?}");
+    assert!(ap(&doc, w).contains("(Ada) Tj"));
 }
 
 #[test]
@@ -3322,7 +3457,7 @@ fn filling_and_authoring_keep_shared_appearances_and_drop_stale_alternates() {
                 d.set(b"Type".to_vec(), Object::name("XObject"));
                 d.set(b"Subtype".to_vec(), Object::name("Form"));
                 d.set(b"BBox".to_vec(), Object::Array(vec![0.into(), 0.into(), 20.into(), 10.into()]));
-                let r = doc.add(Object::Stream(pdfcraft_cos::Stream::from_raw(d, bytes.to_vec())));
+                let r = doc.add(Object::Stream(openpdf_cos::Stream::from_raw(d, bytes.to_vec())));
                 entries.set(key.to_vec(), Object::Ref(r));
             }
             entries.set(b"VendorState".to_vec(), Object::name("Retained"));
@@ -3343,7 +3478,7 @@ fn filling_and_authoring_keep_shared_appearances_and_drop_stale_alternates() {
                 }
                 assert_eq!(doc.resolve(&source), before, "a shared AP must not change");
                 let bytes = if full {
-                    pdfcraft_cos::write_full(&doc, &SaveOptions::default()).unwrap()
+                    openpdf_cos::write_full(&doc, &SaveOptions::default()).unwrap()
                 } else {
                     assert!(!doc.revisions().is_empty(), "incremental save needs an existing revision");
                     assert!(!doc.encryption_changed() && !doc.full_save_required(), "this edit must not require a full rewrite");
@@ -3397,7 +3532,7 @@ fn filling_and_authoring_keep_shared_appearances_and_drop_stale_alternates() {
 fn pushbutton_redraw_resolves_caption_and_layout_after_save_and_reopen() {
     fn saved(doc: &Document, full: bool) -> Document {
         let bytes = if full {
-            pdfcraft_cos::write_full(doc, &SaveOptions::default()).unwrap()
+            openpdf_cos::write_full(doc, &SaveOptions::default()).unwrap()
         } else {
             assert!(!doc.revisions().is_empty(), "incremental save needs an existing revision");
             assert!(!doc.encryption_changed() && !doc.full_save_required(), "this edit must not require a full rewrite");
@@ -3419,7 +3554,7 @@ fn pushbutton_redraw_resolves_caption_and_layout_after_save_and_reopen() {
                     add_field(&mut doc, 0, [50.0, 600.0, 250.0, 650.0], &NewField::Button { caption: "Original caption".into() }, Some("Picture"))
                         .unwrap();
                 let widget = field(&fields(&doc), &name).widgets[0].obj;
-                let caption = Object::String(pdfcraft_cos::PdfString::literal(b"Original caption".to_vec()));
+                let caption = Object::String(openpdf_cos::PdfString::literal(b"Original caption".to_vec()));
                 let caption = if indirect_caption { Object::Ref(doc.add(caption)) } else { caption };
                 let layout = Object::Int(i64::from(icon_only));
                 let layout = if indirect_layout { Object::Ref(doc.add(layout)) } else { layout };
@@ -3428,7 +3563,7 @@ fn pushbutton_redraw_resolves_caption_and_layout_after_save_and_reopen() {
                 icon_dict.set(b"Subtype".to_vec(), Object::name("Form"));
                 icon_dict.set(b"BBox".to_vec(), Object::Array(vec![0.into(), 0.into(), 4.into(), 2.into()]));
                 let icon_bytes = b"0 0 4 2 re f\n";
-                let icon = doc.add(Object::Stream(pdfcraft_cos::Stream::from_raw(icon_dict, icon_bytes.to_vec())));
+                let icon = doc.add(Object::Stream(openpdf_cos::Stream::from_raw(icon_dict, icon_bytes.to_vec())));
                 let mut mk = Dict::new();
                 mk.set(b"CA".to_vec(), caption);
                 mk.set(b"TP".to_vec(), layout);
@@ -3492,7 +3627,7 @@ fn check_box_redraw_keeps_down_states_it_still_draws() {
         let mut d = Dict::new();
         d.set(b"Subtype".to_vec(), Object::name("Form"));
         d.set(b"BBox".to_vec(), Object::Array(vec![0.into(), 0.into(), 20.into(), 20.into()]));
-        let r = doc.add(Object::Stream(pdfcraft_cos::Stream::from_raw(d, b"0 0 20 20 re f\n".to_vec())));
+        let r = doc.add(Object::Stream(openpdf_cos::Stream::from_raw(d, b"0 0 20 20 re f\n".to_vec())));
         down.set(state.to_vec(), Object::Ref(r));
     }
     ap.set(b"D".to_vec(), Object::Dict(down));
@@ -3518,10 +3653,11 @@ fn recalc_chain_where_script_changes_checkbox() {
                     changes: vec![FieldChange {
                         name: "agree".into(),
                         value: Some(vec!["Yes".into()]),
+                        formatted: false,
                         read_only: None,
                         required: None,
                         display: None,
-                        rect: None,
+                        ..Default::default()
                     }],
                     message: None,
                 }
@@ -3606,6 +3742,65 @@ fn an_export_value_wins_over_an_earlier_options_display_text() {
 }
 
 #[test]
+fn validation_script_colour_is_used_when_the_field_redraws() {
+    struct TestScripts;
+    impl Scripts for TestScripts {
+        fn run(&mut self, _event: FieldEvent, _script: &str, _target: &Field, value: &str, _fields: &[Field]) -> ScriptResult {
+            ScriptResult {
+                rc: true,
+                value: value.into(),
+                value_set: false,
+                changes: vec![FieldChange {
+                    name: "name".into(),
+                    text_color: Some(vec!["RGB".into(), "1".into(), "0".into(), "0".into()]),
+                    ..Default::default()
+                }],
+                message: None,
+            }
+        }
+    }
+
+    let mut doc = fixture();
+    set_field_script(&mut doc, "name", "validate", Some("set_red")).unwrap();
+    set_value_with(&mut doc, "name", &FieldValue::Text("Grace".into()), &mut TestScripts).unwrap();
+
+    let all = fields(&doc);
+    let f = field(&all, "name");
+    assert!(f.da.contains("1 0 0 rg"));
+    assert!(ap(&doc, &f.widgets[0]).contains("1 0 0 rg"), "redraw uses the Validate script's updated appearance");
+}
+
+#[test]
+fn calculation_script_colour_is_used_when_the_field_redraws() {
+    struct TestScripts;
+    impl Scripts for TestScripts {
+        fn run(&mut self, _event: FieldEvent, _script: &str, _target: &Field, _value: &str, _fields: &[Field]) -> ScriptResult {
+            ScriptResult {
+                rc: true,
+                value: "Grace".into(),
+                value_set: true,
+                changes: vec![FieldChange {
+                    name: "name".into(),
+                    text_color: Some(vec!["RGB".into(), "1".into(), "0".into(), "0".into()]),
+                    ..Default::default()
+                }],
+                message: None,
+            }
+        }
+    }
+
+    let mut doc = fixture();
+    set_field_script(&mut doc, "name", "calculate", Some("set_red")).unwrap();
+    recalculate_with(&mut doc, &mut TestScripts).unwrap();
+
+    let all = fields(&doc);
+    let f = field(&all, "name");
+    assert_eq!(f.value, ["Grace"]);
+    assert!(f.da.contains("1 0 0 rg"));
+    assert!(ap(&doc, &f.widgets[0]).contains("1 0 0 rg"), "redraw uses the Calculate script's updated appearance");
+}
+
+#[test]
 fn partial_appearance_keeps_custom_default_appearance_and_font_resources() {
     let mut doc = fixture();
     let obj = field(&fields(&doc), "name").obj;
@@ -3617,7 +3812,7 @@ fn partial_appearance_keeps_custom_default_appearance_and_font_resources() {
     dr.set(b"Font".to_vec(), Object::Dict(fonts));
     doc.update_dict(af, |d| d.set(b"DR".to_vec(), Object::Dict(dr))).unwrap();
     let da = "/ProjectFont 13 Tf 0.15 g 2 Tc";
-    doc.update_dict(obj, |d| d.set(b"DA".to_vec(), pdfcraft_cos::PdfString::literal(da.as_bytes().to_vec()))).unwrap();
+    doc.update_dict(obj, |d| d.set(b"DA".to_vec(), openpdf_cos::PdfString::literal(da.as_bytes().to_vec()))).unwrap();
 
     let patch = LookPatch { border: Some(Some([1.0, 0.0, 0.0])), width: Some(3.0), ..Default::default() };
     set_props(&mut doc, "name", &FieldProps { appearance: Some(patch), ..Default::default() }).unwrap();
@@ -3671,7 +3866,7 @@ fn repeated_partial_appearance_edits_keep_the_default_appearance_one_operator_ea
 fn a_font_only_edit_leaves_the_widget_and_a_shared_indirect_border_untouched() {
     let mut doc = fixture();
     let widgets = field(&fields(&doc), "size").widgets.clone();
-    let mut mk = pdfcraft_cos::Dict::new();
+    let mut mk = openpdf_cos::Dict::new();
     mk.set(b"BC".to_vec(), Object::Array(vec![0.into(), 0.into(), 1.into()]));
     let shared = doc.add(Object::Dict(mk));
     for w in &widgets {
@@ -3699,14 +3894,14 @@ fn partial_appearance_preserves_each_widgets_indirect_colours_and_border_extensi
     let widgets = field(&fields(&doc), "size").widgets.clone();
     let mut refs = Vec::new();
     for (i, widget) in widgets.iter().enumerate() {
-        let mut mk = pdfcraft_cos::Dict::new();
+        let mut mk = openpdf_cos::Dict::new();
         mk.set(b"BG".to_vec(), Object::Array(vec![Object::Real(i as f64), 0.into(), 1.into()]));
         mk.set(b"BC".to_vec(), Object::Array(vec![0.into(), Object::Real(i as f64), 0.into()]));
-        mk.set(b"CA".to_vec(), pdfcraft_cos::PdfString::text("l"));
+        mk.set(b"CA".to_vec(), openpdf_cos::PdfString::text("l"));
         mk.set(b"R".to_vec(), Object::Int(90));
         mk.set(b"VendorKey".to_vec(), Object::Int(71));
         let mk_ref = doc.add(Object::Dict(mk));
-        let mut bs = pdfcraft_cos::Dict::new();
+        let mut bs = openpdf_cos::Dict::new();
         bs.set(b"S".to_vec(), Object::name("D"));
         bs.set(b"W".to_vec(), Object::Real(1.0));
         bs.set(b"D".to_vec(), Object::Array(vec![4.into(), 2.into()]));
@@ -3716,7 +3911,7 @@ fn partial_appearance_preserves_each_widgets_indirect_colours_and_border_extensi
         doc.update_dict(widget.obj, |d| {
             d.set(b"MK".to_vec(), Object::Ref(mk_ref));
             d.set(b"BS".to_vec(), Object::Ref(bs_ref));
-            d.set(b"DA".to_vec(), pdfcraft_cos::PdfString::text(da));
+            d.set(b"DA".to_vec(), openpdf_cos::PdfString::text(da));
         })
         .unwrap();
         refs.push(mk_ref);
@@ -3757,8 +3952,8 @@ fn partial_appearance_preserves_each_widgets_indirect_colours_and_border_extensi
 fn a_whole_look_keeps_the_rest_of_an_indirect_mk() {
     let mut doc = fixture();
     let widget = field(&fields(&doc), "agree").widgets[0].obj;
-    let mut mk = pdfcraft_cos::Dict::new();
-    mk.set(b"CA".to_vec(), pdfcraft_cos::PdfString::text("8"));
+    let mut mk = openpdf_cos::Dict::new();
+    mk.set(b"CA".to_vec(), openpdf_cos::PdfString::text("8"));
     mk.set(b"R".to_vec(), Object::Int(90));
     mk.set(b"VendorKey".to_vec(), Object::Int(71));
     let mk_ref = doc.add(Object::Dict(mk));
@@ -3816,8 +4011,8 @@ fn invalid_appearance_patches_are_refused_before_anything_is_written() {
 fn page_shapes_preserves_closed_path_rectangle_height() {
     let shapes = |content: &[u8]| {
         let mut doc = fixture();
-        let page = pdfcraft_model::pages(&doc)[0].obj;
-        let stream = doc.add(Object::Stream(pdfcraft_cos::Stream::flate(Default::default(), content)));
+        let page = openpdf_model::pages(&doc)[0].obj;
+        let stream = doc.add(Object::Stream(openpdf_cos::Stream::flate(Default::default(), content)));
         doc.update_dict(page, |d| d.set(b"Contents".to_vec(), Object::Ref(stream))).unwrap();
         crate::detect::page_shapes(&doc, 0)
     };
@@ -3831,8 +4026,8 @@ fn page_shapes_preserves_closed_path_rectangle_height() {
 
 fn detection_test_shapes(content: &[u8]) -> crate::detect::Shapes {
     let mut doc = fixture();
-    let page = pdfcraft_model::pages(&doc)[0].obj;
-    let stream = doc.add(Object::Stream(pdfcraft_cos::Stream::flate(Default::default(), content)));
+    let page = openpdf_model::pages(&doc)[0].obj;
+    let stream = doc.add(Object::Stream(openpdf_cos::Stream::flate(Default::default(), content)));
     doc.update_dict(page, |d| d.set(b"Contents".to_vec(), Object::Ref(stream))).unwrap();
     crate::detect::page_shapes(&doc, 0)
 }
@@ -3932,7 +4127,7 @@ fn zero_max_len_is_unlimited_and_overrides_inherited_limit() {
 #[test]
 fn auto_text_size_fits_single_and_multiline_text() {
     use crate::appearance::auto_text_size;
-    use pdfcraft_fonts::{helvetica_width, wrap_with};
+    use openpdf_fonts::{helvetica_width, wrap_with};
     let long = "Weekly progress and diligence: CoBank refi, IL and Redwood Falls";
     // Single line: the height's size for short text, shrunk to the width for long text.
     assert_eq!(auto_text_size("Hi", 94.0, 8.0, false, helvetica_width), 8.0 / 1.15);
@@ -3978,11 +4173,9 @@ fn name_tree_nodes_sharing_one_long_kids_array_queue_it_a_bounded_number_of_time
     // 200,000 times more. Queuing that array once per node would hold two billion entries.
     let dict = |entries: Vec<(&[u8], Object)>| -> Object { Object::Dict(entries.into_iter().map(|(k, v)| (k.to_vec(), v)).collect()) };
     let mut doc = Document::new_empty();
-    let action = doc.add(dict(vec![
-        (b"S", Object::Name(b"JavaScript".to_vec())),
-        (b"JS", Object::String(pdfcraft_cos::PdfString::literal("var ready = true;"))),
-    ]));
-    let leaf = doc.add(dict(vec![(b"Names", Object::Array(vec![Object::String(pdfcraft_cos::PdfString::literal("init")), Object::Ref(action)]))]));
+    let action = doc
+        .add(dict(vec![(b"S", Object::Name(b"JavaScript".to_vec())), (b"JS", Object::String(openpdf_cos::PdfString::literal("var ready = true;")))]));
+    let leaf = doc.add(dict(vec![(b"Names", Object::Array(vec![Object::String(openpdf_cos::PdfString::literal("init")), Object::Ref(action)]))]));
     let kids = doc.add(Object::Null);
     let nodes: Vec<Object> = (0..10_000).map(|_| Object::Ref(doc.add(dict(vec![(b"Kids", Object::Ref(kids))])))).collect();
     let mut shared = vec![Object::Ref(leaf); 200_000];
@@ -4004,13 +4197,11 @@ fn a_direct_object_in_a_shared_kids_array_is_not_copied_for_every_node() {
     // entry count stayed under its limit. Kids are references, so it is skipped.
     let dict = |entries: Vec<(&[u8], Object)>| -> Object { Object::Dict(entries.into_iter().map(|(k, v)| (k.to_vec(), v)).collect()) };
     let mut doc = Document::new_empty();
-    let action = doc.add(dict(vec![
-        (b"S", Object::Name(b"JavaScript".to_vec())),
-        (b"JS", Object::String(pdfcraft_cos::PdfString::literal("var ready = true;"))),
-    ]));
-    let leaf = doc.add(dict(vec![(b"Names", Object::Array(vec![Object::String(pdfcraft_cos::PdfString::literal("init")), Object::Ref(action)]))]));
+    let action = doc
+        .add(dict(vec![(b"S", Object::Name(b"JavaScript".to_vec())), (b"JS", Object::String(openpdf_cos::PdfString::literal("var ready = true;")))]));
+    let leaf = doc.add(dict(vec![(b"Names", Object::Array(vec![Object::String(openpdf_cos::PdfString::literal("init")), Object::Ref(action)]))]));
     let kids = doc.add(Object::Null);
-    let big = dict(vec![(b"Pad", Object::String(pdfcraft_cos::PdfString::literal("x".repeat(2 << 20))))]);
+    let big = dict(vec![(b"Pad", Object::String(openpdf_cos::PdfString::literal("x".repeat(2 << 20))))]);
     let mut shared = vec![big];
     shared.extend((0..1_000).map(|_| Object::Ref(doc.add(dict(vec![(b"Kids", Object::Ref(kids))])))));
     shared.push(Object::Ref(leaf));
@@ -4208,7 +4399,7 @@ fn the_field_appearance_cache_sees_every_input() {
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".into(),
         "<< /BG [1 1 1] >>".into(),
     ]);
-    let r = |n: u32| pdfcraft_cos::ObjRef::new(n, 0);
+    let r = |n: u32| openpdf_cos::ObjRef::new(n, 0);
     let mut cache = FieldAppearanceCache::default();
     let mut redraw = |doc: &Document| {
         let before = cache.builds();
@@ -4251,7 +4442,7 @@ fn the_field_appearance_cache_sees_indirect_resources() {
         "<< /Helv << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >> >>".into(),
         "(/Helv 12 Tf 0 g)".into(),
     ]);
-    let r = |n: u32| pdfcraft_cos::ObjRef::new(n, 0);
+    let r = |n: u32| openpdf_cos::ObjRef::new(n, 0);
     let mut cache = FieldAppearanceCache::default();
     let mut redraw = |doc: &Document| {
         let before = cache.builds();
@@ -4315,23 +4506,23 @@ fn a_script_reading_many_fields_merges_its_reads_in_one_pass() {
 
 /// 300 fields and 300 document scripts that all name one 1 MiB JavaScript stream.
 fn repeated_script_references() -> Document {
-    use pdfcraft_cos::Stream;
+    use openpdf_cos::Stream;
     let dict = |entries: Vec<(&[u8], Object)>| -> Object { Object::Dict(entries.into_iter().map(|(k, v)| (k.to_vec(), v)).collect()) };
     let mut doc = Document::new_empty();
-    let js = doc.add(Stream::flate(pdfcraft_cos::Dict::new(), &vec![b'x'; 1 << 20]));
+    let js = doc.add(Stream::flate(openpdf_cos::Dict::new(), &vec![b'x'; 1 << 20]));
     let action = doc.add(dict(vec![(b"S", Object::Name(b"JavaScript".to_vec())), (b"JS", Object::Ref(js))]));
     let fields: Vec<Object> = (0..300)
         .map(|i| {
             Object::Ref(doc.add(dict(vec![
                 (b"FT", Object::Name(b"Tx".to_vec())),
-                (b"T", Object::String(pdfcraft_cos::PdfString::literal(format!("f{i}")))),
+                (b"T", Object::String(openpdf_cos::PdfString::literal(format!("f{i}")))),
                 (b"Rect", Object::Array([0, 0, 10, 10].map(Object::from).to_vec())),
                 (b"AA", dict(vec![(b"C", Object::Ref(action))])),
             ])))
         })
         .collect();
     let names: Vec<Object> =
-        (0..300).flat_map(|i| [Object::String(pdfcraft_cos::PdfString::literal(format!("s{i:03}"))), Object::Ref(action)]).collect();
+        (0..300).flat_map(|i| [Object::String(openpdf_cos::PdfString::literal(format!("s{i:03}"))), Object::Ref(action)]).collect();
     let catalog = doc.add(dict(vec![
         (b"Type", Object::Name(b"Catalog".to_vec())),
         (b"AcroForm", dict(vec![(b"Fields", Object::Array(fields))])),
@@ -4487,7 +4678,7 @@ fn a_pdfa_declaration_is_read_from_metadata_within_its_cap() {
     // 3.5 MiB stored as hex, then Flate: its stages decode 7 and 3.5 MiB, each within the cap.
     let xmp = pdfa(7 << 19);
     let hex: Vec<u8> = xmp.bytes().flat_map(|b| [b"0123456789ABCDEF"[usize::from(b >> 4)], b"0123456789ABCDEF"[usize::from(b & 15)]]).collect();
-    let mut stream = pdfcraft_cos::Stream::flate(pdfcraft_cos::Dict::new(), &hex);
+    let mut stream = openpdf_cos::Stream::flate(openpdf_cos::Dict::new(), &hex);
     stream.dict.set(b"Filter".to_vec(), Object::Array(vec![Object::name("FlateDecode"), Object::name("ASCIIHexDecode")]));
     let mut doc = Document::new_empty();
     let metadata = doc.add(Object::Stream(stream));
@@ -4752,7 +4943,7 @@ fn dr_fonts(doc: &Document) -> Dict {
 }
 
 /// #3441: Acrobat shows nothing in a text field it redraws after typing when the field's `/DR`
-/// font is a dictionary written inline. A form PdfCraft makes holds each font as its own object.
+/// font is a dictionary written inline. A form OpenPDF makes holds each font as its own object.
 #[test]
 fn a_new_form_holds_its_fonts_as_objects() {
     let mut doc = document(&[
@@ -4828,7 +5019,7 @@ fn an_indirect_resource_dictionary_and_a_complete_inline_set_are_handled() {
 
 /// #3441: fonts the form already has are its own, not replaced by the standard ones: an inline
 /// `/Helv` that is Arial becomes an object that is still Arial, a `/TiRo` object stays that
-/// object, and a form needing no change leaves its `/DR` object unwritten. The fonts PdfCraft
+/// object, and a form needing no change leaves its `/DR` object unwritten. The fonts OpenPDF
 /// adds use WinAnsi, as Acrobat's do.
 #[test]
 fn existing_form_fonts_are_kept_and_an_unchanged_resource_dictionary_is_not_rewritten() {
@@ -4844,7 +5035,7 @@ fn existing_form_fonts_are_kept_and_an_unchanged_resource_dictionary_is_not_rewr
     let fonts = dr_fonts(&doc);
     let font = |name: &str| doc.get(fonts.reference(name.as_bytes()).unwrap()).as_dict().cloned().unwrap();
     assert_eq!(font("Helv").name(b"BaseFont"), Some(&b"Arial"[..]), "the form's own Helv");
-    assert_eq!(fonts.reference(b"TiRo"), Some(pdfcraft_cos::ObjRef::new(5, 0)), "the same object");
+    assert_eq!(fonts.reference(b"TiRo"), Some(openpdf_cos::ObjRef::new(5, 0)), "the same object");
     assert_eq!(font("Cour").name(b"Encoding"), Some(&b"WinAnsiEncoding"[..]));
 
     // Every font an object already, /DR an object: adding a field leaves /DR as it was.
@@ -4983,27 +5174,27 @@ fn assert_requested_font_shapes(doc: &Document, acro: &Dict, dr: &Object, fonts:
     let base = |name: &[u8]| fonts.reference(name).and_then(|r| doc.get(r).as_dict().and_then(|f| f.name(b"BaseFont").map(<[u8]>::to_vec)));
     match case.helv {
         "inline" => assert_eq!(base(b"Helv").as_deref(), Some(&b"Arial"[..]), "{}", case.description),
-        "object" => assert_eq!(fonts.reference(b"Helv"), Some(pdfcraft_cos::ObjRef::new(7, 0)), "{}", case.description),
-        "dangling" => assert_eq!(fonts.reference(b"Helv"), Some(pdfcraft_cos::ObjRef::new(99, 0)), "{}", case.description),
+        "object" => assert_eq!(fonts.reference(b"Helv"), Some(openpdf_cos::ObjRef::new(7, 0)), "{}", case.description),
+        "dangling" => assert_eq!(fonts.reference(b"Helv"), Some(openpdf_cos::ObjRef::new(99, 0)), "{}", case.description),
         "null" => assert_eq!(fonts.get(b"Helv"), Some(&Object::Null), "{}", case.description),
         "number" => assert_eq!(fonts.get(b"Helv"), Some(&Object::Int(3)), "{}", case.description),
         _ => assert_eq!(base(b"Helv").as_deref(), Some(&b"Helvetica"[..]), "{}", case.description),
     }
     match case.mine {
         "inline" => assert_eq!(base(b"Mine").as_deref(), Some(&b"Symbol"[..]), "{}", case.description),
-        "object" => assert_eq!(fonts.reference(b"Mine"), Some(pdfcraft_cos::ObjRef::new(8, 0)), "{}", case.description),
+        "object" => assert_eq!(fonts.reference(b"Mine"), Some(openpdf_cos::ObjRef::new(8, 0)), "{}", case.description),
         _ => assert!(!fonts.contains(b"Mine"), "{}", case.description),
     }
     if case.dr == "object" {
-        assert_eq!(acro.reference(b"DR"), Some(pdfcraft_cos::ObjRef::new(5, 0)), "{}: /DR stays its object", case.description);
+        assert_eq!(acro.reference(b"DR"), Some(openpdf_cos::ObjRef::new(5, 0)), "{}: /DR stays its object", case.description);
     }
     if case.fonts == "object" {
-        assert_eq!(dr.as_dict().unwrap().reference(b"Font"), Some(pdfcraft_cos::ObjRef::new(6, 0)), "{}: /Font stays its object", case.description);
+        assert_eq!(dr.as_dict().unwrap().reference(b"Font"), Some(openpdf_cos::ObjRef::new(6, 0)), "{}: /Font stays its object", case.description);
     }
 }
 
 /// #3441 (review follow-up): filling a field converts the form's inline `/DR` fonts, so a form
-/// an earlier PdfCraft made works in Acrobat once it has been filled here. Nothing is added. A
+/// an earlier OpenPDF made works in Acrobat once it has been filled here. Nothing is added. A
 /// form a signature covers keeps `/DR` as the signer saw it, and a form whose fonts are objects
 /// already leaves its `/DR` object unwritten.
 #[test]
@@ -5039,7 +5230,7 @@ fn filling_a_field_makes_inline_form_fonts_objects_unless_the_form_is_signed() {
 
     // An empty signature field signs nothing: the form is converted as an unsigned one.
     let mut doc = form(true, &format!("<< /Font << {inline} >> >>"));
-    doc.update_dict(pdfcraft_cos::ObjRef::new(6, 0), |d| {
+    doc.update_dict(openpdf_cos::ObjRef::new(6, 0), |d| {
         d.remove(b"V");
     })
     .unwrap();
@@ -5065,7 +5256,7 @@ fn a_signature_value_on_a_parent_field_keeps_the_form_fonts_as_signed() {
         "<< /Type /Sig /Filter /Adobe.PPKLite /Contents <00> >>".into(),
         "<< /Type /Annot /Subtype /Widget /T (s1) /Parent 6 0 R /Rect [0 0 0 0] /P 3 0 R >>".into(),
     ]);
-    let kid = pdfcraft_cos::ObjRef::new(8, 0);
+    let kid = openpdf_cos::ObjRef::new(8, 0);
     assert!(fields(&doc).iter().any(|f| f.obj == kid && f.kind == FieldKind::Signature), "the kid is the signature field");
     set_value(&mut doc, "name", &FieldValue::Text("Ada".into())).unwrap();
     let doc = reopen(&doc);
@@ -5119,7 +5310,7 @@ fn inherited_and_widget_password_values_are_cleared() {
         assert!(value(&doc, n).iter().all(|v| v.is_empty()), "{n} cleared");
     }
     assert_eq!(value(&doc, "grp.plain"), ["shared2"], "the shared value stays for the plain field");
-    let has_v = |doc: &Document, n: u32| doc.get(pdfcraft_cos::ObjRef { num: n, generation: 0 }).as_dict().is_some_and(|d| d.get(b"V").is_some());
+    let has_v = |doc: &Document, n: u32| doc.get(openpdf_cos::ObjRef { num: n, generation: 0 }).as_dict().is_some_and(|d| d.get(b"V").is_some());
     assert!(!has_v(&doc, 5), "an ancestor only password fields inherit from loses its value");
     assert!(!has_v(&doc, 7), "a widget's value is removed");
     assert!(has_v(&doc, 10), "a shared ancestor keeps its value");
@@ -5381,7 +5572,7 @@ fn state_ap(doc: &Document, w: &Widget, state: &str) -> String {
     String::from_utf8_lossy(&s.decoded().unwrap()).into_owned()
 }
 
-/// The decoded appearance PdfCraft would save for text or choice field `name` of `doc`.
+/// The decoded appearance OpenPDF would save for text or choice field `name` of `doc`.
 fn saved_look(doc: &Document, name: &str) -> String {
     let all = fields(doc);
     let f = field(&all, name);
@@ -5688,6 +5879,34 @@ fn set_values_reads_the_form_once_not_per_value() {
     assert_eq!(reads, 3, "one to fill, one when f0 comes again, one to recalculate");
 }
 
+/// Redrawing every field of a large form reads the form once, not once per field: a laid out XFA
+/// form with a thousand rows holds thousands of fields, and reading them all again for each one
+/// took 15 s a relayout. The fields `keep` turns down keep the appearance they had.
+#[test]
+fn redraw_fields_reads_the_form_once_however_many_fields_it_holds() {
+    for n in [250u32, 1000] {
+        let mut objs: Vec<String> = vec![
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>".into(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 600 800] >>".into(),
+        ];
+        let kids: Vec<String> = (0..n).map(|i| format!("{} 0 R", i + 5)).collect();
+        objs.push(format!("<< /Type /Page /Parent 2 0 R /Annots [{}] >>", kids.join(" ")));
+        objs.push(format!("<< /Fields [{}] /DA (/Helv 10 Tf 0 g) >>", kids.join(" ")));
+        for i in 0..n {
+            objs.push(format!("<< /Type /Annot /Subtype /Widget /FT /Tx /T (f{i}) /V (v{i}) /Rect [50 0 250 10] /P 3 0 R >>"));
+        }
+        let mut doc = document(&objs);
+        let before = form_reads();
+        redraw_fields(&mut doc, |_, f| f.name != "f0").unwrap();
+        assert_eq!(form_reads() - before, 1, "{n} fields");
+        let all = fields(&doc);
+        let has_ap = |name: &str| field(&all, name).widgets.iter().all(|w| doc.get(w.obj).as_dict().is_some_and(|d| d.contains(b"AP")));
+        assert!(!has_ap("f0"), "turned down: left as it was");
+        assert!((1..n).all(|i| has_ap(&format!("f{i}"))), "{n} fields");
+        assert!(ap(&doc, &field(&all, &format!("f{}", n - 1)).widgets[0]).contains(&format!("(v{})", n - 1)));
+    }
+}
+
 /// A radio group `size` with the buttons Small (on), Medium and Large, a per-widget `/Opt`, and
 /// the group's buttons in the calculation order; and a text field `name` with two widgets.
 fn radio_group_form() -> Document {
@@ -5927,7 +6146,7 @@ fn a_group_with_indirect_kids_keeps_its_buttons_when_joined() {
 fn joining_radio_buttons_that_share_a_value_keep_sharing_it() {
     let mut doc = two_radio_groups("Choice1", "Choice1");
     let pages = doc.get(doc.root().unwrap()).as_dict().unwrap().reference(b"Pages").unwrap();
-    let mut p = pdfcraft_cos::Dict::new();
+    let mut p = openpdf_cos::Dict::new();
     p.set(b"Type".to_vec(), Object::name("Page"));
     p.set(b"Parent".to_vec(), Object::Ref(pages));
     p.set(b"MediaBox".to_vec(), Object::Array(vec![0.into(), 0.into(), 600.into(), 800.into()]));
@@ -5955,18 +6174,18 @@ fn merged_radios(specs: &[(&str, &str, f64)]) -> Document {
     let af = crate::author::ensure_form(&mut doc).unwrap();
     let mut made = Vec::new();
     for &(name, state, x) in specs {
-        let look = doc.add(Object::Stream(pdfcraft_cos::Stream::from_raw(pdfcraft_cos::Dict::new(), b"0 g".to_vec())));
-        let mut n = pdfcraft_cos::Dict::new();
+        let look = doc.add(Object::Stream(openpdf_cos::Stream::from_raw(openpdf_cos::Dict::new(), b"0 g".to_vec())));
+        let mut n = openpdf_cos::Dict::new();
         n.set(state.as_bytes().to_vec(), Object::Ref(look));
         n.set(b"Off".to_vec(), Object::Ref(look));
-        let mut ap = pdfcraft_cos::Dict::new();
+        let mut ap = openpdf_cos::Dict::new();
         ap.set(b"N".to_vec(), Object::Dict(n));
-        let mut d = pdfcraft_cos::Dict::new();
+        let mut d = openpdf_cos::Dict::new();
         d.set(b"Type".to_vec(), Object::name("Annot"));
         d.set(b"Subtype".to_vec(), Object::name("Widget"));
         d.set(b"FT".to_vec(), Object::name("Btn"));
         d.set(b"Ff".to_vec(), Object::Int(i64::from(flags::RADIO)));
-        d.set(b"T".to_vec(), pdfcraft_cos::PdfString::text(name));
+        d.set(b"T".to_vec(), openpdf_cos::PdfString::text(name));
         d.set(b"Rect".to_vec(), Object::Array(vec![x.into(), 600.into(), (x + 14.0).into(), 614.into()]));
         d.set(b"P".to_vec(), Object::Ref(page));
         d.set(b"AP".to_vec(), Object::Dict(ap));
@@ -6014,12 +6233,12 @@ fn a_joined_merged_groups_button_keeps_its_actions() {
     let mut doc = merged_radios(&[("solo", "A", 50.0), ("other", "B", 80.0)]);
     let solo = field(&fields(&doc), "solo").obj;
     let js = |code: &str| {
-        let mut a = pdfcraft_cos::Dict::new();
+        let mut a = openpdf_cos::Dict::new();
         a.set(b"S".to_vec(), Object::name("JavaScript"));
-        a.set(b"JS".to_vec(), pdfcraft_cos::PdfString::text(code));
+        a.set(b"JS".to_vec(), openpdf_cos::PdfString::text(code));
         Object::Dict(a)
     };
-    let mut aa = pdfcraft_cos::Dict::new();
+    let mut aa = openpdf_cos::Dict::new();
     aa.set(b"Fo".to_vec(), js("focus();"));
     aa.set(b"V".to_vec(), js("validate();"));
     let aa = doc.add(Object::Dict(aa));
@@ -6049,12 +6268,12 @@ fn a_joining_merged_button_sheds_its_fields_triggers() {
     let mut doc = merged_radios(&[("solo", "A", 50.0), ("other", "B", 80.0)]);
     let other = field(&fields(&doc), "other").obj;
     let js = |code: &str| {
-        let mut a = pdfcraft_cos::Dict::new();
+        let mut a = openpdf_cos::Dict::new();
         a.set(b"S".to_vec(), Object::name("JavaScript"));
-        a.set(b"JS".to_vec(), pdfcraft_cos::PdfString::text(code));
+        a.set(b"JS".to_vec(), openpdf_cos::PdfString::text(code));
         Object::Dict(a)
     };
-    let mut aa = pdfcraft_cos::Dict::new();
+    let mut aa = openpdf_cos::Dict::new();
     aa.set(b"U".to_vec(), js("up();"));
     aa.set(b"V".to_vec(), js("validate();"));
     aa.set(b"C".to_vec(), js("calc();"));
@@ -6069,7 +6288,7 @@ fn a_joining_merged_button_sheds_its_fields_triggers() {
     assert!(widget_aa.contains(b"U") && !widget_aa.contains(b"V") && !widget_aa.contains(b"C"), "only the widget's trigger stays");
     let mut once = merged_radios(&[("solo", "A", 50.0), ("other", "B", 80.0)]);
     let other = field(&fields(&once), "other").obj;
-    let mut aa = pdfcraft_cos::Dict::new();
+    let mut aa = openpdf_cos::Dict::new();
     aa.set(b"V".to_vec(), js("validate();"));
     once.update_dict(other, |d| d.set(b"AA".to_vec(), Object::Dict(aa))).unwrap();
     rename_to(&mut once, "other", "solo").unwrap();
@@ -6087,13 +6306,13 @@ fn a_joining_button_gets_a_free_export_value_when_choice_names_run_long() {
     let mut doc = two_radio_groups("Choice1", "Choice1");
     let group = field(&fields(&doc), "Group1").clone();
     let model = doc.get(group.widgets[0].obj).as_dict().unwrap().clone();
-    let look = doc.add(Object::Stream(pdfcraft_cos::Stream::from_raw(pdfcraft_cos::Dict::new(), b"0 g".to_vec())));
+    let look = doc.add(Object::Stream(openpdf_cos::Stream::from_raw(openpdf_cos::Dict::new(), b"0 g".to_vec())));
     let mut kids = vec![Object::Ref(group.widgets[0].obj)];
     for i in 2..=10_000 {
-        let mut n = pdfcraft_cos::Dict::new();
+        let mut n = openpdf_cos::Dict::new();
         n.set(format!("Choice{i}").into_bytes(), Object::Ref(look));
         n.set(b"Off".to_vec(), Object::Ref(look));
-        let mut ap = pdfcraft_cos::Dict::new();
+        let mut ap = openpdf_cos::Dict::new();
         ap.set(b"N".to_vec(), Object::Dict(n));
         let mut w = model.clone();
         w.set(b"AP".to_vec(), Object::Dict(ap));
@@ -6545,6 +6764,358 @@ fn a_read_only_button_is_not_turned_on_by_number() {
     assert_eq!(on_widgets(&doc, "r").0, [true, false, false]);
     set_value(&mut doc, "r", &FieldValue::Widget(2)).unwrap();
     assert_eq!(on_widgets(&doc, "r").0, [false, false, true]);
+}
+
+/// A reset of named fields costs the same per field however many are named: resetting 60,000
+/// fields by name is not 3.6 billion name comparisons.
+#[test]
+fn resetting_many_named_fields_is_not_quadratic() {
+    const N: usize = 60_000;
+    let kids: String = (0..N).map(|i| format!("{} 0 R ", i + 4)).collect();
+    let mut objs: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm 3 0 R >>".into(),
+        "<< /Type /Pages /Kids [] /Count 0 >>".into(),
+        format!("<< /Fields [{kids}] >>"),
+    ];
+    objs.extend((0..N).map(|i| format!("<< /FT /Tx /T (f{i}) /V (a) /DV (a) >>")));
+    let mut doc = document(&objs);
+    let names: Vec<String> = (0..N).map(|i| format!("f{i}")).collect();
+    let started = std::time::Instant::now();
+    assert_eq!(reset(&mut doc, Some(&names)).unwrap(), 0);
+    assert!(started.elapsed() < std::time::Duration::from_secs(5), "took {:?}", started.elapsed());
+    assert!(matches!(reset(&mut doc, Some(&["f0".to_string(), "nope".to_string()])), Err(FormError::NoSuchField(n)) if n == "nope"));
+}
+
+/// Two check box fields of two kids each: `pair` with the on states `A` and `B` (and `/DV /B`),
+/// `same` with `Yes` twice.
+fn check_box_kids() -> Document {
+    let kid = |parent: usize, x: u32, state: &str| {
+        format!(
+            "<< /Type /Annot /Subtype /Widget /Parent {parent} 0 R /AS /Off /Rect [{x} 700 {} 715] /P 3 0 R /AP << /N << /{state} 10 0 R /Off 11 0 R >> >> >>",
+            x + 15
+        )
+    };
+    let objs: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>".into(),                 // 1
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 600 800] >>".into(), // 2
+        "<< /Type /Page /Parent 2 0 R /Annots [6 0 R 7 0 R 8 0 R 9 0 R] >>".into(), // 3
+        "<< /Fields [5 0 R 12 0 R] /DA (/Helv 0 Tf 0 g) >>".into(),                 // 4
+        "<< /FT /Btn /T (pair) /V /Off /DV /B /Kids [6 0 R 7 0 R] >>".into(),       // 5
+        kid(5, 100, "A"),                                                           // 6
+        kid(5, 200, "B"),                                                           // 7
+        kid(12, 100, "Yes"),                                                        // 8
+        kid(12, 200, "Yes"),                                                        // 9
+        "<< /Length 0 >>\nstream\n\nendstream".into(),                              // 10
+        "<< /Length 0 >>\nstream\n\nendstream".into(),                              // 11
+        "<< /FT /Btn /T (same) /V /Off /Kids [8 0 R 9 0 R] >>".into(),              // 12
+    ];
+    document(&objs)
+}
+
+/// ISO 32000-2 §12.7.5.2.3: a check box field's `/V` is the on state of its kid that is on, and
+/// its kids can have different on states (Table 230). Naming `B` ticks `B` and clears `A`;
+/// "checked" keeps the kid that is on; a reset goes back to `/DV /B`. Kids sharing `Yes` tick
+/// together (EXAMPLE 2).
+#[test]
+fn check_box_kids_with_different_on_states_tick_one_at_a_time() {
+    let mut doc = check_box_kids();
+    set_value(&mut doc, "pair", &FieldValue::Text("A".into())).unwrap();
+    assert_eq!(on_widgets(&doc, "pair"), (vec![true, false], vec!["A".to_string()]));
+    set_value(&mut doc, "pair", &FieldValue::Text("B".into())).unwrap();
+    let mut doc = reopen(&doc);
+    assert_eq!(on_widgets(&doc, "pair"), (vec![false, true], vec!["B".to_string()]), "B, after a save");
+    set_value(&mut doc, "pair", &FieldValue::Check(true)).unwrap();
+    assert_eq!(on_widgets(&doc, "pair").0, [false, true], "checked keeps the kid that is on");
+    set_value(&mut doc, "pair", &FieldValue::Check(false)).unwrap();
+    assert_eq!(on_widgets(&doc, "pair"), (vec![false, false], vec![]));
+    set_value(&mut doc, "pair", &FieldValue::Check(true)).unwrap();
+    assert_eq!(on_widgets(&doc, "pair").0, [true, false], "from off, checked takes the first kid");
+    reset(&mut doc, None).unwrap();
+    assert_eq!(on_widgets(&doc, "pair"), (vec![false, true], vec!["B".to_string()]), "reset goes back to /DV /B");
+    // Kids sharing an on state tick and untick together.
+    set_value(&mut doc, "same", &FieldValue::Text("Yes".into())).unwrap();
+    assert_eq!(on_widgets(&doc, "same"), (vec![true, true], vec!["Yes".to_string()]));
+    set_value(&mut doc, "same", &FieldValue::Check(false)).unwrap();
+    assert_eq!(on_widgets(&doc, "same").0, [false, false]);
+    assert!(matches!(set_value(&mut doc, "pair", &FieldValue::Text("C".into())), Err(FormError::Invalid(_))));
+    // A script that sets the value to B ticks B.
+    let to_b = FieldChange { name: "pair".into(), value: Some(vec!["B".into()]), ..FieldChange::default() };
+    set_value(&mut doc, "pair", &FieldValue::Text("A".into())).unwrap();
+    apply_script_changes(&mut doc, &[to_b], &mut NoScripts).unwrap();
+    assert_eq!(on_widgets(&doc, "pair"), (vec![false, true], vec!["B".to_string()]), "a script's B");
+}
+
+/// A one-page form with list box `dup` (single select unless `ff` says otherwise) whose first two
+/// options share the export value `1`, plus `extra` entries (`/V`, `/I`) on the field.
+fn duplicate_exports(ff: u32, extra: &str) -> Document {
+    let objs: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>".into(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 600 800] >>".into(),
+        "<< /Type /Page /Parent 2 0 R /Annots [6 0 R] >>".into(),
+        "<< /Fields [6 0 R] /NeedAppearances true /DA (/Helv 10 Tf 0 g) /DR << /Font << /Helv 5 0 R >> >> >>".into(),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".into(),
+        format!(
+            "<< /Type /Annot /Subtype /Widget /FT /Ch /T (dup) /Ff {ff} /Opt [[(1) (One-A)] [(1) (One-B)] [(2) (Two)]] {extra} /Rect [50 700 200 746] /P 3 0 R >>"
+        ),
+    ];
+    document(&objs)
+}
+
+/// The bottom edges of the highlighted rows in a list box appearance, top row first.
+fn highlighted_rows(appearance: &str) -> Vec<String> {
+    let lines: Vec<&str> = appearance.lines().collect();
+    lines.windows(2).filter(|w| w[0] == "0.6 0.75 0.86 rg").map(|w| w[1].split(' ').nth(1).unwrap_or_default().to_string()).collect()
+}
+
+/// The rows the display copy (`/NeedAppearances`) highlights in `dup`.
+fn shown_rows(doc: &Document) -> Vec<String> {
+    let copy = with_field_appearances(doc).expect("the form leaves its appearances to the viewer");
+    highlighted_rows(&ap(&copy, &field(&fields(&copy), "dup").widgets[0]))
+}
+
+/// ISO 32000-2 Table 234: `/I` "shall be used when two or more elements in the Opt array have
+/// different names but the same export value". `/V (1)` with `/I [1]` selects One-B alone, not
+/// every option exporting `1`.
+#[test]
+fn a_list_box_with_duplicate_export_values_selects_the_option_i_names() {
+    let doc = duplicate_exports(0, "/V (1) /I [1]");
+    let dup = field(&fields(&doc), "dup").clone();
+    assert_eq!(dup.selected, [1]);
+    assert_eq!(dup.display_value(), "One-B");
+    let one_b = shown_rows(&doc);
+    assert_eq!(one_b.len(), 1, "one highlighted row");
+    // The same field with /I [0] highlights the row above it.
+    let one_a = shown_rows(&duplicate_exports(0, "/V (1) /I [0]"));
+    assert_eq!(one_a.len(), 1);
+    assert_ne!(one_a, one_b, "One-A and One-B are different rows");
+    let row = |s: &[String]| s.first().and_then(|y| y.parse::<f64>().ok()).unwrap();
+    assert!(row(&one_b) < row(&one_a), "One-B is drawn below One-A");
+}
+
+/// Without a usable `/I`, `/V` decides (Table 234: "If the items identified by this entry differ
+/// from those in the V entry …, the V entry shall be used"), and an export value two options
+/// share selects the first of them. A malformed `/I` never panics.
+#[test]
+fn an_unusable_i_falls_back_to_the_first_option_with_the_value() {
+    for (extra, multi, want) in [
+        ("/V (1)", 0, vec![0]),                           // no /I: the first option exporting 1
+        ("/V (1) /I [5]", 0, vec![0]),                    // out of range
+        ("/V (1) /I [-1]", 0, vec![0]),                   // negative
+        ("/V (1) /I [(1)]", 0, vec![0]),                  // not an integer
+        ("/V (1) /I [1.5]", 0, vec![0]),                  // not a whole number
+        ("/V (1) /I 1", 0, vec![0]),                      // not an array
+        ("/V (1) /I [2]", 0, vec![0]),                    // names Two, which /V doesn't
+        ("/V (1) /I []", 0, vec![0]),                     // names nothing
+        ("/V [(1) (2)] /I [2 1]", 1 << 21, vec![0, 2]),   // not ascending
+        ("/V [(1) (2)] /I [1 1 2]", 1 << 21, vec![0, 2]), // repeated
+        ("/V [(1) (2)] /I [1 2]", 1 << 21, vec![1, 2]),   // usable: One-B and Two
+        ("/V [(1) (1)] /I [0 1]", 1 << 21, vec![0, 1]),   // usable: both options exporting 1
+        ("/V [(1) (1)] /I [1]", 1 << 21, vec![0]),        // names one item where /V names two
+        ("/V [] /I [1]", 0, vec![]),                      // an empty value selects nothing
+        ("/V (9)", 0, vec![]),                            // no option exports 9
+    ] {
+        let doc = duplicate_exports(multi, extra);
+        assert_eq!(field(&fields(&doc), "dup").selected, want, "{extra}");
+        assert_eq!(shown_rows(&doc).len(), want.len(), "{extra}");
+    }
+    // Pure: positions past the options or unlike the values are ignored.
+    let options = [("1".to_string(), "One-A".to_string()), ("1".to_string(), "One-B".to_string())];
+    assert_eq!(selected_options(&options, &["1".into()], Some(&[1])), [1]);
+    assert_eq!(selected_options(&options, &["1".into()], Some(&[7])), [0]);
+    assert_eq!(selected_options(&options, &[], Some(&[])), Vec::<usize>::new());
+}
+
+/// Picking an option by position writes its export value to `/V` and its position to `/I`, so a
+/// pick of One-A or One-B survives a save and reopen; picking by display text does the same.
+#[test]
+fn picking_one_of_two_options_with_the_same_export_value_round_trips() {
+    for (value, want) in [
+        (FieldValue::ChoiceIndices(vec![0]), 0),
+        (FieldValue::ChoiceIndices(vec![1]), 1),
+        (FieldValue::Text("One-B".into()), 1),
+        (FieldValue::Text("One-A".into()), 0),
+        (FieldValue::Choice(vec!["1".into()]), 0),
+    ] {
+        let mut doc = duplicate_exports(0, "/V (1) /I [1]");
+        set_value(&mut doc, "dup", &value).unwrap();
+        let doc = reopen(&doc);
+        let dup = field(&fields(&doc), "dup").clone();
+        let d = doc.get(dup.obj).as_dict().cloned().unwrap();
+        assert_eq!(d.get(b"V").and_then(|v| v.as_string()).map(|s| s.to_text()).as_deref(), Some("1"), "{value:?}: /V is one string");
+        let i: Vec<i64> = d.get(b"I").and_then(|i| i.as_array()).unwrap().iter().filter_map(Object::as_int).collect();
+        assert_eq!(i, [want as i64], "{value:?}");
+        assert_eq!(dup.selected, [want], "{value:?}");
+        assert_eq!(highlighted_rows(&ap(&doc, &dup.widgets[0])).len(), 1, "{value:?}: its saved look highlights one row");
+    }
+    // The saved look highlights the row picked, not the first with its value.
+    let saved = |pick: usize| {
+        let mut doc = duplicate_exports(0, "");
+        set_value(&mut doc, "dup", &FieldValue::ChoiceIndices(vec![pick])).unwrap();
+        highlighted_rows(&ap(&doc, &field(&fields(&doc), "dup").widgets[0]))
+    };
+    assert_ne!(saved(0), saved(1));
+    // Positions are checked: out of range, or several in a single-select list.
+    let mut doc = duplicate_exports(0, "");
+    assert!(matches!(set_value(&mut doc, "dup", &FieldValue::ChoiceIndices(vec![3])), Err(FormError::Invalid(_))));
+    assert!(matches!(set_value(&mut doc, "dup", &FieldValue::ChoiceIndices(vec![usize::MAX])), Err(FormError::Invalid(_))));
+    assert!(matches!(set_value(&mut doc, "dup", &FieldValue::ChoiceIndices(vec![0, 1])), Err(FormError::Invalid(_))));
+    // A multi-select list takes both options that share the value, in ascending /I.
+    let mut doc = duplicate_exports(1 << 21, "");
+    set_value(&mut doc, "dup", &FieldValue::ChoiceIndices(vec![1, 0])).unwrap();
+    let doc = reopen(&doc);
+    let dup = field(&fields(&doc), "dup").clone();
+    assert_eq!(dup.value, ["1", "1"]);
+    assert_eq!(dup.selected, [0, 1]);
+    assert_eq!(dup.picked_in_order(), [0, 1]);
+    // A check box can't take positions.
+    let mut doc = fixture();
+    assert!(matches!(set_value(&mut doc, "agree", &FieldValue::ChoiceIndices(vec![0])), Err(FormError::Invalid(_))));
+}
+
+/// A file can hold a list box with very many options and values. Matching values to options
+/// takes one lookup per value, not a scan of the options (or of the selection) for each, so
+/// reading and showing such a field stays fast. Two options share each export value, and every
+/// result still names the first option exporting a value, or the next one selected.
+#[test]
+fn many_options_and_values_match_in_linear_time() {
+    const N: usize = 100_000;
+    let options: Vec<(String, String)> = (0..2 * N).map(|i| (format!("e{}", i / 2), format!("d{i}"))).collect();
+    let values: Vec<String> = (0..N).rev().map(|k| format!("e{k}")).collect();
+    let started = std::time::Instant::now();
+    let selected = selected_options(&options, &values, None);
+    assert_eq!(selected, (0..N).map(|k| 2 * k).collect::<Vec<_>>(), "the first option exporting each value");
+    let took = started.elapsed();
+    assert!(took < std::time::Duration::from_secs(2), "selected_options took {took:?}");
+
+    let mut list = field(&fields(&fixture()), "toppings").clone();
+    list.options = options;
+    list.value = values;
+    list.selected = (0..2 * N).collect();
+    let started = std::time::Instant::now();
+    let order = list.picked_in_order();
+    let shown = list.display_value();
+    let took = started.elapsed();
+    assert!(took < std::time::Duration::from_secs(2), "picked_in_order and display_value took {took:?}");
+    // The values name e{N-1} first: its first option, then down to e0; the second option of
+    // each value is selected without a value naming it, so it follows in ascending order.
+    assert_eq!(order.first(), Some(&(2 * (N - 1))));
+    assert_eq!(order.get(N - 1), Some(&0));
+    assert_eq!(order.get(N..), Some(&(0..N).map(|k| 2 * k + 1).collect::<Vec<_>>()[..]));
+    assert!(shown.starts_with(&format!("d{}, d{}", 2 * (N - 1), 2 * (N - 2))), "{}", shown.get(..40).unwrap_or(&shown));
+}
+
+/// A one-page form with list box `pair` (single select unless `ff` says otherwise) of three
+/// countries, plus `extra` entries (`/V`, `/DV`, `/I`) on the field.
+fn countries(ff: u32, extra: &str) -> Document {
+    let objs: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>".into(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 600 800] >>".into(),
+        "<< /Type /Page /Parent 2 0 R /Annots [6 0 R] >>".into(),
+        "<< /Fields [6 0 R] /NeedAppearances true /DA (/Helv 10 Tf 0 g) /DR << /Font << /Helv 5 0 R >> >> >>".into(),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".into(),
+        format!(
+            "<< /Type /Annot /Subtype /Widget /FT /Ch /T (pair) /Ff {ff} /Opt [[(TW) (Taiwan)] [(JP) (Japan)] [(US) (United States)]] {extra} /Rect [50 700 200 746] /P 3 0 R >>"
+        ),
+    ];
+    document(&objs)
+}
+
+/// ISO 32000-2 Table 233, MultiSelect: "if clear, at most one item shall be selected". A list box
+/// without it given `/V [(TW) (JP)]` holds and shows Taiwan alone, and opening it changes nothing
+/// in the file.
+#[test]
+fn a_single_select_list_given_several_values_shows_the_first() {
+    for (extra, multi, value, want) in [
+        ("/V [(TW) (JP)]", 0, vec!["TW"], vec![0]),
+        ("/V [(JP) (TW)]", 0, vec!["JP"], vec![1]),
+        ("/V [(TW) (JP)] /I [0 1]", 0, vec!["TW"], vec![0]), // /I names more than the one value
+        ("/V [(XX) (JP)]", 0, vec!["XX"], vec![]),           // the first value is no option
+        ("/V []", 0, vec![], vec![]),
+        ("/V [(TW) (JP)]", 1 << 21, vec!["TW", "JP"], vec![0, 1]), // multi-select keeps both
+    ] {
+        let doc = countries(multi, extra);
+        let pair = field(&fields(&doc), "pair").clone();
+        assert_eq!(pair.value, value, "{extra}");
+        assert_eq!(pair.selected, want, "{extra}");
+        let copy = with_field_appearances(&doc).expect("left to the viewer");
+        assert_eq!(highlighted_rows(&ap(&copy, &field(&fields(&copy), "pair").widgets[0])).len(), want.len(), "{extra}");
+        // Reading and drawing the display copy leaves the field's own /V as it was.
+        let v = doc.get(pair.obj).as_dict().and_then(|d| d.get(b"V").cloned()).unwrap();
+        assert!(matches!(v, Object::Array(_)), "{extra}: {v:?}");
+    }
+    // Two options selected by /I alone in a single-select list: the first.
+    let doc = duplicate_exports(0, "/V (1) /I [0 1]");
+    assert_eq!(field(&fields(&doc), "dup").selected, [0]);
+}
+
+/// Picking a row in such a list writes one string to `/V` and that option's position to `/I`,
+/// and Clear form goes back to the first value of an array `/DV` instead of refusing it.
+#[test]
+fn picking_in_a_single_select_list_given_several_values_writes_one() {
+    for (pick, export, index) in [(FieldValue::ChoiceIndices(vec![2]), "US", 2), (FieldValue::Choice(vec!["JP".into()]), "JP", 1)] {
+        let mut doc = countries(0, "/V [(TW) (JP)] /I [0 1]");
+        set_value(&mut doc, "pair", &pick).unwrap();
+        let doc = reopen(&doc);
+        let pair = field(&fields(&doc), "pair").clone();
+        let d = doc.get(pair.obj).as_dict().cloned().unwrap();
+        assert_eq!(d.get(b"V").and_then(|v| v.as_string()).map(|s| s.to_text()).as_deref(), Some(export), "{pick:?}: /V is one string");
+        let i: Vec<i64> = d.get(b"I").and_then(|i| i.as_array()).unwrap().iter().filter_map(Object::as_int).collect();
+        assert_eq!(i, [index], "{pick:?}");
+        assert_eq!((pair.value, pair.selected), (vec![export.to_string()], vec![index as usize]));
+    }
+    let mut doc = countries(0, "/V (US) /DV [(JP) (TW)]");
+    assert_eq!(reset(&mut doc, None).unwrap(), 1);
+    let pair = field(&fields(&doc), "pair").clone();
+    assert_eq!((pair.value, pair.selected), (vec!["JP".to_string()], vec![1]));
+}
+
+/// A position picked twice is written once in both `/V` and `/I`, so they still match item for
+/// item and the option picked (the second of two sharing an export value) comes back on reopen.
+#[test]
+fn a_position_picked_twice_is_written_once_in_v_and_i() {
+    let mut doc = duplicate_exports(1 << 21, "");
+    set_value(&mut doc, "dup", &FieldValue::ChoiceIndices(vec![1, 1])).unwrap();
+    let dup = field(&fields(&doc), "dup").clone();
+    let d = doc.get(dup.obj).as_dict().cloned().unwrap();
+    let v: Vec<String> = match d.get(b"V") {
+        Some(Object::Array(a)) => a.iter().filter_map(|o| o.as_string().map(|s| s.to_text())).collect(),
+        Some(o) => o.as_string().map(|s| vec![s.to_text()]).unwrap_or_default(),
+        None => Vec::new(),
+    };
+    let i: Vec<i64> = d.get(b"I").and_then(|i| i.as_array()).map(|a| a.iter().filter_map(Object::as_int).collect()).unwrap_or_default();
+    assert_eq!((v, i), (vec!["1".to_string()], vec![1]), "one entry each");
+    assert_eq!(dup.selected, [1], "One-B, not One-A");
+}
+
+/// A same-name twin listing the options sharing an export value in another order is given the
+/// option picked, not the one at the same position: `/I` is mapped to the twin's own options.
+#[test]
+fn a_twin_with_options_in_another_order_gets_the_option_picked() {
+    let objs: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>".into(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 600 800] >>".into(),
+        "<< /Type /Page /Parent 2 0 R /Annots [6 0 R 7 0 R] >>".into(),
+        "<< /Fields [6 0 R 7 0 R] /NeedAppearances true /DA (/Helv 10 Tf 0 g) /DR << /Font << /Helv 5 0 R >> >> >>".into(),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".into(),
+        "<< /Type /Annot /Subtype /Widget /FT /Ch /T (dup) /Ff 0 /Opt [[(1) (One-A)] [(1) (One-B)] [(2) (Two)]] /Rect [50 700 200 746] /P 3 0 R >>"
+            .into(),
+        "<< /Type /Annot /Subtype /Widget /FT /Ch /T (dup) /Ff 0 /Opt [[(1) (One-B)] [(1) (One-A)] [(2) (Two)]] /Rect [50 600 200 646] /P 3 0 R >>"
+            .into(),
+    ];
+    let mut doc = document(&objs);
+    set_value(&mut doc, "dup", &FieldValue::ChoiceIndices(vec![1])).unwrap();
+    let all = fields(&doc);
+    let twin = all.iter().find(|f| f.obj == openpdf_cos::ObjRef::new(7, 0)).unwrap();
+    let i: Vec<i64> = doc
+        .get(twin.obj)
+        .as_dict()
+        .and_then(|d| d.get(b"I").and_then(|i| i.as_array().cloned()))
+        .unwrap_or_default()
+        .iter()
+        .filter_map(Object::as_int)
+        .collect();
+    assert_eq!(i, [0], "One-B is first in the twin's options");
+    assert_eq!(twin.selected, [0]);
 }
 
 /// A `/MK /BC` or `/BG` written `[1 0 0 null]` is CMYK with the null as 0, as annotation `/C`

@@ -4,6 +4,8 @@
 //! (constant-time; ADR-0009: the `rsa` crate is never used for private keys there). ECDSA
 //! signing uses RustCrypto with deterministic nonces (RFC 6979).
 
+use zeroize::Zeroizing;
+
 use crate::SignError;
 use crate::der::{self, Tlv, tag};
 
@@ -300,7 +302,7 @@ pub enum PublicKey {
     BrainpoolP512(Vec<u8>),
     /// The 32-byte public key (RFC 8032). Signs the message itself, see [`Scheme::Ed25519`].
     Ed25519(Vec<u8>),
-    /// A key algorithm or curve PdfCraft can't check signatures with. The certificate still
+    /// A key algorithm or curve OpenPDF can't check signatures with. The certificate still
     /// parses (so its name and dates show); verifying with it gives [`SignError::Unsupported`].
     Unsupported {
         what: String,
@@ -403,7 +405,7 @@ impl PublicKey {
     // rather than only in the Windows-only module (#386 added six and broke the Windows build).
 
     /// The key a platform key store must hold to sign for this public key, or `None` when
-    /// PdfCraft doesn't sign with this kind of key (it only verifies P-521, brainpool and
+    /// OpenPDF doesn't sign with this kind of key (it only verifies P-521, brainpool and
     /// Ed25519 signatures), so the store's identity is skipped.
     pub fn store_signing_key(&self) -> Option<StoreKey> {
         match self {
@@ -577,7 +579,7 @@ enum Inner {
     External(std::sync::Arc<dyn ExternalKey>),
 }
 
-/// A private key PdfCraft can't read, only ask to sign (OS key stores, tokens).
+/// A private key OpenPDF can't read, only ask to sign (OS key stores, tokens).
 pub trait ExternalKey: Send + Sync {
     /// Sign `msg`, hashing it with `alg` (PKCS #1 v1.5 for RSA, DER-encoded ECDSA).
     fn sign(&self, alg: DigestAlg, msg: &[u8]) -> Result<Vec<u8>, SignError>;
@@ -588,7 +590,7 @@ pub struct PrivateKey {
     inner: Inner,
     public: PublicKey,
     /// The PKCS#8 `PrivateKeyInfo` it came from (to write it back into a PKCS#12 file).
-    pkcs8: Vec<u8>,
+    pub(crate) pkcs8: Zeroizing<Vec<u8>>,
 }
 
 impl std::fmt::Debug for PrivateKey {
@@ -598,10 +600,10 @@ impl std::fmt::Debug for PrivateKey {
 }
 
 impl PrivateKey {
-    /// A key held outside PdfCraft's memory (its public half is `public`). It can't be
+    /// A key held outside OpenPDF's memory (its public half is `public`). It can't be
     /// exported to a PKCS #12 file.
     pub fn external(public: PublicKey, key: std::sync::Arc<dyn ExternalKey>) -> PrivateKey {
-        PrivateKey { inner: Inner::External(key), public, pkcs8: Vec::new() }
+        PrivateKey { inner: Inner::External(key), public, pkcs8: Zeroizing::new(Vec::new()) }
     }
 
     /// Whether the key lives outside the app (and so can't be exported).
@@ -631,7 +633,7 @@ impl PrivateKey {
                 );
                 #[cfg(target_arch = "wasm32")]
                 let inner = Inner::Rsa;
-                Ok(PrivateKey { inner, public: PublicKey::Rsa { n, e }, pkcs8: info.to_vec() })
+                Ok(PrivateKey { inner, public: PublicKey::Rsa { n, e }, pkcs8: Zeroizing::new(info.to_vec()) })
             }
             oid::EC => {
                 // ECPrivateKey: version, privateKey OCTET STRING, [0] parameters, [1] publicKey.
@@ -650,12 +652,12 @@ impl PrivateKey {
                     oid::P256 => {
                         let k = p256::ecdsa::SigningKey::from_slice(d).map_err(|_| SignError::Malformed("P-256 key".into()))?;
                         let public = PublicKey::P256(k.verifying_key().to_sec1_point(false).as_bytes().to_vec());
-                        Ok(PrivateKey { inner: Inner::P256(k), public, pkcs8: info.to_vec() })
+                        Ok(PrivateKey { inner: Inner::P256(k), public, pkcs8: Zeroizing::new(info.to_vec()) })
                     }
                     oid::P384 => {
                         let k = p384::ecdsa::SigningKey::from_slice(d).map_err(|_| SignError::Malformed("P-384 key".into()))?;
                         let public = PublicKey::P384(k.verifying_key().to_sec1_point(false).as_bytes().to_vec());
-                        Ok(PrivateKey { inner: Inner::P384(k), public, pkcs8: info.to_vec() })
+                        Ok(PrivateKey { inner: Inner::P384(k), public, pkcs8: Zeroizing::new(info.to_vec()) })
                     }
                     other => Err(SignError::Unsupported(format!("elliptic curve {other}"))),
                 }
@@ -689,13 +691,15 @@ impl PrivateKey {
     /// A new P-256 key.
     pub fn generate_p256() -> Result<PrivateKey, SignError> {
         loop {
-            let mut d = [0u8; 32];
-            getrandom::fill(&mut d).map_err(|e| SignError::Crypto(format!("no randomness: {e}")))?;
-            if let Ok(k) = p256::ecdsa::SigningKey::from_slice(&d) {
+            let mut d = Zeroizing::new([0u8; 32]);
+            getrandom::fill(&mut *d).map_err(|e| SignError::Crypto(format!("no randomness: {e}")))?;
+            if let Ok(k) = p256::ecdsa::SigningKey::from_slice(&*d) {
                 let point = k.verifying_key().to_sec1_point(false).as_bytes().to_vec();
                 // PKCS#8 with an ECPrivateKey (RFC 5915) carrying the public key.
-                let ec = der::seq(&[&der::int(1), &der::octets(&d), &der::explicit(1, &der::bit_string(&point))]);
-                let info = der::seq(&[&der::int(0), &der::seq(&[&der::oid(oid::EC), &der::oid(oid::P256)]), &der::octets(&ec)]);
+                let d_octets = Zeroizing::new(der::octets(&*d));
+                let ec = Zeroizing::new(der::seq(&[&der::int(1), &d_octets, &der::explicit(1, &der::bit_string(&point))]));
+                let ec_octets = Zeroizing::new(der::octets(&ec));
+                let info = Zeroizing::new(der::seq(&[&der::int(0), &der::seq(&[&der::oid(oid::EC), &der::oid(oid::P256)]), &ec_octets]));
                 return PrivateKey::from_pkcs8(&info);
             }
         }

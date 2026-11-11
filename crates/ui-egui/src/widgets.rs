@@ -2,7 +2,7 @@
 
 use egui::{Align2, Color32, CornerRadius, Rect, Response, Sense, Stroke, vec2};
 
-use crate::PdfCraftApp;
+use crate::OpenPDFApp;
 use crate::theme::{self, Tokens};
 
 pub(super) mod icon_data;
@@ -123,16 +123,20 @@ pub(crate) fn paint_left(ui: &egui::Ui, pos: egui::Pos2, text: &str, font: egui:
     ui.painter().with_clip_rect(clip).text(pos, Align2::LEFT_CENTER, shown, font, color);
 }
 
+/// Fit inside the 40 pt tools row, leaving room for its border and separator.
+/// A full-row-height child would overflow and shift all the controls downward.
+pub const MODE_TAB_HEIGHT: f32 = 36.0;
+
 /// A mode-bar tab: text with an underline when active.
 pub fn mode_tab(ui: &mut egui::Ui, label: &str, active: bool) -> Response {
     let t = Tokens::get(ui.ctx());
     let font = if active { theme::semibold(13.5) } else { theme::medium(13.5) };
     let w = ui.fonts_mut(|f| f.layout_no_wrap(label.to_owned(), font.clone(), t.text).size().x);
     // Keep in step with `mode_tab_width`.
-    let (rect, resp) = ui.allocate_exact_size(vec2(w + 22.0, 48.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(w + 22.0, MODE_TAB_HEIGHT), Sense::click());
     resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), active, label));
     let press = theme::Press::track(ui, &resp);
-    let well = rect.shrink2(vec2(2.0, 9.0));
+    let well = rect.shrink2(vec2(2.0, 4.0));
     if active {
         if press.down > 0.01 {
             ui.painter().rect_filled(well, CornerRadius::same(6), t.pressed.gamma_multiply(press.down));
@@ -190,42 +194,48 @@ pub fn pill_button_marked(ui: &mut egui::Ui, label: &str, primary: bool, marked:
 
 /// Icon + label, transparent until hovered.
 pub fn ghost_button(ui: &mut egui::Ui, icon: &str, label: &str) -> Response {
-    ghost_button_sized(ui, icon, label, 30.0)
+    ghost_button_layout(ui, icon, label, 30.0, false)
 }
 
-/// [`ghost_button`] at a given height (the macOS title bar is shorter than the tab strip elsewhere).
-pub fn ghost_button_sized(ui: &mut egui::Ui, icon: &str, label: &str, height: f32) -> Response {
+/// Title-row action: equal horizontal padding and the same optical centre as Home.
+pub fn title_button(ui: &mut egui::Ui, icon: &str, label: &str, height: f32) -> Response {
+    ghost_button_layout(ui, icon, label, height, true)
+}
+
+fn ghost_button_layout(ui: &mut egui::Ui, icon: &str, label: &str, height: f32, title: bool) -> Response {
     let t = Tokens::get(ui.ctx());
     let font = theme::medium(13.0);
     let label_galley = crate::bidi::layout_ui(ui, label.to_owned(), font, t.text);
     let w = label_galley.size().x;
-    let (rect, resp) = ui.allocate_exact_size(vec2(w + 38.0, height), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(w + if title { 40.0 } else { 38.0 }, height), Sense::click());
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
     let press = theme::Press::track(ui, &resp);
-    press.wash(ui, rect, 6, false);
-    let body = rect.translate(press.offset());
-    icons::paint(ui, Rect::from_min_size(body.min + vec2(6.0, (height - 18.0) / 2.0), vec2(18.0, 18.0)), icon, 17.0, t.icon);
-    ui.painter().galley(body.left_center() + vec2(30.0, -label_galley.size().y / 2.0), label_galley, t.text);
+    let well = rect.translate(vec2(0.0, if title { 1.0 } else { 0.0 }));
+    press.wash(ui, well, 6, false);
+    let body = well.translate(press.offset());
+    let (icon_size, icon_x, text_x) = if title { (16.0, 8.0, 32.0) } else { (17.0, 6.5, 30.0) };
+    icons::paint(ui, Rect::from_min_size(body.min + vec2(icon_x, (height - icon_size) / 2.0), vec2(icon_size, icon_size)), icon, icon_size, t.icon);
+    ui.painter().galley(body.left_center() + vec2(text_x, -label_galley.size().y / 2.0), label_galley, t.text);
     theme::hand(resp)
 }
 
 /// A search-field lookalike that opens the command palette.
 pub fn search_box(ui: &mut egui::Ui, placeholder: &str, width: f32) -> Response {
     let t = Tokens::get(ui.ctx());
-    let (rect, resp) = ui.allocate_exact_size(vec2(width, 32.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, 28.0), Sense::click());
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), placeholder));
     let press = theme::Press::track(ui, &resp);
     let fill = press.fill(t.field, t.hover, t.pressed);
     let edge = t.border.lerp_to_gamma(t.text_muted, press.hover * 0.35);
-    ui.painter().rect(rect, CornerRadius::same(16), fill, Stroke::new(1.0, edge), egui::StrokeKind::Inside);
-    icons::paint(ui, Rect::from_min_size(rect.min + vec2(10.0, 8.0), vec2(16.0, 16.0)), "search", 15.0, t.text_muted);
+    ui.painter().rect(rect, CornerRadius::same(14), fill, Stroke::new(1.0, edge), egui::StrokeKind::Inside);
+    icons::paint(ui, Rect::from_center_size(egui::pos2(rect.left() + 20.0, rect.center().y), vec2(16.0, 16.0)), "search", 16.0, t.text_muted);
     let shortcut = crate::commands::command_shortcut_label(ui.ctx(), "view.palette");
     let shortcut = ui.painter().layout_no_wrap(shortcut, theme::regular(11.5), t.text_faint);
     let shortcut_pos = rect.right_center() - vec2(12.0 + shortcut.size().x, shortcut.size().y * 0.5);
     // Reserve the measured shortcut width in every language; long translations are elided
     // within the remaining space rather than painted underneath the shortcut.
-    let text_right = (shortcut_pos.x - 10.0).max(rect.left());
-    let text_left = (rect.left() + 34.0).min(text_right);
+    let text_right = (shortcut_pos.x - 12.0).max(rect.left());
+    let text_left = (rect.left() + 36.0).min(text_right);
     let text_rect = Rect::from_min_max(egui::pos2(text_left, rect.top()), egui::pos2(text_right, rect.bottom()));
     let mut job = egui::text::LayoutJob::simple_singleline(placeholder.to_owned(), theme::regular(13.0), t.text_faint);
     job.direction = crate::bidi::ui_direction();
@@ -437,7 +447,7 @@ fn wrapped_lines(ui: &egui::Ui, text: &str, font: &egui::FontId, width: f32, tru
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     (text, font, width.to_bits(), ui.ctx().pixels_per_point().to_bits(), truncate).hash(&mut hasher);
     let key = hasher.finish();
-    let cache_id = egui::Id::unique("pdfcraft-rtl-wrap-cache");
+    let cache_id = egui::Id::unique("openpdf-rtl-wrap-cache");
     if let Some(hit) = ui.ctx().data_mut(|d| d.get_temp_mut_or_default::<WrapCache>(cache_id).lines.get(&key).cloned()) {
         return hit;
     }
@@ -471,7 +481,7 @@ fn wrapped_lines(ui: &egui::Ui, text: &str, font: &egui::FontId, width: f32, tru
 }
 
 /// Transient message at the bottom centre.
-pub fn toast(app: &mut PdfCraftApp, ctx: &egui::Context) {
+pub fn toast(app: &mut OpenPDFApp, ctx: &egui::Context) {
     // A form script message waiting its turn takes the toast once it is free.
     if app.toast.is_none() {
         app.toast_script = None;
@@ -561,10 +571,10 @@ pub struct ProgressNotice {
 /// Where the progress notice keeps its height this frame, for placing the toast above it.
 const PROGRESS_HEIGHT: &str = "progress-notice-height";
 
-/// Draw [`PdfCraftApp::progress_notice`]: the label, a bar that eases towards the fraction with
+/// Draw [`OpenPDFApp::progress_notice`]: the label, a bar that eases towards the fraction with
 /// a light sweeping across it, the percentage and Cancel. Returns true when Cancel was clicked.
 /// With animation effects off ([`crate::motion`]) the bar steps to the fraction and has no sweep.
-pub fn progress_notice(app: &PdfCraftApp, ctx: &egui::Context) -> bool {
+pub fn progress_notice(app: &OpenPDFApp, ctx: &egui::Context) -> bool {
     let Some(p) = &app.progress_notice else { return false };
     let t = Tokens::get(ctx);
     let screen = ctx.content_rect();
@@ -632,34 +642,15 @@ pub fn progress_notice(app: &PdfCraftApp, ctx: &egui::Context) -> bool {
     cancel
 }
 
-/// The ArtCraft wordmark (Storyteller's brand, docs/brand/; not open source), sized to `height`.
-pub fn artcraft_logo(ui: &mut egui::Ui, height: f32) -> Response {
-    let dark = ui.visuals().dark_mode;
-    let (uri, bytes): (&str, &'static [u8]) = if dark {
-        ("bytes://artcraft-logo-white.svg", include_bytes!("../../../docs/brand/artcraft-logo-white.svg"))
-    } else {
-        ("bytes://artcraft-logo.svg", include_bytes!("../../../docs/brand/artcraft-logo.svg"))
-    };
-    ui.add(egui::Image::from_bytes(uri, bytes).max_height(height).alt_text("ArtCraft"))
-}
-
-/// The ArtCraft mark (brand blue, works on light and dark), `size` points square.
-pub fn artcraft_mark(ui: &mut egui::Ui, size: f32) -> Response {
-    ui.add(
-        egui::Image::from_bytes("bytes://artcraft-mark.svg", include_bytes!("../../../docs/brand/artcraft-mark.svg"))
-            .fit_to_exact_size(vec2(size, size))
-            .alt_text("ArtCraft"),
-    )
-}
-
-/// Buttons for every community link (`pdfcraft_engine::links`), Discord first and prominent.
+/// Buttons for every community link (`openpdf_engine::links`), with the upstream community link first.
 /// Returns the registry command of the one clicked.
 pub fn community_links(ui: &mut egui::Ui) -> Option<&'static str> {
     let mut clicked = None;
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
-        for (i, l) in pdfcraft_engine::links::LINKS.iter().enumerate() {
-            let resp = if i == 0 { icon_pill(ui, l.icon, tl!("Join our Discord"), true) } else { icon_pill(ui, l.icon, tl!(l.label), false) };
+        for (i, l) in openpdf_engine::links::LINKS.iter().enumerate() {
+            let resp =
+                if i == 0 { icon_pill(ui, l.icon, tl!("Join the ArtCraft Discord"), true) } else { icon_pill(ui, l.icon, tl!(l.label), false) };
             if resp.on_hover_text(l.url).clicked() {
                 clicked = Some(l.command);
             }
@@ -823,7 +814,7 @@ mod tests {
         output.drop_without_applying_deltas();
     }
 
-    fn toast_rect(app: &mut PdfCraftApp, ctx: &egui::Context, width: f32, now: &mut f64) -> Rect {
+    fn toast_rect(app: &mut OpenPDFApp, ctx: &egui::Context, width: f32, now: &mut f64) -> Rect {
         // Let the Area settle after a notice/viewport change, without advancing to
         // expiry. No native rendering or renderer worker is needed for this layout.
         for _ in 0..3 {
@@ -840,7 +831,7 @@ mod tests {
     #[test]
     fn toast_width_adapts_to_long_notices_and_narrow_viewports() {
         let ctx = egui::Context::default();
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         let mut now = 1.0;
         app.notify("Saved");
         let short = toast_rect(&mut app, &ctx, 1280.0, &mut now);
@@ -885,7 +876,7 @@ mod tests {
         let ctx = egui::Context::default();
         ctx.set_fonts(theme::font_definitions());
         let cache_len =
-            |ctx: &egui::Context| ctx.data_mut(|d| d.get_temp_mut_or_default::<WrapCache>(egui::Id::unique("pdfcraft-rtl-wrap-cache")).lines.len());
+            |ctx: &egui::Context| ctx.data_mut(|d| d.get_temp_mut_or_default::<WrapCache>(egui::Id::unique("openpdf-rtl-wrap-cache")).lines.len());
         let persian = "این یک نظر طولانی به زبان فارسی است که باید در چند خط شکسته شود";
         let long = persian.repeat(2_000);
         let mut first = None;
@@ -950,7 +941,7 @@ mod tests {
     /// and put `PDF` at the visual left. Assert the actual painted positions instead.
     #[test]
     fn wrapped_rtl_line_starting_with_latin_keeps_its_rtl_base() {
-        if pdfcraft_fonts::ui_arabic_fonts().is_empty() {
+        if openpdf_fonts::ui_arabic_fonts().is_empty() {
             return;
         }
         let ctx = egui::Context::default();

@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use pdfcraft_annot::{Meta, NewAnnotation, Shape, Style, add_annotation, rect_quad};
-use pdfcraft_cos::{Algorithm, Dict, Document, NewEncryption, Object, SaveOptions, Stream, write_full, write_incremental};
+use openpdf_annot::{Meta, NewAnnotation, Shape, Style, add_annotation, rect_quad};
+use openpdf_cos::{Algorithm, Dict, Document, NewEncryption, Object, SaveOptions, Stream, write_full, write_incremental};
 use sha2::Digest;
 
 use super::*;
@@ -115,6 +115,37 @@ pub(super) fn run(doc: &mut Document) -> (Result<Report, RedactError>, Proof) {
     (result, proof)
 }
 
+/// Metadata a redaction that missed it would have left: applying removes the metadata holding
+/// the removed text (#2448), so a proof test of those surfaces puts it back afterwards.
+enum Left<'a> {
+    Info(&'a [u8]),
+    Xmp(&'a [u8]),
+}
+
+/// Capture, apply, put `left` back, prove.
+fn run_leaving(doc: &mut Document, left: Left<'_>) -> (Result<Report, RedactError>, Proof) {
+    let mut snap = Snapshot::capture(doc, None).unwrap();
+    let result = applied(doc, &mut snap);
+    match left {
+        Left::Info(title) => {
+            let mut info = Dict::new();
+            info.set(b"Title".to_vec(), Object::String(openpdf_cos::PdfString::literal(title.to_vec())));
+            let info = doc.add(Object::Dict(info));
+            doc.trailer_mut().set(b"Info".to_vec(), Object::Ref(info));
+        }
+        Left::Xmp(packet) => {
+            let mut dict = Dict::new();
+            dict.set(b"Type".to_vec(), Object::Name(b"Metadata".to_vec()));
+            dict.set(b"Subtype".to_vec(), Object::Name(b"XML".to_vec()));
+            let xmp = doc.add(Object::Stream(Stream::from_raw(dict, packet.to_vec())));
+            let root = doc.root().unwrap();
+            doc.update_dict(root, |c| c.set(b"Metadata".to_vec(), Object::Ref(xmp))).unwrap();
+        }
+    }
+    let proof = snap.prove(doc, None, &ProofOptions::default());
+    (result, proof)
+}
+
 /// Prove a document the redaction was never applied to (as a full save would write it).
 pub(super) fn prove_unapplied(doc: &mut Document) -> Proof {
     let snap = Snapshot::capture(doc, None).unwrap();
@@ -207,7 +238,7 @@ fn the_manifest_has_digests_and_counts_but_no_plaintext() {
 #[test]
 fn survivors_do_not_echo_the_text_either() {
     let mut doc = marked(Spec { trailer: "/Info 7 0 R", extra: vec![b"<< /Title (SECRETVALUE) >>".to_vec()], ..Spec::default() });
-    let (_, proof) = run(&mut doc);
+    let (_, proof) = run_leaving(&mut doc, Left::Info(b"SECRETVALUE"));
     assert!(!proof.passed());
     for shown in [proof.to_text(), format!("{proof:?}")] {
         assert!(!shown.contains(SECRET), "{shown}");
@@ -224,7 +255,7 @@ fn numeric_only_tj_is_not_glyph_carrying() {
 fn a_survivor_in_the_info_dictionary() {
     let mut doc =
         marked(Spec { trailer: "/Info 7 0 R", extra: vec![b"<< /Title (Report SECRETVALUE) /Author (Someone) >>".to_vec()], ..Spec::default() });
-    let (_, proof) = run(&mut doc);
+    let (_, proof) = run_leaving(&mut doc, Left::Info(b"Report SECRETVALUE"));
     assert_eq!(surface(&proof, Surface::Info).verdict, Verdict::Survivor);
     assert_eq!(proof.entries[0].status, Status::Failed);
     assert!(!proof.passed());
@@ -232,20 +263,38 @@ fn a_survivor_in_the_info_dictionary() {
 
 #[test]
 fn a_survivor_in_xmp() {
-    let xmp = stream("/Type /Metadata /Subtype /XML", b"<x:xmpmeta><dc:title>Quarterly &amp; SECRET&#86;ALUE</dc:title></x:xmpmeta>");
+    let packet: &[u8] = b"<x:xmpmeta><dc:title>Quarterly &amp; SECRET&#86;ALUE</dc:title></x:xmpmeta>";
+    let xmp = stream("/Type /Metadata /Subtype /XML", packet);
     let mut doc = marked(Spec { catalog: "/Metadata 7 0 R", extra: vec![xmp], ..Spec::default() });
-    let (_, proof) = run(&mut doc);
+    let (_, proof) = run_leaving(&mut doc, Left::Xmp(packet));
     assert_eq!(surface(&proof, Surface::Xmp).verdict, Verdict::Survivor, "{}", proof.to_text());
     assert!(!proof.passed());
+}
+
+#[test]
+fn applying_removes_the_metadata_survivors_the_proof_finds() {
+    // The same files as the two tests above, applied without putting anything back: the
+    // metadata holding the removed text is gone (#2448), and the proof finds nothing there.
+    let mut doc =
+        marked(Spec { trailer: "/Info 7 0 R", extra: vec![b"<< /Title (Report SECRETVALUE) /Author (Someone) >>".to_vec()], ..Spec::default() });
+    let (r, proof) = run(&mut doc);
+    assert_eq!(r.unwrap().metadata, 1);
+    assert_ne!(surface(&proof, Surface::Info).verdict, Verdict::Survivor, "{}", proof.to_text());
+    let xmp = stream("/Type /Metadata /Subtype /XML", b"<x:xmpmeta><dc:title>Quarterly &amp; SECRET&#86;ALUE</dc:title></x:xmpmeta>");
+    let mut doc = marked(Spec { catalog: "/Metadata 7 0 R", extra: vec![xmp], ..Spec::default() });
+    let (r, proof) = run(&mut doc);
+    assert_eq!(r.unwrap().metadata, 1);
+    assert_ne!(surface(&proof, Surface::Xmp).verdict, Verdict::Survivor, "{}", proof.to_text());
 }
 
 #[test]
 fn a_long_numeric_reference_in_xmp_is_a_survivor() {
     // A character reference may carry any number of leading zeros: the padded form reads the
     // same, and is swept the same.
-    let xmp = stream("/Type /Metadata /Subtype /XML", b"<x:xmpmeta><dc:title>&#x00000000053;ECRET&#x0000000056;ALUE</dc:title></x:xmpmeta>");
+    let packet: &[u8] = b"<x:xmpmeta><dc:title>&#x00000000053;ECRET&#x0000000056;ALUE</dc:title></x:xmpmeta>";
+    let xmp = stream("/Type /Metadata /Subtype /XML", packet);
     let mut doc = marked(Spec { catalog: "/Metadata 7 0 R", extra: vec![xmp], ..Spec::default() });
-    let (_, proof) = run(&mut doc);
+    let (_, proof) = run_leaving(&mut doc, Left::Xmp(packet));
     assert_eq!(surface(&proof, Surface::Xmp).verdict, Verdict::Survivor, "{}", proof.to_text());
     assert!(!proof.passed());
 }
@@ -495,7 +544,7 @@ fn an_incremental_remnant_fails_the_proof() {
     // first revision still holds the original content.
     let mut other = open(write_incremental(&doc, &SaveOptions::default()).unwrap());
     let new = other.add(Object::Stream(Stream::flate(Dict::new(), b"BT /F1 10 Tf 10 200 Td (Public) Tj ET")));
-    let page = pdfcraft_model::pages(&other).swap_remove(0);
+    let page = openpdf_model::pages(&other).swap_remove(0);
     other.update_dict(page.obj, |d| d.set(b"Contents".to_vec(), Object::Ref(new))).unwrap();
     let saved = write_incremental(&other, &SaveOptions::default()).unwrap();
     let proof = snap.prove_saved(&saved, None, &ProofOptions::default());
@@ -808,7 +857,7 @@ pub(super) fn attach(doc: &mut Document, obj: Object) {
 /// Add a content stream (with `dict`) after the page's own.
 fn append_content(doc: &mut Document, dict: Dict, data: &[u8]) {
     let new = doc.add(Object::Stream(Stream::from_raw(dict, data.to_vec())));
-    let page = pdfcraft_model::pages(doc).swap_remove(0);
+    let page = openpdf_model::pages(doc).swap_remove(0);
     let first = page.dict.get(b"Contents").cloned().unwrap();
     doc.update_dict(page.obj, |d| d.set(b"Contents".to_vec(), Object::Array(vec![first, Object::Ref(new)]))).unwrap();
 }
@@ -855,14 +904,15 @@ fn an_ambiguous_needle_is_still_swept_outside_page_content() {
     let content = b"BT /F1 10 Tf 10 200 Td (SECRETVALUE) Tj ET BT /F1 10 Tf 10 100 Td (SECRETVALUE) Tj ET";
     let spec = Spec { trailer: "/Info 7 0 R", extra: vec![b"<< /Title (SECRETVALUE) >>".to_vec()], ..Spec::default() };
     let mut doc = marked_content(content, spec);
-    let (_, proof) = run(&mut doc);
+    let (_, proof) = run_leaving(&mut doc, Left::Info(b"SECRETVALUE"));
     assert_eq!(surface(&proof, Surface::Info).verdict, Verdict::Survivor, "{}", proof.to_text());
     assert!(!proof.passed());
 
     // Likewise an XMP packet and an annotation string.
-    let xmp = stream("/Type /Metadata /Subtype /XML", b"<x:xmpmeta>SECRETVALUE</x:xmpmeta>");
+    let packet: &[u8] = b"<x:xmpmeta>SECRETVALUE</x:xmpmeta>";
+    let xmp = stream("/Type /Metadata /Subtype /XML", packet);
     let mut doc = marked_content(content, Spec { catalog: "/Metadata 7 0 R", extra: vec![xmp], ..Spec::default() });
-    assert_eq!(surface(&run(&mut doc).1, Surface::Xmp).verdict, Verdict::Survivor);
+    assert_eq!(surface(&run_leaving(&mut doc, Left::Xmp(packet)).1, Surface::Xmp).verdict, Verdict::Survivor);
     let annot = b"<< /Type /Annot /Subtype /Text /Rect [200 200 220 220] /Contents (SECRETVALUE) >>".to_vec();
     let mut doc = marked_content(content, Spec { page: "/Annots [7 0 R]", extra: vec![annot], ..Spec::default() });
     assert_eq!(surface(&run(&mut doc).1, Surface::ObjectStrings).verdict, Verdict::Survivor);
@@ -890,7 +940,7 @@ fn only_the_streams_this_run_created_are_exempt() {
     let mut doc = marked_content(blank, Spec::default());
     let mut snap = Snapshot::capture(&doc, None).unwrap();
     let new = doc.add(Object::Stream(Stream::from_raw(Dict::new(), b"0 0 0 rg 8 95 62 17 re f".to_vec())));
-    let page = pdfcraft_model::pages(&doc).swap_remove(0);
+    let page = openpdf_model::pages(&doc).swap_remove(0);
     let first = page.dict.get(b"Contents").cloned().unwrap();
     doc.update_dict(page.obj, |d| d.set(b"Contents".to_vec(), Object::Array(vec![first, Object::Ref(new)]))).unwrap();
     doc.require_full_save();
@@ -960,7 +1010,7 @@ fn a_damaged_page_content_tail_makes_the_page_unreadable() {
     let cut = s.raw.len() - 8;
     s.raw = Arc::new(s.raw[..cut].to_vec()).into();
     let mut doc = marked(Spec::default());
-    let page = pdfcraft_model::pages(&doc).swap_remove(0);
+    let page = openpdf_model::pages(&doc).swap_remove(0);
     let new = doc.add(Object::Stream(s));
     doc.update_dict(page.obj, |d| d.set(b"Contents".to_vec(), Object::Ref(new))).unwrap();
     doc.require_full_save();
@@ -1098,7 +1148,7 @@ fn a_file_past_the_proof_budget_is_unverified_never_clean() {
     let content = Stream::flate(Dict::new(), &big);
     drop(big);
     let mut doc = open(build_with(b"BT /F1 10 Tf 10 200 Td (Public) Tj ET", Spec::default()));
-    let page = pdfcraft_model::pages(&doc).swap_remove(0);
+    let page = openpdf_model::pages(&doc).swap_remove(0);
     let new = doc.add(Object::Stream(content));
     doc.update_dict(page.obj, |d| d.set(b"Contents".to_vec(), Object::Ref(new))).unwrap();
     doc.require_full_save();
@@ -1413,7 +1463,7 @@ fn a_null_entry_in_the_contents_array_is_an_empty_piece() {
 
 /// The page's decoded content streams, joined (what the redaction left on the page).
 fn page_content(doc: &Document) -> String {
-    let p = &pdfcraft_model::pages(doc)[0];
+    let p = &openpdf_model::pages(doc)[0];
     let (_, data) = page_streams(doc, &p.dict, 0).unwrap();
     data.iter().map(|d| String::from_utf8_lossy(d).into_owned()).collect::<Vec<_>>().join("\n")
 }

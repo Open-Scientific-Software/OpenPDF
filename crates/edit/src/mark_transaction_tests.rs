@@ -2,7 +2,7 @@
 use super::{cx, fixture, reopen, streams};
 use crate::place::MARK_PLACEMENT_FAILURE;
 use crate::*;
-use pdfcraft_cos::{ObjRef, SaveOptions, write_incremental};
+use openpdf_cos::{ObjRef, SaveOptions, write_incremental};
 
 const SELECTED: &[usize] = &[0, 1, 2];
 
@@ -121,6 +121,7 @@ fn apply_replacement(doc: &mut Document, kind: MarkKind, source: MarkSource, rep
         MarkKind::Background => {
             add_background(doc, SELECTED, &Background { color: [0.1, 0.3, 0.7], replace_backdrop: true, ..Default::default() }, replace)
         }
+        MarkKind::PrinterMarks => Ok(()),
     }
 }
 
@@ -129,7 +130,7 @@ fn unchanged_after_later_page_failure(kind: MarkKind) {
     for (replace, pending_edit) in [(true, false), (true, true), (false, false), (false, true)] {
         let (mut doc, source) = marked_document();
         if pending_edit {
-            let pending = doc.add(Object::String(pdfcraft_cos::PdfString::literal(b"unsaved caller edit".to_vec())));
+            let pending = doc.add(Object::String(openpdf_cos::PdfString::literal(b"unsaved caller edit".to_vec())));
             doc.update_dict(page_list(&doc)[0].obj, |d| d.set(b"CallerEdit".to_vec(), Object::Ref(pending))).unwrap();
         }
         let modified = doc.is_modified();
@@ -172,6 +173,7 @@ fn replacements_commit_all_selected_pages_and_preserve_other_marks_and_shared_re
             MarkKind::HeaderFooter => "(New header)".to_string(),
             MarkKind::Watermark => format!("/PCPic{} Do", source.xobject.num),
             MarkKind::Background => "0.1 0.3 0.7 rg".to_string(),
+            MarkKind::PrinterMarks => String::new(),
         };
         apply_replacement(&mut doc, kind, source, true).unwrap();
         let doc = reopen(&doc);

@@ -1,14 +1,32 @@
 //! The XDP packets inside a PDF (`/AcroForm /XFA`, ISO 32000-1 §12.7.8): either one stream
 //! holding the whole XDP, or an array of (name, stream) pairs.
 
-use pdfcraft_cos::{Document, Object};
+use openpdf_cos::{Document, Object};
 
 use crate::XfaError;
 
 /// Most decoded packet bytes read in total.
-const MAX_XDP: usize = 64 << 20;
+pub(crate) const MAX_XDP: usize = 64 << 20;
 /// Most bytes all filter stages of all packets may decode together.
 const MAX_DECODE_WORK: usize = 4 * MAX_XDP;
+
+/// Most bytes of a template [`crate::parse`] takes, and of the text [`read_packets`] returns. A
+/// UTF-16 packet within [`MAX_XDP`] grows by at most half going over to UTF-8 (a two-byte unit
+/// becomes at most three bytes; a four-byte pair stays four), so it fits. Other text can grow
+/// more: each byte of a packet that isn't valid UTF-8 may become a three-byte replacement
+/// character, and the packets of an array are joined by newlines. `read_packets` holds what it
+/// assembles to this limit too, so a template the reader returns always parses.
+pub(crate) const MAX_TEMPLATE_TEXT: usize = MAX_XDP / 2 * 3;
+
+/// `Err` once the XDP text assembled so far, `len` bytes, is past [`MAX_TEMPLATE_TEXT`].
+fn check_text(len: usize) -> Result<(), XfaError> {
+    if len > MAX_TEMPLATE_TEXT {
+        return Err(XfaError::TooLarge(format!(
+            "the XFA packets come to {len} bytes of text, past the {MAX_TEMPLATE_TEXT} bytes the reader accepts"
+        )));
+    }
+    Ok(())
+}
 
 /// What was found in the XFA entry.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -121,7 +139,7 @@ pub fn read_packets(doc: &Document) -> Result<Option<Packets>, XfaError> {
     // One decoding allowance for every packet, charged for what each filter stage produced (a
     // stage a later one shrinks included): a fresh MAX_XDP per stream let many packets of
     // compressed bulk that decode to little cost far more than the packets kept.
-    let mut budget = pdfcraft_cos::DecodeBudget::new(MAX_DECODE_WORK, 0);
+    let mut budget = openpdf_cos::DecodeBudget::new(MAX_DECODE_WORK, 0);
     let mut read = |o: &Object| -> Result<Option<String>, XfaError> {
         if o.as_ref().is_some_and(|r| !seen.insert(r)) {
             return Ok(None);
@@ -146,6 +164,8 @@ pub fn read_packets(doc: &Document) -> Result<Option<Packets>, XfaError> {
                 if let Some(o) = stream
                     && let Some(text) = read(o)?
                 {
+                    // The text and its newline, checked before either is kept.
+                    check_text(xdp.len().saturating_add(text.len()).saturating_add(1))?;
                     if name.as_deref() == Some("template") {
                         template = Some(text.clone());
                     }
@@ -160,6 +180,7 @@ pub fn read_packets(doc: &Document) -> Result<Option<Packets>, XfaError> {
         }
         Object::Stream(_) => {
             xdp = read(&xfa)?.unwrap_or_default();
+            check_text(xdp.len())?;
         }
         // Not a stream or an array: an XFA entry all the same, with nothing to lay out.
         _ => {}

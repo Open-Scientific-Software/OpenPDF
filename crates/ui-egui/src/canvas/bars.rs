@@ -1,4 +1,4 @@
-use super::{Color32, CornerRadius, DocInfo, DocView, PdfCraftApp, Pos2, Rect, Sense, SnapshotKind, Stroke, Tokens, icons, vec2};
+use super::{Color32, CornerRadius, DocInfo, DocView, OpenPDFApp, Pos2, Rect, Sense, SnapshotKind, Stroke, Tokens, icons, vec2};
 
 /// Whether `p` lies in the bottom-left quadrant of `area`, where the page size shows (#1855).
 pub(super) fn in_size_hint_zone(area: Rect, p: Pos2) -> bool {
@@ -56,16 +56,21 @@ pub(super) enum Notice {
     Close,
     /// Stop showing the secured-document notice, in every document (#4035).
     HideSecured,
+    /// Lock the placed signatures into the page (#2149).
+    LockSignatures,
 }
 
 /// The notice bar above the pages: a file changed on disk first, then what a historical
-/// snapshot is, then pages cut at the renderer's limits, then the signature status bar, a
-/// form's scripts having been turned off, security, forms and warnings.
+/// snapshot is, then pages cut at the renderer's limits, then the offer to lock a signature just
+/// placed, then the signature status bar, a form's scripts having been turned off, security,
+/// forms and warnings.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn notices(
     view: &mut DocView,
-    doc: &pdfcraft_engine::Document,
+    doc: &openpdf_engine::Document,
     secured: bool,
     repaired: bool,
+    lock_offer: bool,
     signed: Option<(&str, Color32, &str, String)>,
     ui: &mut egui::Ui,
     t: &Tokens,
@@ -126,6 +131,22 @@ pub(super) fn notices(
     if view.cut_pages.iter().any(|p| !view.cut_notice_dismissed.contains(p)) {
         cut_pages_bar(view, ui, t);
     }
+    // A signature just placed with Fill & Sign is a comment others can move (#2149): offer to
+    // lock it into the page now. `lock_offer` is false for a digitally signed document.
+    if lock_offer && !view.lock_offer_dismissed {
+        let mut lock = false;
+        notice_bar(ui, t, "lock", t.accent_text, tl!("Signature added. Others can move it until it's locked.").to_string(), |ui| {
+            if icons::button(ui, "x", 22.0, false, tl!("Dismiss")).clicked() {
+                view.lock_offer_dismissed = true;
+            }
+            if crate::widgets::pill_button(ui, tl!("Lock now"), true).clicked() {
+                lock = true;
+            }
+        });
+        if lock {
+            return Some(Notice::LockSignatures);
+        }
+    }
     if let Some((icon, color, template, arg)) = signed {
         let mut open = false;
         notice_bar(ui, t, icon, color, crate::i18n::fmt(tl!(template), &[("by", &arg)]), |ui| {
@@ -164,19 +185,19 @@ pub(super) fn notices(
             text.push('.');
         }
         Some(("text-cursor-input", text, true))
-    } else if info.xfa == Some(pdfcraft_render::Xfa::Dynamic) {
+    } else if info.xfa == Some(openpdf_render::Xfa::Dynamic) {
         Some((
             "triangle-alert",
-            tl!("This is a dynamic XFA form, which PdfCraft can't display yet. What you see is the file's placeholder page.").to_string(),
+            tl!("This is a dynamic XFA form, which OpenPDF can't display yet. What you see is the file's placeholder page.").to_string(),
             false,
         ))
-    } else if info.xfa == Some(pdfcraft_render::Xfa::Static) {
+    } else if info.xfa == Some(openpdf_render::Xfa::Static) {
         Some((
             "text-cursor-input",
             tl!("XFA form: its fields and its XFA data are kept in step, so other viewers show what you fill in.").to_string(),
             true,
         ))
-    } else if info.fields.iter().any(|f| f.kind != pdfcraft_render::FieldKind::PushButton) {
+    } else if info.fields.iter().any(|f| f.kind != openpdf_render::FieldKind::PushButton) {
         // Push buttons alone (LaTeX `animate` frames, navigation buttons) leave nothing to fill in.
         Some((
             "text-cursor-input",
@@ -256,13 +277,13 @@ fn cut_pages_bar(view: &mut DocView, ui: &mut egui::Ui, t: &Tokens) {
     let n = view.cut_pages.len();
     let text = if n == 1 {
         crate::i18n::fmt(
-            tl!("Page {page} holds more content than PdfCraft can read: part of it isn't drawn, and only part of its text can be found or copied."),
+            tl!("Page {page} holds more content than OpenPDF can read: part of it isn't drawn, and only part of its text can be found or copied."),
             &[("page", &page)],
         )
     } else {
         crate::i18n::fmt(
             tl!(
-                "{n} pages hold more content than PdfCraft can read, page {page} first: parts of them aren't drawn, and only part of their text can be found or copied."
+                "{n} pages hold more content than OpenPDF can read, page {page} first: parts of them aren't drawn, and only part of their text can be found or copied."
             ),
             &[("n", &n.to_string()), ("page", &page)],
         )
@@ -344,7 +365,7 @@ pub(crate) fn quick_bar_offset(margin: f32, width: f32) -> f32 {
 }
 
 /// The unified quick-action bar and hotbar in the margin or docked to an edge.
-pub(super) fn quick_bar(app: &mut PdfCraftApp, area: Rect, page_left: Option<f32>, ui: &mut egui::Ui) {
+pub(super) fn quick_bar(app: &mut OpenPDFApp, area: Rect, page_left: Option<f32>, ui: &mut egui::Ui) {
     crate::hotbar::show(app, area, page_left, ui);
 }
 

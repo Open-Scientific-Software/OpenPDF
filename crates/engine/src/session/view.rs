@@ -62,23 +62,57 @@ impl Session {
         return None;
     }
 
-    /// Today's date in local time: (year, month, day). With an injected clock (tests) the clock
-    /// is taken as local time.
     /// A dynamic stamp's second line: "By Ada at 2:14 pm, Oct 02, 2026" (local time).
     pub fn stamp_by_line(&self, author: &str) -> String {
+        let (date, time) = self.stamp_date_time();
+        let who = if author.trim().is_empty() { String::new() } else { format!("By {} ", author.trim()) };
+        format!("{who}at {time}, {date}")
+    }
+
+    /// A custom stamp's text line (#1741): `template` with `{name}` (the author), `{date}`
+    /// ("Oct 02, 2026") and `{time}` ("2:14 pm") filled in now, in local time, as the dynamic
+    /// stamps' "By" line has them. Cut to [`MAX_STAMP_LINE`](crate::MAX_STAMP_LINE) characters.
+    pub fn stamp_line(&self, template: &str, author: &str) -> String {
+        let (date, time) = self.stamp_date_time();
+        // One pass over the template, so a placeholder the author's name happens to contain
+        // (`Ada {date}`) stays as written rather than being filled in too.
+        let mut filled = String::new();
+        let mut rest = template.trim();
+        while let Some(c) = rest.chars().next() {
+            if let Some(after) = rest.strip_prefix("{name}") {
+                filled.push_str(author.trim());
+                rest = after;
+            } else if let Some(after) = rest.strip_prefix("{date}") {
+                filled.push_str(&date);
+                rest = after;
+            } else if let Some(after) = rest.strip_prefix("{time}") {
+                filled.push_str(&time);
+                rest = after;
+            } else {
+                filled.push(c);
+                rest = rest.get(c.len_utf8()..).unwrap_or_default();
+            }
+        }
+        filled.chars().take(crate::MAX_STAMP_LINE).collect()
+    }
+
+    /// Now, as the stamps write it: ("Oct 02, 2026", "2:14 pm"), local time.
+    fn stamp_date_time(&self) -> (String, String) {
         let offset = self.local_offset();
-        let d = self.now().map(|t| pdfcraft_cos::pdf_date(t + offset)).unwrap_or_default();
+        let d = self.now().map(|t| openpdf_cos::pdf_date(t + offset)).unwrap_or_default();
         let num = |a: usize, b: usize| d.get(a..b).and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
         let (y, mo, day, hh, mm) = (num(2, 6), num(6, 8), num(8, 10), num(10, 12), num(12, 14));
         const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
         let h12 = if hh % 12 == 0 { 12 } else { hh % 12 };
-        let who = if author.trim().is_empty() { String::new() } else { format!("By {} ", author.trim()) };
-        format!("{who}at {h12}:{mm:02} {}, {} {day:02}, {y}", if hh < 12 { "am" } else { "pm" }, MONTHS[(mo.clamp(1, 12) - 1) as usize])
+        let month = MONTHS.get(mo.clamp(1, 12) as usize - 1).copied().unwrap_or("Jan");
+        (format!("{month} {day:02}, {y}"), format!("{h12}:{mm:02} {}", if hh < 12 { "am" } else { "pm" }))
     }
 
+    /// Today's date in local time: (year, month, day). With an injected clock (tests) the clock
+    /// is taken as local time.
     pub fn today(&self) -> (i64, u32, u32) {
         let offset = self.local_offset();
-        self.now().map(|t| pdfcraft_cos::pdf_date(t + offset)).as_deref().and_then(parse_ymd).unwrap_or((1970, 1, 1))
+        self.now().map(|t| openpdf_cos::pdf_date(t + offset)).as_deref().and_then(parse_ymd).unwrap_or((1970, 1, 1))
     }
 
     /// Open a document from bytes. Rendering starts lazily when pages are requested.
@@ -104,14 +138,14 @@ impl Session {
     /// text on a layer the viewer hides: a link there would sit over nothing the reader can see.
     pub fn find_urls(&self, id: DocId) -> Vec<(usize, Vec<[f64; 4]>, String)> {
         let Some(doc) = self.get(id) else { return Vec::new() };
-        let mut r = pdfcraft_render::PageRenderer::new(doc.bytes.clone(), doc.config.clone());
+        let mut r = openpdf_render::PageRenderer::new(doc.bytes.clone(), doc.config.clone());
         let mut out = Vec::new();
         for page in 0..doc.info.pages.len() {
-            let res = r.render(pdfcraft_render::RenderRequest { page, kind: pdfcraft_render::RequestKind::Text, scale: 1.0, ..Default::default() });
+            let res = r.render(openpdf_render::RenderRequest { page, kind: openpdf_render::RequestKind::Text, scale: 1.0, ..Default::default() });
             let Some(text) = res.text else { continue };
             let found: std::cell::RefCell<Vec<(std::ops::Range<usize>, String)>> = Default::default();
             let hits = text.find_with(|chars| {
-                let urls = pdfcraft_annot::links::find_urls(chars);
+                let urls = openpdf_annot::links::find_urls(chars);
                 let ranges = urls.iter().map(|u| u.0.clone()).collect();
                 *found.borrow_mut() = urls;
                 ranges
@@ -144,11 +178,11 @@ impl Session {
         use crate::text_links::{MAX_TEXT_LINK_PAGES_PER_SCAN, MAX_TEXT_LINKS_PER_SCAN, TextLinkScan};
         let Some(doc) = self.get(id) else { return TextLinkScan::default() };
         // The viewer's settings, so text on a layer it hides is not a link.
-        let mut r = pdfcraft_render::PageRenderer::new(doc.bytes.clone(), doc.config.clone());
+        let mut r = openpdf_render::PageRenderer::new(doc.bytes.clone(), doc.config.clone());
         let mut scan = TextLinkScan::default();
         let pages = doc.info.pages.len();
         for (page, info) in doc.info.pages.iter().enumerate().skip(from).take(MAX_TEXT_LINK_PAGES_PER_SCAN) {
-            let res = r.render(pdfcraft_render::RenderRequest { page, kind: pdfcraft_render::RequestKind::Text, scale: 1.0, ..Default::default() });
+            let res = r.render(openpdf_render::RenderRequest { page, kind: openpdf_render::RequestKind::Text, scale: 1.0, ..Default::default() });
             if let Some(text) = res.text {
                 let annotations: Vec<_> = doc.info.links.iter().filter(|l| l.page == page).collect();
                 for link in crate::text_links::find_text_links(&text) {
@@ -172,14 +206,14 @@ impl Session {
     pub fn bookmark_page(&self, id: DocId, offset: usize, limit: usize) -> Option<BookmarkPage> {
         let doc = self.get(id)?;
         if let Some(editor) = doc.editor.as_ref() {
-            let page = pdfcraft_organize::bookmark_page(&editor.cos, offset, limit);
+            let page = openpdf_organize::bookmark_page(&editor.cos, offset, limit);
             let rows = page
                 .bookmarks
                 .into_iter()
                 .map(|b| {
                     let view = b.view.map_or_else(Default::default, |(kind, numbers)| {
                         let numbers: Vec<Option<f32>> = numbers.iter().map(|n| n.map(|n| n as f32)).collect();
-                        pdfcraft_render::DestView::from_operands(Some(&kind), &numbers)
+                        openpdf_render::DestView::from_operands(Some(&kind), &numbers)
                     });
                     BookmarkRow { path: b.path, title: b.title, open: b.open, page: b.page, view, color: b.color, italic: b.italic, bold: b.bold }
                 })
@@ -195,16 +229,16 @@ impl Session {
     /// The bookmark at `path` with everything under it, or the whole outline for `[]`, as a tree
     /// another document can take ([`crate::Edit::ImportBookmarks`]). `None` when no document has
     /// `id`, or its structure could not be read for editing.
-    pub fn outline_tree(&self, id: DocId, path: &[usize]) -> Option<Result<pdfcraft_organize::OutlineTree, pdfcraft_organize::OutlineError>> {
+    pub fn outline_tree(&self, id: DocId, path: &[usize]) -> Option<Result<openpdf_organize::OutlineTree, openpdf_organize::OutlineError>> {
         let editor = self.get(id)?.editor.as_ref()?;
-        Some(pdfcraft_organize::outline_tree(&editor.cos, path))
+        Some(openpdf_organize::outline_tree(&editor.cos, path))
     }
 
     /// Top-level bookmarks as split points: (first page of each part, its bookmark's title).
     pub fn bookmark_splits(&self, id: DocId) -> Vec<(usize, String)> {
         let Some(doc) = self.get(id) else { return Vec::new() };
         let top: Vec<(Option<usize>, String)> = match doc.editor.as_ref() {
-            Some(editor) => pdfcraft_organize::top_level_bookmarks(&editor.cos).into_iter().map(|b| (b.page, b.title)).collect(),
+            Some(editor) => openpdf_organize::top_level_bookmarks(&editor.cos).into_iter().map(|b| (b.page, b.title)).collect(),
             None => doc.info.outline.iter().map(|o| (o.page, o.title.clone())).collect(),
         };
         let mut out: Vec<(usize, String)> = top.into_iter().filter_map(|(page, title)| Some((page?, title))).collect();
@@ -329,7 +363,7 @@ impl Session {
     /// have changed it (Document Properties ▸ Fonts, `doc_info`). A no-op otherwise.
     pub fn refresh_fonts(&mut self, id: DocId) {
         let Some(doc) = self.docs.iter_mut().find(|d| d.id == id && d.fonts_stale) else { return };
-        if let Ok(info) = pdfcraft_render::inspect(doc.bytes.clone(), doc.password.as_deref()) {
+        if let Ok(info) = openpdf_render::inspect(doc.bytes.clone(), doc.password.as_deref()) {
             doc.info.fonts = info.fonts;
         }
         doc.fonts_stale = false;
@@ -341,7 +375,7 @@ impl Session {
 }
 
 /// Convert a view-space text line rectangle into a normalized, finite PDF user-space rectangle.
-fn line_user_rect(page: &pdfcraft_render::PageInfo, v: [f32; 4]) -> Option<[f64; 4]> {
+fn line_user_rect(page: &openpdf_render::PageInfo, v: [f32; 4]) -> Option<[f64; 4]> {
     if !v.iter().all(|x| x.is_finite()) {
         return None;
     }
@@ -353,7 +387,7 @@ fn line_user_rect(page: &pdfcraft_render::PageInfo, v: [f32; 4]) -> Option<[f64;
 mod tests {
     use super::line_user_rect;
     use crate::{Edit, Session};
-    use pdfcraft_render::PageInfo;
+    use openpdf_render::PageInfo;
     use std::sync::Arc;
 
     /// Build a sample `PageInfo` with a non-origin crop box `[10.0, 20.0, 210.0, 320.0]` (`200 × 300`).

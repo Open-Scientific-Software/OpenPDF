@@ -47,8 +47,9 @@ pub(crate) fn uses_scripts(edit: &Edit) -> bool {
 pub(crate) fn scope_of(edit: &Edit) -> Scope {
     match edit {
         Edit::SetInfo { .. } => Scope::Metadata,
+        Edit::AddPrinterMarks { .. } => Scope::Full,
         // The Attachments list is read from the whole document.
-        Edit::AddAttachment { .. } | Edit::DeleteAttachment { .. } => Scope::Full,
+        Edit::AddAttachment { .. } | Edit::DeleteAttachment { .. } | Edit::EditAttachmentDescription { .. } => Scope::Full,
         // A file attachment also changes the Attachments list.
         Edit::AddAnnotation(a) if matches!(a.shape, Shape::Attachment { .. }) => Scope::Full,
         Edit::AddMeasurement(_)
@@ -66,6 +67,7 @@ pub(crate) fn scope_of(edit: &Edit) -> Scope {
         | Edit::EraseInk { .. }
         | Edit::MoveAnnotation { .. }
         | Edit::ReshapeAnnotation { .. }
+        | Edit::SetAnnotationPopup { .. }
         | Edit::ResizeAnnotation { .. }
         | Edit::StyleAnnotation { .. }
         | Edit::FillAnnotation { .. }
@@ -96,6 +98,7 @@ pub(crate) fn scope_of(edit: &Edit) -> Scope {
         | Edit::AddWatermark { .. }
         | Edit::AddBackground { .. }
         | Edit::RemoveMarks { .. }
+        | Edit::ConvertColours { .. }
         | Edit::FixHairlines { .. }
         // Recognized text is an invisible text layer stamped on its page, with its font in the
         // page's resources (#6310): a full re-inspection made applying one word cost seconds on
@@ -111,12 +114,12 @@ pub(crate) fn scope_of(edit: &Edit) -> Scope {
 }
 
 /// One undo/redo step: its label, the document state, its passwords, and what it changed.
-pub(crate) type Snapshot = (Label, pdfcraft_cos::Document, Keys, Scope);
+pub(crate) type Snapshot = (Label, openpdf_cos::Document, Keys, Scope);
 
 /// Editing state of a document (absent when the document cannot be edited yet, e.g. encrypted).
 #[derive(Clone)]
 pub(crate) struct Editor {
-    pub(crate) cos: pdfcraft_cos::Document,
+    pub(crate) cos: openpdf_cos::Document,
     /// The file as last opened or saved. Incremental saves append to it, and Revert opens it.
     /// Undo may restore a snapshot whose own base is an earlier revision; this does not follow it.
     pub(crate) saved: Arc<Vec<u8>>,
@@ -135,21 +138,21 @@ pub(crate) struct Editor {
     pub(crate) appearances: AppearanceCache,
     /// Display appearances drawn for form fields the file leaves to the viewer (#3470), reused
     /// for each widget while the objects it was drawn from are unchanged; see
-    /// [`pdfcraft_forms::FieldAppearanceCache`].
-    pub(crate) field_appearances: pdfcraft_forms::FieldAppearanceCache,
+    /// [`openpdf_forms::FieldAppearanceCache`].
+    pub(crate) field_appearances: openpdf_forms::FieldAppearanceCache,
     /// The text blocks last computed for one page, reused while the document is unchanged.
     pub(crate) text_blocks: TextBlocksCache,
 }
 
-/// One page's text blocks ([`pdfcraft_edit::text_blocks`]) and the document state they were read
+/// One page's text blocks ([`openpdf_edit::text_blocks`]) and the document state they were read
 /// from. Opening a paragraph and applying its edit both need them, and grouping a long page is not
-/// cheap. The state ([`pdfcraft_cos::ReadState`]) changes with every edit and save and returns
+/// cheap. The state ([`openpdf_cos::ReadState`]) changes with every edit and save and returns
 /// with undo, so a stale entry never matches, also after the document has been edited.
 #[derive(Default)]
 pub(crate) struct TextBlocksCache(std::sync::Mutex<Option<CachedTextBlocks>>);
 
 /// The document state, the page (0-based) and its text blocks.
-type CachedTextBlocks = (pdfcraft_cos::ReadState, usize, Arc<Vec<pdfcraft_edit::TextBlock>>);
+type CachedTextBlocks = (openpdf_cos::ReadState, usize, Arc<Vec<openpdf_edit::TextBlock>>);
 
 impl Clone for TextBlocksCache {
     fn clone(&self) -> Self {
@@ -160,7 +163,7 @@ impl Clone for TextBlocksCache {
 
 impl Editor {
     /// The text blocks on `page` (0-based), from the cache when the document hasn't changed.
-    pub(crate) fn text_blocks(&self, page: usize) -> Result<Arc<Vec<pdfcraft_edit::TextBlock>>, EditError> {
+    pub(crate) fn text_blocks(&self, page: usize) -> Result<Arc<Vec<openpdf_edit::TextBlock>>, EditError> {
         if let Ok(cache) = self.text_blocks.0.lock()
             && let Some((state, p, blocks)) = cache.as_ref()
             && *p == page
@@ -168,7 +171,7 @@ impl Editor {
         {
             return Ok(blocks.clone());
         }
-        let blocks = Arc::new(pdfcraft_edit::text_blocks(&self.cos, page)?);
+        let blocks = Arc::new(openpdf_edit::text_blocks(&self.cos, page)?);
         if let Ok(mut cache) = self.text_blocks.0.lock() {
             *cache = Some((self.cos.read_state(), page, blocks.clone()));
         }

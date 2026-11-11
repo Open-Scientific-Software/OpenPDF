@@ -1,12 +1,12 @@
 # Interaction evidence and evaluation reference
 
-Detailed source inspection used PdfCraft revision
+Detailed source inspection used OpenPDF revision
 `3f044b6263aa6605c3aa44ca6d065e1ab37d13b6`. A later documentation review used
 `924c4da4ac2879ac9107c6c82e20ac6be5570f0a` on 2026-10-17. Links retain those
 inspected revisions. Neither review was a runtime parity assessment.
 
 This reference summarizes interaction findings from archived comparative research and
-relates them to existing PdfCraft mechanisms. It contains no implementation plan,
+relates them to existing OpenPDF mechanisms. It contains no implementation plan,
 proposed workspace design, feature commitment or new architecture. The project's
 roadmap and machine-readable parity checklist retain their planning and status roles.
 Historical design examples and test descriptions are distinguished from current product
@@ -14,7 +14,7 @@ evidence below.
 
 ## Existing mechanisms and corrected historical descriptions
 
-Several early comparative notes described capabilities that later existed in PdfCraft.
+Several early comparative notes described capabilities that later existed in OpenPDF.
 The table records the inspected evidence and its limits rather than preserving those
 absence claims.
 
@@ -65,7 +65,7 @@ recurring distinctions are useful when reading feature descriptions and test evi
   atomic commit and the surrounding multi-file run have different interruption scopes.
 - **History availability versus restoration outcome.** A named undo entry establishes
   that history exists. Successful restoration, rendering refresh and save/reopen are
-  separate observable outcomes. The research did not reproduce a PdfCraft history failure.
+  separate observable outcomes. The research did not reproduce a OpenPDF history failure.
 - **Atomic replacement versus destination conflict.** Staging avoids half-written output;
   conflict detection deals with another writer changing the intended destination. They
   address different failure modes. The roadmap records mechanisms in both categories.
@@ -80,7 +80,7 @@ partial result or refusing an operation is the expected outcome.
 ## Evaluation observations by workflow
 
 The following table describes what the archived evaluations observed or separated. It
-neither reports a fresh PdfCraft test run nor assigns implementation tasks. Example
+neither reports a fresh OpenPDF test run nor assigns implementation tasks. Example
 conditions describe evidence scope rather than newly discovered bugs.
 
 | Workflow | Observable relationship examined | Limits on interpreting the observation |
@@ -95,7 +95,7 @@ conditions describe evidence scope rather than newly discovered bugs.
 
 Archived state-machine notes used terms such as running, review-ready, saving, complete,
 partial, failed and stale. Those terms describe distinct user-visible outcomes; they do
-not establish that PdfCraft has, or needs, a single global state-machine type. Likewise,
+not establish that OpenPDF has, or needs, a single global state-machine type. Likewise,
 historical multi-pane layouts described a way to observe several related values at once;
 they are not adopted interface designs or a request for a replacement shell.
 
@@ -138,6 +138,6 @@ rendering benchmarks or external-reader compatibility results for this handoff.
 
 Names of tests in linked source establish that the source contains those tests. They do
 not mean the tests were rerun here, or that an archived implementation's test result
-transfers to PdfCraft. The code-inspection and documentation baselines differ and remain
+transfers to OpenPDF. The code-inspection and documentation baselines differ and remain
 explicit. Current statuses and future work belong to the repository's existing roadmap
 and parity records, not this evaluation reference.

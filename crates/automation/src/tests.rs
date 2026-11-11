@@ -1,5 +1,5 @@
 use super::*;
-use pdfcraft_platform::staging::STAGING_ATTEMPTS;
+use openpdf_platform::staging::STAGING_ATTEMPTS;
 
 /// `n` pages, page i showing "Page i".
 fn numbered_pages(n: usize) -> Vec<u8> {
@@ -36,6 +36,29 @@ fn json(a: &mut Automation, tool: &str, args: Value) -> Value {
 
 fn search_document(a: &mut Automation, pages: usize) -> DocId {
     a.session.open("synthetic.pdf", None, Arc::new(numbered_pages(pages)), None).unwrap()
+}
+
+#[test]
+fn form_fill_cannot_print_but_js_run_can() {
+    let mut a = Automation::new();
+    let doc = search_document(&mut a, 1);
+    json(&mut a, "form_add_field", json!({ "doc": doc.0, "page": 1, "type": "text", "rect": [20, 20, 180, 42], "name": "Qty" }));
+    json(
+        &mut a,
+        "form_set_script",
+        json!({ "doc": doc.0, "field": "Qty", "event": "validate", "script": "this.print(); console.println('validated');" }),
+    );
+    json(&mut a, "form_fill", json!({ "doc": doc.0, "values": { "Qty": "4" } }));
+    let output = a.session.take_js_output(doc);
+    assert!(output.requests.is_empty(), "{output:?}");
+    assert!(output.console.contains(&"validated".to_string()), "{output:?}");
+    assert!(output.console.iter().any(|line| line.contains("Print") && line.contains("ignored")), "{output:?}");
+    assert!(output.errors.is_empty(), "{output:?}");
+    let fields = json(&mut a, "form_fields", json!({ "doc": doc.0 }));
+    let qty = fields["fields"].as_array().unwrap().iter().find(|f| f["name"] == "Qty").unwrap();
+    assert_eq!(qty["value"], "4");
+    let explicit = json(&mut a, "js_run", json!({ "doc": doc.0, "script": "this.print();" }));
+    assert_eq!(explicit["requests"], json!([{ "print": true }]));
 }
 
 #[test]
@@ -226,7 +249,7 @@ fn stop_at_limit_continuations_return_every_match_once_and_end_complete() {
 
 #[test]
 fn a_bounded_text_find_reads_only_the_pages_it_needs_and_says_it_stopped() {
-    let dir = std::env::temp_dir().join(format!("pdfcraft-automation-find-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("openpdf-automation-find-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("long.pdf"), numbered_pages(200)).unwrap();
@@ -272,7 +295,7 @@ fn a_bounded_text_find_reads_only_the_pages_it_needs_and_says_it_stopped() {
 
 #[test]
 fn a_save_without_a_path_stays_inside_the_root() {
-    let base = std::env::temp_dir().join(format!("pdfcraft-automation-save-root-{}", std::process::id()));
+    let base = std::env::temp_dir().join(format!("openpdf-automation-save-root-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     let root = base.join("root");
     let outside = base.join("outside");
@@ -351,7 +374,7 @@ fn other_shares_and_device_paths_are_refused_by_name() {
 #[cfg(windows)]
 #[test]
 fn a_trailing_dot_on_the_root_or_above_it_names_the_folder_windows_opens() {
-    let base = std::env::temp_dir().join(format!("pdfcraft-automation-dot-{}", std::process::id()));
+    let base = std::env::temp_dir().join(format!("openpdf-automation-dot-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     std::fs::create_dir_all(base.join("root")).unwrap();
     std::fs::create_dir_all(base.join("outside")).unwrap();
@@ -369,14 +392,14 @@ fn a_trailing_dot_on_the_root_or_above_it_names_the_folder_windows_opens() {
 
 /// A fresh, empty folder for one staging test.
 fn staging_dir(test: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("pdfcraft-staging-{}-{test}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("openpdf-staging-{}-{test}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
 
 fn staged(dir: &Path, suffix: u64) -> PathBuf {
-    dir.join(format!(".out.pdf.{suffix:016x}.pdfcraft-tmp"))
+    dir.join(format!(".out.pdf.{suffix:016x}.openpdf-tmp"))
 }
 
 fn read(p: &Path) -> String {
@@ -706,4 +729,28 @@ fn text_extract_html_has_one_budget_across_pages() {
     assert_eq!(capped["pages"][0]["html"], "");
     assert_eq!(capped["pages"][1]["html"], "", "no HTML after the budget ran out: {capped}");
     assert_eq!(capped["pages"][1]["styles_incomplete"], true);
+}
+
+/// Replace through the tool when a page's text can't be read for the find bar: the page is named
+/// and counted as refused, in the result, and the readable pages are still replaced.
+#[test]
+fn replace_all_reports_a_page_whose_text_cannot_be_read() {
+    let mut a = Automation::new();
+    let id = search_document(&mut a, 3);
+    let mut extract = |bytes: &Arc<Vec<u8>>, password, pages: &[usize]| {
+        extract_parallel(bytes, password, pages)
+            .into_iter()
+            .map(|(p, result)| (p, if p == 1 { Err("synthetic page 2 failure".to_owned()) } else { result }))
+            .collect()
+    };
+    let r = a.text_replace_with(&Args(&json!({ "doc": id.0, "find": "Page", "replace": "Sheet" })), &mut extract).unwrap();
+    assert_eq!(r["replaced"], 3, "{r}");
+    assert_eq!((r["skipped"].clone(), r["skipped_by"]["refused"].clone()), (json!(1), json!(1)), "{r}");
+    let why = r["refusals"][0].as_str().unwrap();
+    assert!(why.starts_with("page 2:") && why.contains("synthetic page 2 failure"), "{why}");
+    // Replacing the first match stops at an unreadable page before it: nothing is replaced.
+    let r =
+        a.text_replace_with(&Args(&json!({ "doc": id.0, "find": "Page", "replace": "Sheet", "all": false, "pages": [2, 3] })), &mut extract).unwrap();
+    assert_eq!((r["replaced"].clone(), r["changed"].clone(), r["skipped_by"]["refused"].clone()), (json!(0), json!(false), json!(1)), "{r}");
+    assert!(r["refusals"][0].as_str().unwrap().starts_with("page 2:"), "{r}");
 }

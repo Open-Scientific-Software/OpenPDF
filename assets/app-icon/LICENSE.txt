@@ -1,12 +1,11 @@
-PdfCraft app icon (pdfcraft.svg, pdfcraft-small.svg and every file derived from them in this
-directory: pdfcraft-1024.png, pdfcraft.icns, pdfcraft.ico, hicolor/).
+OpenPDF layered-pages app icon (openpdf.svg and the application icon files derived
+from it: openpdf-1024.png, openpdf.icns, openpdf.ico and hicolor/).
 
-Original artwork made for this project by the project owner, drawn in ArtCraft and vectorised for
-PdfCraft (no third-party material). Licensed like the rest of PdfCraft, under either of
+Original geometric artwork and outlined lettering by the OpenPDF contributors.
+Licensed under MIT OR Apache-2.0, at your option. See ../../LICENSE-MIT and
+../../LICENSE-APACHE for the full terms.
 
-  * Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
-  * MIT license (https://opensource.org/licenses/MIT)
-
-at your option.
+The previous PdfCraft lion icon was original artwork by the PdfCraft project owner,
+drawn in ArtCraft and vectorised for PdfCraft under the same licenses.
 
 Regenerate the derived files with packaging/icons.sh.

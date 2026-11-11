@@ -3,49 +3,81 @@ use super::{
     is_vertical, num, overlaps, page_streams, res_dict,
 };
 
-/// Drop every `replaced` resource name whose `Do` no longer appears in the rewritten `content`,
-/// so a full-rewrite save stops reaching the original image or form it named. A name that some
-/// surviving `Do` still draws (the same image shown again outside a mark) is kept.
-pub(crate) fn prune(xo: &mut Dict, replaced: &[Vec<u8>], content: &[Vec<u8>]) {
+/// Drop every `replaced` name of the XObject resources `xo` that the rewritten `content` no
+/// longer draws, so a full-rewrite save stops reaching the original image or form it named. A
+/// name still drawn is kept: by a surviving `Do` (the same image shown again outside a mark), or
+/// by a form without /Resources of its own, which draws through `xo` too. Such forms are read
+/// within `budget`, what is left of the page's allowance ([`resource_ops`]). Fails, as the cleanup
+/// of the fonts and properties these forms draw with does, when that can't be told: such a form
+/// doesn't decode (an image codec or a /Filter it can't run, say) or runs past `budget`, the walk
+/// passes 2,000,000 operators, or the parser can't read all of such a form or of `content`.
+/// Corrupt data in such a form is read, tolerantly, up to the damage, which may be nothing.
+pub(crate) fn prune(doc: &Document, budget: &mut DecodeBudget, xo: &mut Dict, replaced: &[Vec<u8>], content: &[Vec<u8>]) -> Result<(), CosError> {
     if replaced.is_empty() {
-        return;
+        return Ok(());
     }
-    let joined = Pieces::join(content);
-    let ops = joined.parse().ops;
-    let still_drawn = |n: &[u8]| ops.iter().any(|op| op.is("Do") && op.last_name() == Some(n));
+    let res = Dict::from_iter([(b"XObject".to_vec(), Object::Dict(xo.clone()))]);
+    let ops = resource_ops(doc, budget, &res, content)?;
+    let drawn: HashSet<&[u8]> = ops.iter().filter(|op| op.is("Do")).filter_map(Op::last_name).collect();
     for n in replaced {
-        if !still_drawn(n) {
+        if !drawn.contains(n.as_slice()) {
             xo.remove(n);
         }
     }
+    Ok(())
 }
 
 /// The XObject names of the resource dictionary `xo` that `content` draws: directly, or through
 /// a form that has no /Resources of its own (such a form draws through its caller's). Each such
-/// form is read once, however many names are asked about. The flag says whether some of what
-/// `content` draws could not be read (a form that will not decode, or nesting past the limit), so
-/// a name missing from the set may still be drawn.
+/// form is read once, however many names are asked about, with its `/DecodeParms` given by
+/// reference. The flag says whether some of what `content` draws could not be read (a form that
+/// will not decode, or nesting past the limit), so a name missing from the set may still be drawn.
+/// Operators are read one at a time, since only the `Do`s matter: no stream's are held whole, and
+/// each form is decoded only in its turn.
 fn names_content_draws(doc: &Document, content: &[Vec<u8>], xo: &Dict) -> (HashSet<Vec<u8>>, bool) {
     let mut drawn = HashSet::new();
     let mut seen = HashSet::new();
-    let mut pending = vec![(Pieces::join(content).parse().ops, 0)];
+    let joined = Pieces::join(content);
+    // What is still to read, each with its depth: `content` itself (`None`), then the forms it draws.
+    let mut pending: Vec<(Option<ObjRef>, usize)> = vec![(None, 0)];
     // A form that will not decode makes the answer uncertain, but it does not stop the forms
     // already queued from being read: a name drawn only inside one of those need not be unknown.
     let mut unknown = false;
-    while let Some((ops, depth)) = pending.pop() {
-        for n in ops.iter().filter(|op| op.is("Do")).filter_map(Op::last_name) {
+    while let Some((form, depth)) = pending.pop() {
+        let data = match form {
+            None => std::borrow::Cow::Borrowed(joined.data()),
+            Some(r) => {
+                let obj = doc.get(r);
+                let Object::Stream(s) = &*obj else { continue };
+                match doc.with_direct_parms(s).decoded() {
+                    Ok(data) => std::borrow::Cow::Owned(data),
+                    Err(_) => {
+                        unknown = true;
+                        continue;
+                    }
+                }
+            }
+        };
+        for op in openpdf_content::ops(&data).filter(|op| op.is("Do")) {
+            let Some(n) = op.last_name() else { continue };
             if !drawn.insert(n.to_vec()) {
                 continue;
             }
             let Some(r) = xo.get(n).and_then(Object::as_ref) else { continue };
             let obj = doc.get(r);
             let Object::Stream(s) = &*obj else { continue };
-            if s.dict.name(b"Subtype") != Some(b"Form") || s.dict.contains(b"Resources") || !seen.insert(r) {
+            // A /Resources that isn't a dictionary (null, or a missing object) is no resources of
+            // its own, as for `resource_ops` and the interpreter.
+            if s.dict.name(b"Subtype") != Some(b"Form")
+                || s.dict.get(b"Resources").is_some_and(|r| doc.resolve(r).as_dict().is_some())
+                || !seen.insert(r)
+            {
                 continue;
             }
-            match s.decoded() {
-                Ok(data) if depth < MAX_DEPTH => pending.push((pdfcraft_content::parse(&data).ops, depth + 1)),
-                _ => unknown = true,
+            if depth < MAX_DEPTH {
+                pending.push((Some(r), depth + 1));
+            } else {
+                unknown = true;
             }
         }
     }
@@ -66,7 +98,7 @@ fn any_draws(drawn: &[(HashSet<Vec<u8>>, bool)], name: &[u8]) -> Option<bool> {
 
 /// Every page-tree node with a /Resources of its own, and the pages that draw through it (the
 /// nearest such node above a page, or the page itself). Cycles are cut as in
-/// `pdfcraft_model::pages`. The flag is false when a node was reached twice (listed under two
+/// `openpdf_model::pages`. The flag is false when a node was reached twice (listed under two
 /// parents, or in a cycle) or the walk stopped early: a page may then draw through a holder it
 /// isn't listed under.
 fn resource_holders(doc: &Document) -> (Vec<(ObjRef, Vec<ObjRef>)>, bool) {
@@ -105,7 +137,7 @@ fn resource_holders(doc: &Document) -> (Vec<(ObjRef, Vec<ObjRef>)>, bool) {
 /// entry is replaced by a private copy on its node, as in [`unlink_doomed`]. Returns how many
 /// names went.
 pub(crate) fn unlink_undrawn(doc: &mut Document) -> Result<usize, RedactError> {
-    let index: HashMap<ObjRef, usize> = pdfcraft_model::pages(doc).iter().enumerate().map(|(i, p)| (p.obj, i)).collect();
+    let index: HashMap<ObjRef, usize> = openpdf_model::pages(doc).iter().enumerate().map(|(i, p)| (p.obj, i)).collect();
     let (holders, whole) = resource_holders(doc);
     if !whole {
         return Ok(0);
@@ -158,7 +190,7 @@ pub(crate) fn unlink_undrawn(doc: &mut Document) -> Result<usize, RedactError> {
 fn names_drawn(doc: &Document, res: &Dict, pages: &[ObjRef], index: &HashMap<ObjRef, usize>) -> Option<HashSet<Vec<u8>>> {
     let mut drawn = HashSet::new();
     let mut note = |data: &[u8]| {
-        for op in pdfcraft_content::parse(data).ops.iter().filter(|op| op.is("Do")) {
+        for op in openpdf_content::parse(data).ops.iter().filter(|op| op.is("Do")) {
             if let Some(name) = op.last_name() {
                 drawn.insert(name.to_vec());
             }
@@ -266,7 +298,7 @@ pub(crate) fn unlink_doomed(doc: &mut Document, doomed: &[ObjRef], retired_prope
     }
     let doomed: HashSet<ObjRef> = doomed.iter().copied().collect();
     let (holders, _) = resource_holders(doc);
-    let index: HashMap<ObjRef, usize> = pdfcraft_model::pages(doc).iter().enumerate().map(|(i, p)| (p.obj, i)).collect();
+    let index: HashMap<ObjRef, usize> = openpdf_model::pages(doc).iter().enumerate().map(|(i, p)| (p.obj, i)).collect();
     let holder_nodes: Vec<ObjRef> = holders.iter().map(|(node, _)| *node).collect();
     for (node, users) in holders {
         let Some(mut res) = doc.get(node).as_dict().and_then(|d| d.get(b"Resources")).and_then(|r| doc.resolve(r).as_dict().cloned()) else {
@@ -322,7 +354,8 @@ fn prune_retired_properties(doc: &Document, res: &mut Dict, names: &[Vec<u8>], c
     }
     let mut used = HashSet::new();
     for content in contents {
-        for op in resource_ops(doc, res, content)? {
+        // Each is one page's content or one form's, with the allowance of a page.
+        for op in resource_ops(doc, &mut DecodeBudget::page(), res, content)? {
             if matches!(op.op.as_slice(), b"BDC" | b"DP")
                 && let Some(name) = op.name(1)
             {
@@ -383,7 +416,7 @@ fn unlink_from_forms(doc: &mut Document, holders: &[ObjRef], doomed: &HashSet<Ob
                 pending.push(res);
                 continue;
             }
-            let data = form.decoded()?;
+            let data = doc.with_direct_parms(form).decoded()?;
             let mut pruned = prune_doomed_xobjects(doc, std::slice::from_ref(&data), &mut xo, &doomed_names)?;
             if pruned {
                 res.set(b"XObject".to_vec(), Object::Dict(xo));
@@ -437,12 +470,22 @@ pub(super) fn clip_out(rects: &[[f64; 4]], ctm: &Matrix, around: [f64; 4]) -> Op
     Some(ops)
 }
 
-pub(crate) fn resource_ops(doc: &Document, res: &Dict, content: &[Vec<u8>]) -> Result<Vec<Op>, CosError> {
-    let parsed = Pieces::join(content).parse();
-    if parsed.skipped > 0 || parsed.ops.len() > 2_000_000 {
-        return Err(CosError::Syntax { offset: 0, detail: "redaction could not fully inspect property resources".into() });
+/// The operators of `content`, and of every form without /Resources of its own that it draws
+/// through `res`, nested ones too: what draws with these resources. Each such form is read once,
+/// with its `/DecodeParms` given by reference, its decoded bytes charged to `budget`, so the
+/// cleanups of one page that walk the same forms spend one allowance between them. An error
+/// when that can't all be read: the parser can't read all of `content` or of such a form, the walk
+/// passes 2,000,000 operators, or such a form doesn't decode or runs past `budget`. Operators are
+/// read one at a time, so the walk stops at one past the limit rather than holding them all.
+pub(crate) fn resource_ops(doc: &Document, budget: &mut DecodeBudget, res: &Dict, content: &[Vec<u8>]) -> Result<Vec<Op>, CosError> {
+    const MAX_OPS: usize = 2_000_000;
+    let joined = Pieces::join(content);
+    let mut read = openpdf_content::ops(joined.data());
+    let mut ops: Vec<Op> = read.by_ref().take(MAX_OPS + 1).collect();
+    // Under the limit the reader ran to the end, so `skipped` counts all of it.
+    if read.skipped() > 0 || ops.len() > MAX_OPS {
+        return Err(CosError::Syntax { offset: 0, detail: "redaction could not fully read the content that uses these resources".into() });
     }
-    let mut ops = parsed.ops;
     let xobjects = res_dict(doc, res, b"XObject");
     let mut seen = HashSet::new();
     let mut cursor = 0;
@@ -455,24 +498,26 @@ pub(crate) fn resource_ops(doc: &Document, res: &Dict, content: &[Vec<u8>]) -> R
             && s.dict.name(b"Subtype") == Some(b"Form")
             && s.dict.get(b"Resources").is_none_or(|r| doc.resolve(r).as_dict().is_none())
         {
-            let parsed = pdfcraft_content::parse(&s.decoded()?);
-            if seen.len() > 2_000_000 || ops.len().saturating_add(parsed.ops.len()) > 2_000_000 || parsed.skipped > 0 {
+            let data = budget.decode(&doc.with_direct_parms(s))?;
+            let mut read = openpdf_content::ops(&data);
+            ops.extend(read.by_ref().take((MAX_OPS + 1).saturating_sub(ops.len())));
+            // `seen` gains at most one form for each `Do` in `ops`, so this bounds it too.
+            if ops.len() > MAX_OPS || read.skipped() > 0 {
                 return Err(CosError::Syntax { offset: 0, detail: "redaction could not fully inspect inherited form resources".into() });
             }
-            ops.extend(parsed.ops);
         }
         cursor += 1;
     }
     Ok(ops)
 }
 
-pub(crate) fn prune_properties(doc: &Document, res: &mut Dict, content: &[Vec<u8>]) -> Result<Vec<Object>, CosError> {
+pub(crate) fn prune_properties(doc: &Document, budget: &mut DecodeBudget, res: &mut Dict, content: &[Vec<u8>]) -> Result<Vec<Object>, CosError> {
     let mut properties = res_dict(doc, res, b"Properties");
     if properties.is_empty() {
         return Ok(Vec::new());
     }
     let mut retired = Vec::new();
-    let ops = resource_ops(doc, res, content)?;
+    let ops = resource_ops(doc, budget, res, content)?;
     let names: Vec<Vec<u8>> = properties.iter().map(|(n, _)| n.to_vec()).collect();
     for name in names {
         if !ops.iter().any(|op| matches!(op.op.as_slice(), b"BDC" | b"DP") && op.name(1) == Some(&name))
@@ -489,8 +534,8 @@ pub(crate) fn prune_properties(doc: &Document, res: &mut Dict, content: &[Vec<u8
     Ok(retired)
 }
 
-pub(super) fn prune_form_resources(doc: &Document, res: &mut Dict, content: &[Vec<u8>]) -> Result<(), CosError> {
-    let ops = resource_ops(doc, res, content)?;
+pub(super) fn prune_form_resources(doc: &Document, budget: &mut DecodeBudget, res: &mut Dict, content: &[Vec<u8>]) -> Result<(), CosError> {
+    let ops = resource_ops(doc, budget, res, content)?;
     let mut xo = res_dict(doc, res, b"XObject");
     let names: Vec<Vec<u8>> = xo.iter().map(|(n, _)| n.to_vec()).collect();
     for name in names {

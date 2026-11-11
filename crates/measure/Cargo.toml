@@ -1,5 +1,5 @@
 [package]
-name = "pdfcraft-measure"
+name = "openpdf-measure"
 description = "Calibrated 2D PDF measurements, viewports and snapping"
 version.workspace = true
 edition.workspace = true
@@ -9,12 +9,12 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-pdfcraft-cos = { workspace = true }
-pdfcraft-model = { workspace = true }
-pdfcraft-content = { workspace = true }
-pdfcraft-annot = { workspace = true }
+openpdf-cos = { workspace = true }
+openpdf-model = { workspace = true }
+openpdf-content = { workspace = true }
+openpdf-annot = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-pdfcraft-testkit = { workspace = true }
+openpdf-testkit = { workspace = true }

@@ -1,21 +1,21 @@
 use super::*;
 
-impl PdfCraftApp {
+impl OpenPDFApp {
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn open_remote_link(&mut self, source: DocId, file: String, destination: pdfcraft_render::RemoteDestination) {
+    pub(crate) fn open_remote_link(&mut self, source: DocId, file: String, destination: openpdf_render::RemoteDestination) {
         if self.pending_remote_link.is_some() || self.pending_link.is_some() {
             return;
         }
         let Some(source_doc) = self.session.get(source) else { return };
         let source_path = source_doc.path.clone();
-        let path = match pdfcraft_engine::resolve_remote_document_path(source_path.as_deref().map(std::path::Path::new), &file) {
+        let path = match openpdf_engine::resolve_remote_document_path(source_path.as_deref().map(std::path::Path::new), &file) {
             Ok(path) => path,
             Err(e) => {
                 self.notify_fmt("Couldn't follow linked PDF: {reason}", &[("reason", &e.to_string())]);
                 return;
             }
         };
-        if pdfcraft_engine::remote_document_path_is_absolute(&file) {
+        if openpdf_engine::remote_document_path_is_absolute(&file) {
             self.pending_remote_link = Some(PendingRemoteLink { source, path, destination });
             return;
         }
@@ -34,7 +34,7 @@ impl PdfCraftApp {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn open_resolved_remote_link(&mut self, path: std::path::PathBuf, destination: pdfcraft_render::RemoteDestination) {
+    fn open_resolved_remote_link(&mut self, path: std::path::PathBuf, destination: openpdf_render::RemoteDestination) {
         let path = path.to_string_lossy().into_owned();
         let name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.clone());
         let stamp = file_watch::Stamp::at(&path);
@@ -56,7 +56,7 @@ impl PdfCraftApp {
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub(crate) fn open_remote_link(&mut self, _source: DocId, _file: String, _destination: pdfcraft_render::RemoteDestination) {
+    pub(crate) fn open_remote_link(&mut self, _source: DocId, _file: String, _destination: openpdf_render::RemoteDestination) {
         self.notify_tr("Local cross-PDF links require the desktop app");
     }
 
@@ -65,24 +65,80 @@ impl PdfCraftApp {
         self.pending_remote_link = None;
     }
 
-    pub(super) fn apply_remote_destination(&mut self, destination: pdfcraft_render::RemoteDestination) {
-        let Some(index) = self.views.len().checked_sub(1) else { return };
-        let Some(doc) = self.session.get(self.views[index].id) else { return };
+    pub(super) fn apply_remote_destination(&mut self, destination: openpdf_render::RemoteDestination) {
+        if let Some(index) = self.views.len().checked_sub(1) {
+            self.apply_destination_at(index, destination);
+        }
+    }
+
+    /// Show `destination` in the tab at `index`: a document just opened from a link or with open
+    /// parameters (#3425), or one already open that such a link or launch names. The latest request
+    /// for a document wins over a named destination still being looked up.
+    pub(super) fn apply_destination_at(&mut self, index: usize, destination: openpdf_render::RemoteDestination) {
+        let Some(id) = self.views.get(index).map(|view| view.id) else { return };
+        #[cfg(not(target_arch = "wasm32"))]
+        self.pending_destinations.retain(|pending| pending.doc != id);
+        let destination = match destination {
+            openpdf_render::RemoteDestination::Named(name) => {
+                let Some(doc) = self.session.get(id) else { return };
+                let (bytes, password) = (doc.bytes.clone(), doc.password.clone());
+                // Live, the name tree is read off the UI thread; startup and tests stay inline.
+                #[cfg(not(target_arch = "wasm32"))]
+                if let Some(ctx) = self.ctx.clone().filter(|_| !self.run_inline) {
+                    let (sender, receiver) = std::sync::mpsc::channel();
+                    let (work_bytes, work_password, work_name) = (bytes.clone(), password.clone(), name.clone());
+                    let work = move || {
+                        let _ = sender.send(openpdf_render::named_destination(work_bytes, work_password.as_deref(), &work_name));
+                        ctx.request_repaint();
+                    };
+                    if std::thread::Builder::new().name("openpdf-named-destination".into()).spawn(work).is_ok() {
+                        self.pending_destinations.push(PendingDestination { doc: id, name, receiver });
+                        return;
+                    }
+                }
+                found_destination(openpdf_render::named_destination(bytes, password.as_deref(), &name), name)
+            }
+            other => other,
+        };
+        self.show_destination_at(index, destination);
+    }
+
+    /// Show each named destination whose lookup has finished, in its document's tab.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn poll_pending_destinations(&mut self) {
+        for pending in std::mem::take(&mut self.pending_destinations) {
+            let found = match pending.receiver.try_recv() {
+                Ok(found) => found,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    self.pending_destinations.push(pending);
+                    continue;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => None,
+            };
+            if let Some(index) = self.views.iter().position(|view| view.id == pending.doc) {
+                self.show_destination_at(index, found_destination(found, pending.name));
+            }
+        }
+    }
+
+    fn show_destination_at(&mut self, index: usize, destination: openpdf_render::RemoteDestination) {
+        let Some(view) = self.views.get_mut(index) else { return };
+        let Some(doc) = self.session.get(view.id) else { return };
         let warning = match destination {
-            pdfcraft_render::RemoteDestination::Default => None,
-            pdfcraft_render::RemoteDestination::Named(_) => Some("The linked PDF opened, but its named destination was not applied."),
-            pdfcraft_render::RemoteDestination::Page { page, view } if page < doc.info.pages.len() => {
-                self.views[index].go_to_dest(page, view, &doc.info);
+            openpdf_render::RemoteDestination::Default => None,
+            openpdf_render::RemoteDestination::Named(_) => Some("The linked PDF opened, but its named destination was not applied."),
+            openpdf_render::RemoteDestination::Page { page, view: dest } if page < doc.info.pages.len() => {
+                view.go_to_dest(page, dest, &doc.info);
                 None
             }
-            pdfcraft_render::RemoteDestination::Page { .. } => Some("The linked PDF opened, but its page destination was out of range."),
+            openpdf_render::RemoteDestination::Page { .. } => Some("The linked PDF opened, but its page destination was out of range."),
         };
         if let Some(warning) = warning {
             self.notify_tr(warning);
         }
     }
 
-    /// Open a web link in the system browser (a new tab on the web). Only for PdfCraft's own
+    /// Open a web link in the system browser (a new tab on the web). Only for OpenPDF's own
     /// links; an address that came from a document goes through [`Self::request_document_url`].
     pub fn open_url(&mut self, url: &str) {
         if let Some(ctx) = &self.ctx {
@@ -96,18 +152,18 @@ impl PdfCraftApp {
     /// (#90, #91). While one request is waiting, further ones are dropped, so a script can't
     /// queue up a stream of dialogs.
     pub fn request_document_url(&mut self, url: &str, origin: LinkOrigin) {
-        match pdfcraft_engine::links::document_url(url) {
+        match openpdf_engine::links::document_url(url) {
             Ok(url) => {
                 if self.pending_link.is_none() && self.pending_remote_link.is_none() {
                     self.pending_link = Some(PendingLink { url, origin });
                 }
             }
             Err(e) => {
-                use pdfcraft_engine::links::BlockedLink;
+                use openpdf_engine::links::BlockedLink;
                 let template = if matches!(e, BlockedLink::MailFile | BlockedLink::MailEncodedWord) {
-                    "{who} in this document tried to open an address PdfCraft won't open: {e}."
+                    "{who} in this document tried to open an address OpenPDF won't open: {e}."
                 } else {
-                    "{who} in this document tried to open an address PdfCraft won't open: {e}. Only web (http, https) and email (mailto) links open from documents."
+                    "{who} in this document tried to open an address OpenPDF won't open: {e}. Only web (http, https) and email (mailto) links open from documents."
                 };
                 self.notify_fmt(template, &[("who", tl!(origin.noun())), ("e", &e.to_string())]);
             }
@@ -121,5 +177,14 @@ impl PdfCraftApp {
         {
             self.open_url(&p.url);
         }
+    }
+}
+
+/// A named destination's lookup result as a destination to show: its page, or the name again when
+/// the document doesn't define it, which shows a warning.
+fn found_destination(found: Option<(usize, openpdf_render::DestView)>, name: String) -> openpdf_render::RemoteDestination {
+    match found {
+        Some((page, view)) => openpdf_render::RemoteDestination::Page { page, view },
+        None => openpdf_render::RemoteDestination::Named(name),
     }
 }

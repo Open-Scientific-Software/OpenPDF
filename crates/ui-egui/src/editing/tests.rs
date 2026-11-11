@@ -1,4 +1,15 @@
-use super::{SaveTarget, is_mail_temp_copy, save_dialog_folder, write_atomically, write_atomically_syncing, write_atomically_with};
+use super::{
+    SaveTarget, is_mail_temp_copy, save_dialog_folder, unredacted_file_name, write_atomically, write_atomically_syncing, write_atomically_with,
+};
+
+#[test]
+fn restored_content_is_not_proposed_under_the_redacted_name() {
+    assert_eq!(unredacted_file_name("contract_Redacted.pdf"), "contract.pdf");
+    assert_eq!(unredacted_file_name("SCAN_Redacted.PDF"), "SCAN.PDF");
+    assert_eq!(unredacted_file_name("Untitled_Redacted"), "Untitled");
+    assert_eq!(unredacted_file_name("contract.pdf"), "contract.pdf");
+    assert_eq!(unredacted_file_name("_Redacted.pdf"), "_Redacted.pdf");
+}
 
 #[test]
 fn save_dialogs_open_in_the_documents_folder() {
@@ -23,19 +34,19 @@ fn save_dialog_folder_handles_unc_paths() {
     assert_eq!(save_dialog_folder(Some(r"\\nas\projets")), None);
     assert_eq!(save_dialog_folder(Some(r"C:\Users\a\f.pdf")), Some(PathBuf::from(r"C:\Users\a")));
 }
-use pdfcraft_platform::staging::{STAGING_ATTEMPTS, staging_suffixes};
+use openpdf_platform::staging::{STAGING_ATTEMPTS, staging_suffixes};
 use std::path::{Path, PathBuf};
 
 /// A fresh, empty folder for one staging test.
 fn staging_dir(test: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("pdfcraft-ui-staging-{}-{test}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("openpdf-ui-staging-{}-{test}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
 
 fn staged(dir: &Path, suffix: u64) -> PathBuf {
-    dir.join(format!(".out.pdf.pdfcraft-{suffix:016x}.tmp"))
+    dir.join(format!(".out.pdf.openpdf-{suffix:016x}.tmp"))
 }
 
 fn read(p: &Path) -> String {
@@ -298,9 +309,9 @@ fn one_page_pdf() -> Vec<u8> {
 
 /// `one_page_pdf`, opening without a password, whose permissions refuse changes.
 fn no_changes_pdf() -> Vec<u8> {
-    let mut doc = pdfcraft_cos::Document::open(std::sync::Arc::new(one_page_pdf())).unwrap();
-    let encryption = pdfcraft_cos::NewEncryption {
-        algorithm: pdfcraft_cos::Algorithm::Aes256,
+    let mut doc = openpdf_cos::Document::open(std::sync::Arc::new(one_page_pdf())).unwrap();
+    let encryption = openpdf_cos::NewEncryption {
+        algorithm: openpdf_cos::Algorithm::Aes256,
         user_password: "",
         owner_password: "owner",
         permissions: -1 ^ 8,
@@ -308,7 +319,7 @@ fn no_changes_pdf() -> Vec<u8> {
         seed: [4; 32],
     };
     doc.set_encryption(&encryption).unwrap();
-    pdfcraft_cos::write_full(&doc, &Default::default()).unwrap()
+    openpdf_cos::write_full(&doc, &Default::default()).unwrap()
 }
 
 /// Undo with a new text box open on a document that refuses changes: the box is put back as
@@ -316,7 +327,7 @@ fn no_changes_pdf() -> Vec<u8> {
 /// behind once the add was refused.
 #[test]
 fn a_refused_text_box_is_put_back_whole() {
-    let mut app = crate::PdfCraftApp::new();
+    let mut app = crate::OpenPDFApp::new();
     app.set_option("language", "en").unwrap();
     app.open_bytes("a.pdf", None, no_changes_pdf()).unwrap();
     let style = crate::content_ui::default_style();
@@ -340,7 +351,7 @@ fn a_refused_text_box_is_put_back_whole() {
 fn save_commits_the_open_text_box() {
     let dir = staging_dir("open-text-box");
     let dest = dir.join("out.pdf");
-    let mut app = crate::PdfCraftApp::new();
+    let mut app = crate::OpenPDFApp::new();
     app.set_option("language", "en").unwrap();
     app.open_bytes("a.pdf", None, one_page_pdf()).unwrap();
     app.save_override = Some(dest.to_string_lossy().into_owned());
@@ -365,6 +376,40 @@ fn save_commits_the_open_text_box() {
 }
 
 #[test]
+fn moving_pages_cancels_an_in_progress_drawing() {
+    let objs = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] >>",
+    ];
+    let mut pdf = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (i, o) in objs.iter().enumerate() {
+        offsets.push(pdf.len());
+        pdf.extend_from_slice(format!("{} 0 obj\n{o}\nendobj\n", i + 1).as_bytes());
+    }
+    let xref = pdf.len();
+    pdf.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1).as_bytes());
+    for o in offsets {
+        pdf.extend_from_slice(format!("{o:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend_from_slice(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objs.len() + 1).as_bytes());
+
+    let mut app = crate::OpenPDFApp::new();
+    app.set_option("language", "en").unwrap();
+    app.open_bytes("a.pdf", None, pdf).unwrap();
+    let drawing =
+        || Some(crate::comments::Gesture::Draw { page: 0, tool: crate::comments::CommentTool::Ink, points: vec![[10.0, 10.0], [30.0, 20.0]] });
+    app.views[0].comments.gesture = drawing();
+    assert!(app.apply_edit(openpdf_engine::Edit::RotatePages { pages: vec![0], degrees: 90 }));
+    assert!(app.views[0].comments.gesture.is_some(), "rotating the page keeps the drawing on it");
+    app.views[0].comments.gesture = drawing();
+    assert!(app.apply_edit(openpdf_engine::Edit::MovePages { pages: vec![1], to: 0 }));
+    assert!(app.views[0].comments.gesture.is_none(), "the drawing's page index would now be a different page");
+}
+
+#[test]
 fn save_asks_where_to_keep_an_email_attachment_and_leaves_the_temporary_copy_alone() {
     let dir = staging_dir("mail-temp");
     let cache = dir.join("INetCache").join("Content.Outlook").join("AB12CD34");
@@ -374,10 +419,10 @@ fn save_asks_where_to_keep_an_email_attachment_and_leaves_the_temporary_copy_alo
     std::fs::write(&attachment, &original).unwrap();
     let kept = dir.join("Quote.pdf");
 
-    let mut app = crate::PdfCraftApp::new();
+    let mut app = crate::OpenPDFApp::new();
     app.set_option("language", "en").unwrap();
     app.open_bytes("Quote.pdf", Some(attachment.to_string_lossy().into_owned()), original.clone()).unwrap();
-    assert!(app.apply_edit(pdfcraft_engine::Edit::RotatePages { pages: vec![0], degrees: 90 }));
+    assert!(app.apply_edit(openpdf_engine::Edit::RotatePages { pages: vec![0], degrees: 90 }));
     app.pick_override = Some(vec![kept.to_string_lossy().into_owned()]);
 
     assert!(!app.save_active(SaveTarget::InPlace), "Save asks instead of writing the temporary copy");
@@ -387,7 +432,7 @@ fn save_asks_where_to_keep_an_email_attachment_and_leaves_the_temporary_copy_alo
 
     // The chosen file is the document's file now: the next Save writes it without asking.
     app.pick_override = None;
-    assert!(app.apply_edit(pdfcraft_engine::Edit::RotatePages { pages: vec![0], degrees: 90 }));
+    assert!(app.apply_edit(openpdf_engine::Edit::RotatePages { pages: vec![0], degrees: 90 }));
     assert!(app.save_active(SaveTarget::InPlace));
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -400,12 +445,12 @@ fn save_asks_where_to_keep_an_email_attachment_and_leaves_the_temporary_copy_alo
 fn recolouring_print_ink_text_in_its_box_drops_the_ink_without_an_empty_step() {
     // 100 K text, open in its box.
     let open = || {
-        let mut app = crate::PdfCraftApp::new();
+        let mut app = crate::OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("a.pdf", None, one_page_pdf()).unwrap();
-        let mut text = pdfcraft_engine::AddedText { rect: [20.0, 200.0, 180.0, 220.0], text: "Proof".into(), ..Default::default() };
-        text.set_ink(Some(pdfcraft_engine::TextInk::Cmyk([0.0, 0.0, 0.0, 1.0])));
-        assert!(app.apply_edit(pdfcraft_engine::Edit::AddText { page: 0, text }));
+        let mut text = openpdf_engine::AddedText { rect: [20.0, 200.0, 180.0, 220.0], text: "Proof".into(), ..Default::default() };
+        text.set_ink(Some(openpdf_engine::TextInk::Cmyk([0.0, 0.0, 0.0, 1.0])));
+        assert!(app.apply_edit(openpdf_engine::Edit::AddText { page: 0, text }));
         let stored = item(&app);
         assert!(stored.painted_ink().is_some());
         app.views[0].content.draft = Some(crate::content_ui::TextDraft {
@@ -420,18 +465,18 @@ fn recolouring_print_ink_text_in_its_box_drops_the_ink_without_an_empty_step() {
         });
         app
     };
-    fn item(app: &crate::PdfCraftApp) -> pdfcraft_engine::AddedText {
+    fn item(app: &crate::OpenPDFApp) -> openpdf_engine::AddedText {
         match &app.session.get(app.views[0].id).unwrap().added()[0].content {
-            pdfcraft_engine::AddedContent::Text(t) => t.clone(),
+            openpdf_engine::AddedContent::Text(t) => t.clone(),
             other => panic!("{other:?}"),
         }
     }
     // The box's style with another colour, set as the Format panel hands it over.
-    let recolour = |app: &mut crate::PdfCraftApp, color: [f64; 3]| {
+    let recolour = |app: &mut crate::OpenPDFApp, color: [f64; 3]| {
         let style = app.views[0].content.draft.as_ref().map(|d| d.style.clone()).unwrap();
-        app.restyle_draft(0, pdfcraft_engine::AddedText { color, ..style });
+        app.restyle_draft(0, openpdf_engine::AddedText { color, ..style });
     };
-    let finish = |app: &mut crate::PdfCraftApp| {
+    let finish = |app: &mut crate::OpenPDFApp| {
         let added = app.session.get(app.views[0].id).unwrap().added().to_vec();
         app.views[0].content.finish_draft(&added)
     };

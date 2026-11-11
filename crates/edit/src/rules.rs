@@ -1,8 +1,8 @@
 //! A page's ruled lines: the horizontal and vertical strokes (and thin filled bars) its content
 //! draws, so exports can tell a ruled table from text that merely lines up (#5149).
 
-use pdfcraft_content::Matrix;
-use pdfcraft_cos::Document;
+use openpdf_content::Matrix;
+use openpdf_cos::Document;
 
 use crate::EditError;
 
@@ -23,9 +23,13 @@ const THIN: f64 = 2.0;
 /// slanted lines and paths that are only clipped are left out, and so are the contents of forms.
 /// At most [`MAX_RULES`] rules, in content order.
 pub fn page_rules(doc: &Document, page: usize) -> Result<Vec<[f64; 4]>, EditError> {
-    let pages = pdfcraft_model::pages(doc);
+    let pages = openpdf_model::pages(doc);
     let p = pages.get(page).ok_or(EditError::NoSuchPage(page))?;
     let streams = crate::text::content_streams(doc, &p.dict)?;
+    // Unread content can change the graphics state used by every later stream.
+    if streams.iter().any(|stream| stream.read != crate::text::Read::Whole) {
+        return Err(EditError::Invalid("page content could not be completely decoded; cannot extract its ruled lines safely".into()));
+    }
     let pieces = crate::text::joined(&streams);
     let ops = pieces.parse().ops;
 

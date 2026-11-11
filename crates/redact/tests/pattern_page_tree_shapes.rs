@@ -4,10 +4,10 @@
 
 use std::sync::Arc;
 
-use pdfcraft_annot::{Meta, NewAnnotation, Shape, Style, add_annotation, rect_quad};
-use pdfcraft_cos::{Document, Object, SaveOptions, write_full, write_incremental};
-use pdfcraft_redact::{RedactError, apply, marks};
-use pdfcraft_testkit::{Pdf, stream_obj};
+use openpdf_annot::{Meta, NewAnnotation, Shape, Style, add_annotation, rect_quad};
+use openpdf_cos::{Document, Object, SaveOptions, write_full, write_incremental};
+use openpdf_redact::{RedactError, apply, marks};
+use openpdf_testkit::{Pdf, stream_obj};
 
 const SECRET: &[u8] = b"ADV2CELLSECRET";
 const TEXT_CELL: &[u8] = b"BT /F1 20 Tf 40 120 Td (ADV2CELLSECRET) Tj ET\n";
@@ -225,8 +225,8 @@ fn control_a_shorter_document_with_a_pattern_on_one_page_applies() {
 }
 fn glyph_pixel(doc: &Document, x: u32, row: u32) -> Vec<u8> {
     let bytes = write_full(doc, &SaveOptions::default()).unwrap();
-    let mut r = pdfcraft_render::PageRenderer::new(Arc::new(bytes), pdfcraft_render::RenderConfig::default());
-    let out = r.render(pdfcraft_render::RenderRequest { page: 0, scale: 1.0, ..Default::default() });
+    let mut r = openpdf_render::PageRenderer::new(Arc::new(bytes), openpdf_render::RenderConfig::default());
+    let out = r.render(openpdf_render::RenderRequest { page: 0, scale: 1.0, ..Default::default() });
     let i = ((row * out.width + x) * 4) as usize;
     out.rgba[i..i + 3].to_vec()
 }

@@ -1,4 +1,4 @@
-//! pdfcraft-edit — page content editing (L4). Today: page marks, Acrobat's Header & footer,
+//! openpdf-edit — page content editing (L4). Today: page marks, Acrobat's Header & footer,
 //! Watermark, Background and Bates numbering (execution plan M7.6).
 //!
 //! **Atomic page-mark operations.** Adding or replacing headers/footers, watermarks and backgrounds
@@ -22,8 +22,8 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
-use pdfcraft_cos::{Dict, Document, ObjRef, Object, Stream};
-use pdfcraft_fonts::helvetica_width;
+use openpdf_cos::{Dict, Document, ObjRef, Object, Stream};
+use openpdf_fonts::helvetica_width;
 
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum EditError {
@@ -33,7 +33,7 @@ pub enum EditError {
     #[error("{0}")]
     Invalid(String),
     #[error("{0}")]
-    Cos(#[from] pdfcraft_cos::CosError),
+    Cos(#[from] openpdf_cos::CosError),
 }
 
 pub type Rgb = [f64; 3];
@@ -61,11 +61,17 @@ mod linebreak;
 pub mod paragraph_align;
 pub mod text;
 pub use text::{
-    BlockKey, BlockStyle, LineEdit, MAX_FORM_DEPTH, MAX_FORM_VISITS, RangeStyle, ReadingBlocks, TextBlock, TextLine, TextSession, block_overlapping,
-    clear_block, glyph_text_lines, reading_blocks, reading_blocks_checked, replace_block, replace_line, rewrite_block, text_blocks, text_lines,
+    BlockKey, BlockStyle, LineEdit, MAX_FORM_DEPTH, MAX_FORM_VISITS, RangeStyle, ReadingBlocks, RunSources, TextBlock, TextLine, TextSession,
+    block_overlapping, clear_block, glyph_text_lines, reading_blocks, reading_blocks_checked, replace_block, replace_line, rewrite_block,
+    text_blocks, text_lines,
 };
+pub mod printer_marks;
+pub use printer_marks::{PrinterMarks, add_printer_marks};
+mod colour;
+pub mod convert_colours;
 pub mod hairlines;
 mod page_streams;
+pub use convert_colours::{ColourTarget, ConvertColours, Converted as ColoursConverted, ImageRecolour, convert_colours};
 pub use hairlines::{Fixed as HairlinesFixed, Hairlines, fix_hairlines};
 pub mod added;
 pub use added::{
@@ -88,6 +94,8 @@ use place::{ISOLATION_MAX_DEPTH, OLD_WRAP_CLOSE, WRAP_CLOSE, WRAP_OPEN, is_wrap_
 use place::{Reach, check, check_on_top, contents, draw_on_top, lift_on_top, page_list, place_tagged, revealed_under_paint};
 pub use place::{add_type3_fonts, stamp, stamp_with_fonts, undrawable_message};
 
+#[cfg(test)]
+mod find_replace_rows_tests;
 #[cfg(test)]
 mod marked_isolation_tests;
 #[cfg(test)]

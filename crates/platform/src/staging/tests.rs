@@ -2,7 +2,7 @@ use super::*;
 
 /// A fresh, empty folder for one test.
 fn test_dir(test: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("pdfcraft-platform-staging-{}-{test}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("openpdf-platform-staging-{}-{test}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
@@ -18,9 +18,9 @@ fn file_name(p: &Path) -> String {
 fn each_form_keeps_its_exact_name() {
     let dir = test_dir("forms");
     let (tools, _) = create_staging(&dir, "out.pdf", StagingName::SuffixThenTag, [0xab]).unwrap();
-    assert_eq!(file_name(&tools), ".out.pdf.00000000000000ab.pdfcraft-tmp");
+    assert_eq!(file_name(&tools), ".out.pdf.00000000000000ab.openpdf-tmp");
     let (desktop, _) = create_staging(&dir, "out.pdf", StagingName::TagThenSuffix, [0xab]).unwrap();
-    assert_eq!(file_name(&desktop), ".out.pdf.pdfcraft-00000000000000ab.tmp");
+    assert_eq!(file_name(&desktop), ".out.pdf.openpdf-00000000000000ab.tmp");
     assert_eq!(std::fs::read(&tools).unwrap(), b"", "a new, empty file");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -31,10 +31,10 @@ fn a_long_name_is_cut_to_128_bytes_between_characters() {
     // One byte, then four-byte characters: the 128-byte limit falls inside the 32nd one.
     let name = format!("a{}.pdf", "\u{1F600}".repeat(40));
     let (tmp, _) = create_staging(&dir, &name, StagingName::SuffixThenTag, [1]).unwrap();
-    assert_eq!(file_name(&tmp), format!(".a{}.0000000000000001.pdfcraft-tmp", "\u{1F600}".repeat(31)));
+    assert_eq!(file_name(&tmp), format!(".a{}.0000000000000001.openpdf-tmp", "\u{1F600}".repeat(31)));
     // One-byte characters: exactly 128 of them are kept.
     let (tmp, _) = create_staging(&dir, &"x".repeat(200), StagingName::SuffixThenTag, [2]).unwrap();
-    assert_eq!(file_name(&tmp), format!(".{}.0000000000000002.pdfcraft-tmp", "x".repeat(128)));
+    assert_eq!(file_name(&tmp), format!(".{}.0000000000000002.openpdf-tmp", "x".repeat(128)));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -77,7 +77,7 @@ fn running_out_of_suffixes_refuses_and_creates_nothing() {
 #[test]
 fn only_the_first_sixteen_names_are_tried() {
     let dir = test_dir("cap");
-    let name = |s: u64| dir.join(format!(".out.pdf.{s:016x}.pdfcraft-tmp"));
+    let name = |s: u64| dir.join(format!(".out.pdf.{s:016x}.openpdf-tmp"));
     for s in 1..=STAGING_ATTEMPTS as u64 {
         std::fs::write(name(s), "PLANTED").unwrap();
     }
@@ -127,9 +127,9 @@ fn atomic_saves_keep_finder_tags_and_binary_extended_attributes() {
     let dir = test_dir("xattrs");
     let target = dir.join("out.pdf");
     let attributes: &[(&str, &[u8])] = &[
-        ("com.apple.metadata:_kMDItemUserTags", b"<plist version=\"1.0\"><array><string>PdfCraft\n6</string></array></plist>"),
-        ("com.pdfcraft.test.binary", b"\0\xff\x80original\0"),
-        ("com.pdfcraft.test.empty", b""),
+        ("com.apple.metadata:_kMDItemUserTags", b"<plist version=\"1.0\"><array><string>OpenPDF\n6</string></array></plist>"),
+        ("com.openpdf.test.binary", b"\0\xff\x80original\0"),
+        ("com.openpdf.test.empty", b""),
     ];
     std::fs::write(&target, b"OLD").unwrap();
     for (name, value) in attributes {
@@ -172,12 +172,12 @@ fn a_failed_flush_keeps_the_original_extended_attributes() {
     let dir = test_dir("xattrs-flush");
     let target = dir.join("out.pdf");
     std::fs::write(&target, b"OLD").unwrap();
-    setxattr(&target, "com.pdfcraft.test", b"original", XattrFlags::empty()).unwrap();
+    setxattr(&target, "com.openpdf.test", b"original", XattrFlags::empty()).unwrap();
     let e = write_atomically_with(&target, b"NEW", StagingName::TagThenSuffix, [9], |_| Err(std::io::Error::other("flush refused"))).unwrap_err();
     assert!(e.to_string().contains("flush refused"));
     assert_eq!(std::fs::read(&target).unwrap(), b"OLD");
     let mut value = [0u8; 64];
-    let len = getxattr(&target, "com.pdfcraft.test", &mut value[..]).unwrap();
+    let len = getxattr(&target, "com.openpdf.test", &mut value[..]).unwrap();
     assert_eq!(&value[..len], b"original");
     assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
     std::fs::remove_dir_all(dir).unwrap();
@@ -280,7 +280,7 @@ fn replacing_a_symlink_does_not_copy_attributes_from_its_referent() {
     let dir = test_dir("xattrs-symlink");
     let outside = test_dir("xattrs-outside").join("private.pdf");
     std::fs::write(&outside, b"PRIVATE").unwrap();
-    setxattr(&outside, "com.pdfcraft.test", b"private metadata", XattrFlags::empty()).unwrap();
+    setxattr(&outside, "com.openpdf.test", b"private metadata", XattrFlags::empty()).unwrap();
     let target = dir.join("out.pdf");
     std::os::unix::fs::symlink(&outside, &target).unwrap();
     write_atomically(&target, b"NEW", StagingName::TagThenSuffix).unwrap();
@@ -288,8 +288,8 @@ fn replacing_a_symlink_does_not_copy_attributes_from_its_referent() {
     assert_eq!(std::fs::read(&target).unwrap(), b"NEW");
     assert!(!target.symlink_metadata().unwrap().file_type().is_symlink());
     let mut bytes = [0u8; 64];
-    assert_eq!(getxattr(&target, "com.pdfcraft.test", &mut bytes[..]).unwrap_err(), rustix::io::Errno::NOATTR);
-    let len = getxattr(&outside, "com.pdfcraft.test", &mut bytes[..]).unwrap();
+    assert_eq!(getxattr(&target, "com.openpdf.test", &mut bytes[..]).unwrap_err(), rustix::io::Errno::NOATTR);
+    let len = getxattr(&outside, "com.openpdf.test", &mut bytes[..]).unwrap();
     assert_eq!(&bytes[..len], b"private metadata");
     std::fs::remove_dir_all(dir).unwrap();
     std::fs::remove_dir_all(outside.parent().unwrap()).unwrap();
@@ -446,5 +446,78 @@ fn a_replaced_link_keeps_its_own_attributes_not_its_targets() {
     assert_eq!(std::fs::read(&link).unwrap(), b"NEW");
     assert_eq!(std::fs::read(&referent).unwrap(), b"OLD", "the file the link pointed to is untouched");
     assert_ne!(std::fs::metadata(&referent).unwrap().file_attributes() & HIDDEN, 0, "and still hidden");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// #5001, #4593: a save overwriting an existing file preserves its original attributes even if
+/// the server (such as Samba/QNAP NAS hiding dot-files) marks the temporary staging file hidden.
+#[cfg(windows)]
+#[test]
+fn a_replaced_file_restores_attributes_if_server_hides_staging_file() {
+    use std::os::windows::fs::{MetadataExt as _, OpenOptionsExt as _};
+    const HIDDEN: u32 = 0x2;
+    let dir = test_dir("server-hides-staging");
+    let target = dir.join("plain.pdf");
+    std::fs::write(&target, b"OLD").unwrap();
+    assert_eq!(std::fs::metadata(&target).unwrap().file_attributes() & HIDDEN, 0, "target starts visible");
+
+    // Create a temporary hidden reference file to obtain permissions with the HIDDEN attribute.
+    let hidden_ref = dir.join("hidden_ref");
+    let _ = std::fs::OpenOptions::new().write(true).create_new(true).attributes(HIDDEN).open(&hidden_ref).unwrap();
+    let hidden_perm = std::fs::metadata(&hidden_ref).unwrap().permissions();
+    let _ = std::fs::remove_file(&hidden_ref);
+
+    for form in [StagingName::TagThenSuffix, StagingName::SuffixThenTag] {
+        write_atomically_with(&target, b"NEW", form, [77], |_file| {
+            // Find the staging file in dir (the file that is not target):
+            for entry in std::fs::read_dir(&dir)? {
+                let path = entry?.path();
+                if path != target {
+                    // Mark the staging file as HIDDEN on disk (simulating Samba hiding dot-files).
+                    std::fs::set_permissions(&path, hidden_perm.clone())?;
+                    assert_ne!(std::fs::metadata(&path)?.file_attributes() & HIDDEN, 0, "staging file was marked hidden");
+                }
+            }
+            Ok(())
+        })
+        .unwrap();
+
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().file_attributes() & HIDDEN,
+            0,
+            "the saved file remains visible despite server hiding the staging file"
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), b"NEW");
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+#[cfg(windows)]
+fn a_replaced_local_file_keeps_archive_bit_intact() {
+    use std::os::windows::fs::MetadataExt as _;
+    let mut dir = std::env::temp_dir();
+    dir.push(format!("openpdf-platform-test-archive-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let target = dir.join("plain.pdf");
+    std::fs::write(&target, b"OLD").unwrap();
+
+    // Clear the archive bit on the replaced file (simulating backup tools like robocopy /M or attrib -A).
+    const ARCHIVE: u32 = 0x20;
+    let status = std::process::Command::new("attrib").arg("-A").arg(&target).status().unwrap();
+    assert!(status.success(), "attrib -A succeeded");
+    let old_attrs = std::fs::metadata(&target).unwrap().file_attributes();
+    assert_eq!(old_attrs & ARCHIVE, 0, "archive bit was cleared on the old file");
+
+    write_atomically(&target, b"NEW", StagingName::TagThenSuffix).unwrap();
+
+    // The newly written file must have the archive bit set by the system (#5001, #4593, #6029, #6119).
+    let new_attrs = std::fs::metadata(&target).unwrap().file_attributes();
+    assert_ne!(new_attrs & ARCHIVE, 0, "the newly saved file has the archive bit set by the file system");
+    assert_eq!(std::fs::read(&target).unwrap(), b"NEW");
+
     let _ = std::fs::remove_dir_all(&dir);
 }

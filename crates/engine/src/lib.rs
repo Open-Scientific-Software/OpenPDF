@@ -1,9 +1,9 @@
-//! pdfcraft-engine — the façade every frontend talks to (architecture §4).
+//! openpdf-engine — the façade every frontend talks to (architecture §4).
 //!
 //! Holds open documents, their edit history and the tool catalogue. Frontends never touch the
 //! parsing, rendering or editing crates directly.
 //!
-//! **Editing model.** Each document keeps a `pdfcraft_cos::Document` (the object graph with a
+//! **Editing model.** Each document keeps a `openpdf_cos::Document` (the object graph with a
 //! copy-on-write overlay of edits). An edit runs on a clone, and on success the previous state is
 //! pushed onto the undo stack (clones share all unchanged data, so this is cheap). After every
 //! edit the *working file* is produced by an incremental write — original bytes plus one
@@ -32,6 +32,7 @@ mod error;
 pub mod export;
 pub mod field_table;
 mod fill_sign;
+pub mod find_replace;
 mod history;
 pub mod js;
 mod layers;
@@ -40,6 +41,7 @@ pub mod model3d;
 mod object_clip;
 pub mod ocr;
 mod open;
+pub mod open_parameters;
 pub mod optimizer;
 mod page_filter;
 mod pictures;
@@ -54,6 +56,7 @@ mod session;
 pub mod signature_image;
 pub mod signature_scan;
 mod sources;
+pub mod spooler;
 mod stamp_preview;
 #[cfg(test)]
 mod test_hooks;
@@ -71,73 +74,77 @@ use std::sync::Arc;
 pub use links::{
     MAX_REMOTE_DOCUMENT_BYTES, RemoteDocumentPathError, read_remote_document, remote_document_path_is_absolute, resolve_remote_document_path,
 };
-pub use pdfcraft_edit::strip_subset_tag;
+pub use openpdf_edit::strip_subset_tag;
 pub use rich_copy::RichCopy;
 pub use signature_image::{ImageSignaturePreview, SignatureImage};
 pub use signature_scan::{PhotoRect, ScanError, SignaturePhoto, Turn};
 pub use stamp_preview::{CommentLayer, StampPreview};
 pub use text_preview::{TextEditPreview, UnmarkedPages};
 
-pub use pdfcraft_organize::{
+pub use openpdf_organize::{
     BoxSpec, FieldConflicts, MAX_IMPORT_BOOKMARKS, OutlineNode, OutlineTree, PageBox, SplitBy, Transition, TransitionSpec, mime_for_name,
     split_ranges, unmapped as outline_unmapped, view_arity as outline_view_arity,
 };
 
-pub use pdfcraft_organize::LabelStyle;
-pub use pdfcraft_organize::Standard;
-pub use pdfcraft_organize::check_custom_key;
-pub use pdfcraft_organize::view::{InitialView, Layout as InitialLayout, Magnification, Navigation};
+pub use openpdf_organize::LabelStyle;
+pub use openpdf_organize::Standard;
+pub use openpdf_organize::check_custom_key;
+pub use openpdf_organize::view::{InitialView, Layout as InitialLayout, Magnification, Navigation};
 
-pub use pdfcraft_cos::{Algorithm, civil_from_days};
-pub use pdfcraft_create::{CONVERTIBLE, CreateError, ImageResolution, SourceKind, decode_text, source_kind};
-pub use pdfcraft_edit::added::{
+pub use openpdf_cos::{Algorithm, civil_from_days};
+pub use openpdf_create::{CONVERTIBLE, CreateError, ImageResolution, SourceKind, decode_text, source_kind};
+pub use openpdf_edit::added::{
     CHAR_SPACING_LIMIT as ADDED_CHAR_SPACING_LIMIT, paste_place as added_paste_place, paste_rect as added_paste_rect, text_rect as added_text_rect,
     text_width as added_text_width,
 };
-pub use pdfcraft_edit::paragraph_align;
-pub use pdfcraft_edit::{
-    Added, AddedImage, AddedText, Align as TextAlign, Background, Content as AddedContent, Family as FontFamily, Hairlines, HairlinesFixed,
-    HeaderFooter, Ink as TextInk, MarkKind, Watermark,
+pub use openpdf_edit::paragraph_align;
+pub use openpdf_edit::{
+    Added, AddedImage, AddedText, Align as TextAlign, Background, ColourTarget, ColoursConverted, Content as AddedContent, ConvertColours,
+    Family as FontFamily, Hairlines, HairlinesFixed, HeaderFooter, Ink as TextInk, MarkKind, PrinterMarks, Watermark,
 };
-pub use pdfcraft_forms::{
+pub use openpdf_forms::{
     BorderStyle, CalculatedField, CalculationIssue, CalculationOrder, CheckStyle, Field as FormField, FieldAction, FieldChange, FieldFont,
     FieldKind as FormFieldKind, FieldProps, FieldValue, Look as FieldLook, LookPatch as FieldLookPatch, NewField, TabOrder, Trigger as FieldTrigger,
     Widget as FormWidget, af as form_scripts, appearance as form_appearance, appearance::auto_text_size_by as field_auto_text_size_by,
     appearance::comb_auto_text_size as field_comb_auto_text_size, calculations_changed as form_calculations_changed, flags as field_flags,
 };
 
-pub use pdfcraft_a11y as a11y;
-pub use pdfcraft_edit::{Backdrop, BlockKey, BlockStyle, PageImage, RangeStyle, TextBlock, TextLine, block_overlapping, first_undrawable};
-pub use pdfcraft_measure as measure;
-pub use pdfcraft_xfa::Report as XfaLayout;
+pub use openpdf_a11y as a11y;
+pub use openpdf_edit::{Backdrop, BlockKey, BlockStyle, PageImage, RangeStyle, TextBlock, TextLine, block_overlapping, first_undrawable};
+pub use openpdf_measure as measure;
+pub use openpdf_xfa::Report as XfaLayout;
 
 pub use object_clip::{ObjectClip, ObjectClipboard};
-pub use pdfcraft_edit::{EditableObject, MAX_MOVE_OBJECTS, ObjectKind, ObjectTarget};
+pub use openpdf_edit::{EditableObject, MAX_MOVE_OBJECTS, ObjectKind, ObjectTarget};
 
-pub use pdfcraft_fonts::{MAX_SIGNATURE_CHARS, ScriptOutline, script_missing, script_outline, undrawable_message};
+pub use openpdf_fonts::{MAX_SIGNATURE_CHARS, ScriptOutline, script_missing, script_outline, undrawable_message};
 
 /// Comment geometry helpers (text-box line breaking) for frontends.
-pub use pdfcraft_annot::appearance as annot_text;
-pub use pdfcraft_annot::links::{Highlight as LinkHighlight, LinkAction, LinkItem, LinkStyle, LinkZoom};
-pub use pdfcraft_annot::{
-    Activation3d, AppearanceCache, AttachIcon, BorderShape, FillMark, LineEnding, Markup, NOTE_SIZE, NewAnnotation, NoteIcon, OverlayFont,
-    OverlayLook, Props as CommentProps, ReviewState, Rgb, Shape, StampGroup, StampKind, Style, rect_quad,
+pub use openpdf_annot::appearance as annot_text;
+pub use openpdf_annot::links::{Highlight as LinkHighlight, LinkAction, LinkItem, LinkStyle, LinkZoom};
+pub use openpdf_annot::{
+    Activation3d, AppearanceCache, AttachIcon, BorderShape, CALLOUT_KNEE_LINE, FillMark, LineEnding, Markup, NOTE_SIZE, NewAnnotation, NoteIcon,
+    OverlayFont, OverlayLook, Props as CommentProps, ReviewState, Rgb, Shape, Side as CalloutSide, StampGroup, StampKind, Style, callout_attach,
+    callout_knee, callout_side, rect_quad,
 };
-pub use pdfcraft_annot::{MAX_MODEL_BYTES as MAX_3D_MODEL_BYTES, ModelFormat as Model3dFormat};
-pub use pdfcraft_forms::detect;
-pub use pdfcraft_optimize as optimize;
-pub use pdfcraft_preflight as pdfa;
-pub use pdfcraft_print as print;
-pub use pdfcraft_redact::codes::{CODE_SETS as REDACTION_CODE_SETS, CodeSet as RedactionCodeSet};
-pub use pdfcraft_redact::patterns::{
+pub use openpdf_annot::{MAX_MODEL_BYTES as MAX_3D_MODEL_BYTES, ModelFormat as Model3dFormat};
+pub use openpdf_forms::detect;
+pub use openpdf_optimize as optimize;
+pub use openpdf_preflight as pdfa;
+pub use openpdf_print as print;
+pub use openpdf_redact::Elsewhere as RedactionElsewhere;
+pub use openpdf_redact::codes::{CODE_SETS as REDACTION_CODE_SETS, CodeSet as RedactionCodeSet};
+pub use openpdf_redact::patterns::{
     MAX_WORDS as REDACT_MAX_WORDS, PATTERNS as REDACT_PATTERNS, Pattern as RedactPattern, find as find_pattern, word_list as redact_word_list,
 };
-pub use pdfcraft_redact::sanitize::{HIDDEN, Hidden};
-pub use pdfcraft_redact::user_regex::{UserRegex as RedactRegex, VALIDATORS as REDACT_VALIDATORS, Validator as RedactValidator};
-pub use pdfcraft_sign as sign;
-pub use pdfcraft_sign::{SignOptions, SignatureInfo, Status as SignatureStatus, StatusCaptions, TrustStore};
-pub use pdfcraft_xfdf::Format as DataFormat;
-pub use pdfcraft_xfdf::{Outline as CommentOutline, comment_count, comment_outlines, comments_bounds, is_xfdf_comments};
+pub use openpdf_redact::redacted_file_name;
+pub use openpdf_redact::sanitize::{HIDDEN, Hidden};
+pub use openpdf_redact::user_regex::{UserRegex as RedactRegex, VALIDATORS as REDACT_VALIDATORS, Validator as RedactValidator};
+pub use openpdf_redact::{Claim as RedactionClaim, Identification as RedactionIdentification};
+pub use openpdf_sign as sign;
+pub use openpdf_sign::{SignOptions, SignatureInfo, Status as SignatureStatus, StatusCaptions, TrustStore};
+pub use openpdf_xfdf::Format as DataFormat;
+pub use openpdf_xfdf::{Outline as CommentOutline, comment_count, comment_outlines, comments_bounds, is_xfdf_comments};
 
 use bookmarks::outline_rows;
 pub use bookmarks::{BookmarkPage, BookmarkRow};
@@ -174,19 +181,22 @@ use xfa_form::{
 mod clock;
 mod doc_state;
 
-pub use pdfcraft_edit::ArrangeOrder;
+pub use openpdf_edit::ArrangeOrder;
 
 use clock::{local_utc_offset, parse_ymd};
 pub use doc_state::{DocId, ImageEdit, OptimizeReport, RecoverySnapshot, SplitPart, guard, merge_data_files};
 use doc_state::{LOW_RESOLUTION_PRINT_DPI, render_threads, renderer_password, signatures_of, writable};
 
 /// The configuration of the pool that draws the viewer: the document's own, plus installed CJK
-/// fonts for fonts a PDF does not embed (`pdfcraft_render::RenderConfig::system_fonts`). Exports,
+/// fonts for fonts a PDF does not embed (`openpdf_render::RenderConfig::system_fonts`). Exports,
 /// printing, OCR and automation use the document configuration itself, so nothing drawn with an
 /// installed font is saved or printed (AGENTS.md §1.2, §1.4).
-fn display_config(config: &pdfcraft_render::RenderConfig) -> pdfcraft_render::RenderConfig {
+fn display_config(config: &openpdf_render::RenderConfig) -> openpdf_render::RenderConfig {
     config.clone().on_screen()
 }
+
+/// How long a custom stamp's text line may be, in characters (#1741).
+pub const MAX_STAMP_LINE: usize = 200;
 
 #[cfg(test)]
 mod tests;

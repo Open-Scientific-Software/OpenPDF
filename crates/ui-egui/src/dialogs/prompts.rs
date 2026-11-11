@@ -1,4 +1,4 @@
-use super::{Align, CloseRequest, Layout, PdfCraftApp, Tokens, theme, widgets};
+use super::{Align, CloseRequest, Layout, OpenPDFApp, Tokens, theme, widgets};
 
 /// The buttons of the "Save changes?" prompt, in the order they sit on screen, left to right.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -72,7 +72,7 @@ pub(crate) fn save_prompt_key(ctx: &egui::Context, chosen: &mut PromptButton) ->
 }
 
 /// "Save changes?" when closing a tab or quitting with unsaved edits.
-pub(super) fn save_prompt(app: &mut PdfCraftApp, ctx: &egui::Context) {
+pub(super) fn save_prompt(app: &mut OpenPDFApp, ctx: &egui::Context) {
     let Some(req) = app.close_request else { return };
     let index = match req {
         CloseRequest::Tab(id) => app.asking_tab(id),
@@ -130,7 +130,7 @@ pub(super) fn save_prompt(app: &mut PdfCraftApp, ctx: &egui::Context) {
 
 /// `name` cut to at most `max` characters by replacing its middle with "…", keeping the start and
 /// the end, where the extension and version suffixes sit. Counts `char`s, so it never splits one.
-fn shorten_middle(name: &str, max: usize) -> String {
+pub(crate) fn shorten_middle(name: &str, max: usize) -> String {
     let count = name.chars().count();
     if count <= max {
         return name.to_string();
@@ -144,7 +144,7 @@ fn shorten_middle(name: &str, max: usize) -> String {
 /// "Open this web page?" when a document's link, button or script asks to open an address
 /// (#90, #91). Shows where the address really goes and the whole address; Cancel is the default,
 /// and Escape or clicking outside cancels.
-pub(super) fn link_prompt(app: &mut PdfCraftApp, ctx: &egui::Context) {
+pub(super) fn link_prompt(app: &mut OpenPDFApp, ctx: &egui::Context) {
     let Some(pending) = app.pending_link.clone() else { return };
     let t = Tokens::get(ctx);
     let email = pending.url.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("mailto:"));
@@ -167,7 +167,7 @@ pub(super) fn link_prompt(app: &mut PdfCraftApp, ctx: &egui::Context) {
         // The host as the browser will connect to it, in punycode when it is international, so a
         // lookalike such as `pаypal.com` (Cyrillic `а`) reads as `xn--pypal-4ve.com`. Its Unicode
         // form isn't repeated here: a whole-script lookalike would read as the real site.
-        if let Some(host) = pdfcraft_engine::links::display_host(&pending.url) {
+        if let Some(host) = openpdf_engine::links::display_host(&pending.url) {
             ui.label(egui::RichText::new(&host.ascii).font(theme::semibold(14.0)));
             if host.mixed_scripts {
                 let warning = tl!("This web address mixes letters from different alphabets, a common way to imitate another site's name.");
@@ -208,7 +208,7 @@ pub(super) fn link_prompt(app: &mut PdfCraftApp, ctx: &egui::Context) {
 
 /// A document that asks to open in Full Screen mode (`/PageMode /FullScreen`) is asked about
 /// first, as Acrobat does: full screen hides every control, so it is the person's choice.
-pub(super) fn full_screen_prompt(app: &mut PdfCraftApp, ctx: &egui::Context) {
+pub(super) fn full_screen_prompt(app: &mut OpenPDFApp, ctx: &egui::Context) {
     let Some(id) = app.pending_full_screen else { return };
     // The document was closed before an answer: nothing to ask any more.
     if app.session.get(id).is_none() {
@@ -249,7 +249,7 @@ pub(super) fn full_screen_prompt(app: &mut PdfCraftApp, ctx: &egui::Context) {
 }
 
 /// Absolute document-controlled local paths require consent before any filesystem access.
-pub(super) fn remote_link_prompt(app: &mut PdfCraftApp, ctx: &egui::Context) {
+pub(super) fn remote_link_prompt(app: &mut OpenPDFApp, ctx: &egui::Context) {
     let Some(pending) = app.pending_remote_link.clone() else { return };
     let mut choice = None;
     let modal = widgets::show_modal(ctx, "remote_link_prompt", |ui| {
@@ -346,12 +346,12 @@ fn password_modal(
 }
 
 /// Password prompt for encrypted documents (Acrobat: "Password" dialog on open).
-pub(super) fn password(app: &mut PdfCraftApp, ctx: &egui::Context) {
+pub(super) fn password(app: &mut OpenPDFApp, ctx: &egui::Context) {
     let Some(prompt) = app.password_prompt.as_mut() else { return };
     let message = crate::i18n::fmt(tl!("“{name}” is protected. Enter a password to open it."), &[("name", &prompt.name)]);
     match password_modal(ctx, "password", tl!("Password required"), message, &mut prompt.input, prompt.error.as_deref(), tl!("Open")) {
         Some(PasswordAnswer::Submit) => {
-            let pw = prompt.input.clone();
+            let pw = std::mem::take(&mut prompt.input);
             app.submit_password(Some(pw));
         }
         Some(PasswordAnswer::Cancel) => app.submit_password(None),
@@ -360,13 +360,13 @@ pub(super) fn password(app: &mut PdfCraftApp, ctx: &egui::Context) {
 }
 
 /// Permissions password prompt: lifts the restrictions of an open document (#995).
-pub(super) fn unlock(app: &mut PdfCraftApp, ctx: &egui::Context) {
+pub(super) fn unlock(app: &mut OpenPDFApp, ctx: &egui::Context) {
     let Some(prompt) = app.unlock_prompt.as_mut() else { return };
     let message =
         crate::i18n::fmt(tl!("“{name}” has security restrictions. Enter its permissions password to lift them."), &[("name", &prompt.name)]);
     match password_modal(ctx, "unlock", tl!("Permissions password"), message, &mut prompt.input, prompt.error.as_deref(), tl!("Unlock")) {
         Some(PasswordAnswer::Submit) => {
-            let pw = prompt.input.clone();
+            let pw = std::mem::take(&mut prompt.input);
             app.submit_unlock(Some(pw));
         }
         Some(PasswordAnswer::Cancel) => app.submit_unlock(None),

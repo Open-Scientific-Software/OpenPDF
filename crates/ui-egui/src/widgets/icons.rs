@@ -21,7 +21,7 @@ pub fn exists(name: &str) -> bool {
 }
 
 pub(crate) fn source(name: &str) -> egui::ImageSource<'static> {
-    // PdfCraft caches an unknown name under the resolved fallback name.
+    // OpenPDF caches an unknown name under the resolved fallback name.
     white_icons().source(white_icons().canonical_name(name).unwrap_or("square"))
 }
 
@@ -39,9 +39,19 @@ pub fn button(ui: &mut egui::Ui, name: &str, box_size: f32, selected: bool, tool
     labeled_button(ui, name, box_size, selected, tooltip, tooltip)
 }
 
+/// Title-row button: keep the icon and hit target full-sized, but inset the highlight
+/// so its outline has space above and below inside the compact title row.
+pub fn inset_button(ui: &mut egui::Ui, name: &str, box_size: f32, selected: bool, tooltip: &str) -> Response {
+    button_with_visual_inset(ui, name, box_size, selected, tooltip, tooltip, 2.0)
+}
+
 /// [`button`] whose tooltip says more than its accessible name (`label`). It shows that one
 /// tooltip, so callers add no `on_hover_text` of their own (#6548: two tooltips stacked).
 pub fn labeled_button(ui: &mut egui::Ui, name: &str, box_size: f32, selected: bool, label: &str, tooltip: &str) -> Response {
+    button_with_visual_inset(ui, name, box_size, selected, label, tooltip, 0.0)
+}
+
+fn button_with_visual_inset(ui: &mut egui::Ui, name: &str, box_size: f32, selected: bool, label: &str, tooltip: &str, inset: f32) -> Response {
     let t = Tokens::get(ui.ctx());
     // The shared button paints no fill of its own: the eased press wash below replaces it.
     let clear = |icon| ButtonVisuals { fill: Color32::TRANSPARENT, stroke: Stroke::NONE, icon };
@@ -59,15 +69,18 @@ pub fn labeled_button(ui: &mut egui::Ui, name: &str, box_size: f32, selected: bo
     let mut painted = None;
     let resp = IconButton::new(label, Vec2::splat(box_size), &style).selected(selected).show(ui, |_, rect, tint| painted = Some((rect, tint)));
     if let Some((rect, tint)) = painted {
+        // Optical alignment with the native title buttons, while retaining the full hit target.
+        let rect = if inset > 0.0 { rect.translate(egui::vec2(0.0, 1.0)) } else { rect };
         let press = theme::Press::track(ui, &resp);
         let mut shapes = Vec::with_capacity(2);
         let fill = press.wash_color(&t, selected);
+        let well = rect.shrink(inset);
         if fill.a() > 0 {
-            shapes.push(egui::Shape::rect_filled(rect, t.radius, fill));
+            shapes.push(egui::Shape::rect_filled(well, t.radius, fill));
         }
         if selected {
             shapes.push(egui::Shape::rect_stroke(
-                rect.shrink(0.5),
+                well.shrink(0.5),
                 t.radius,
                 Stroke::new(1.0, t.accent.gamma_multiply(0.45)),
                 egui::StrokeKind::Inside,
@@ -86,8 +99,32 @@ pub fn labeled_button(ui: &mut egui::Ui, name: &str, box_size: f32, selected: bo
 mod tests {
     use super::*;
     #[test]
+    fn title_icon_highlight_moves_down_without_changing_the_hit_target() {
+        let ctx = egui::Context::default();
+        let mut hit = Rect::NOTHING;
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            hit = inset_button(ui, "house", 32.0, true, "Home").rect;
+        });
+        let border = output
+            .shapes
+            .iter()
+            .find_map(|shape| {
+                let egui::Shape::Vec(shapes) = &shape.shape else { return None };
+                shapes.iter().find_map(|shape| match shape {
+                    egui::Shape::Rect(rect) if rect.stroke.width == 1.0 => Some(rect.rect),
+                    _ => None,
+                })
+            })
+            .expect("selected Home outline");
+        output.textures_delta.clear();
+        assert_eq!(hit.size(), Vec2::splat(32.0));
+        assert_eq!(border.center(), hit.center() + egui::vec2(0.0, 1.0));
+        assert!(hit.contains_rect(border));
+    }
+
+    #[test]
     fn every_catalog_icon_exists() {
-        for g in pdfcraft_engine::catalog::TOOL_GROUPS {
+        for g in openpdf_engine::catalog::TOOL_GROUPS {
             assert!(super::exists(g.icon), "missing icon {}", g.icon);
             for s in g.sections {
                 for i in s.items {
@@ -99,7 +136,7 @@ mod tests {
 
     #[test]
     fn every_command_icon_exists() {
-        for c in pdfcraft_engine::commands::COMMANDS {
+        for c in openpdf_engine::commands::COMMANDS {
             assert!(super::exists(c.icon), "missing icon {} ({})", c.icon, c.id);
         }
     }

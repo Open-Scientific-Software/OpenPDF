@@ -1,6 +1,6 @@
 use super::dispatch::Content;
 use super::error::{Result, ToolError, failed};
-use super::json::{Args, one_based};
+use super::json::{Args, one_based, summary};
 use super::{Arc, Automation, DocId, HashMap, PageRenderer, PageText, RenderConfig, RenderRequest, RequestKind, Value, commands, json, tools};
 
 /// Default and maximum resolution for `page_render`.
@@ -70,7 +70,7 @@ impl Automation {
     }
 
     /// The page as a PNG, followed by a JSON part listing the render warnings when there are any,
-    /// so a caller can tell that the picture is incomplete, as `pdfcraft-cli render` does (#4340).
+    /// so a caller can tell that the picture is incomplete, as `openpdf-cli render` does (#4340).
     pub(crate) fn page_render(&mut self, a: &Args) -> Result<Vec<Content>> {
         let id = self.doc(a)?.id;
         let page = self.page(a)?;
@@ -112,7 +112,7 @@ impl Automation {
     /// the `page_render` tool only returns PNG, and encoding one to decode it again is wasted
     /// work on every scroll. It uses the same renderer, and the same per-document cache, as
     /// `page_render`.
-    pub fn render_pixels(&mut self, doc: u64, page: usize, scale: f32) -> Result<(u32, u32, pdfcraft_render::Pixels)> {
+    pub fn render_pixels(&mut self, doc: u64, page: usize, scale: f32) -> Result<(u32, u32, openpdf_render::Pixels)> {
         if !(scale.is_finite() && scale > 0.0 && scale <= (MAX_DPI / 72.0) as f32) {
             return Err(ToolError::InvalidArgs(format!("scale must be between 0 and {}", MAX_DPI / 72.0)));
         }
@@ -183,7 +183,7 @@ impl Automation {
     }
 
     pub(crate) fn text_word_count(&self, a: &Args) -> Result<Value> {
-        use pdfcraft_engine::word_count::{self, Counts, Options};
+        use openpdf_engine::word_count::{self, Counts, Options};
         let doc = self.doc_to_copy(a)?;
         let pages = match a.opt_ints("pages")? {
             Some(_) => self.pages(a, "pages")?,
@@ -242,7 +242,7 @@ impl Automation {
             if html {
                 // Copy with formatting: the same glyphs as an HTML fragment, within one budget for
                 // the whole call; a page past it gets none and the call says so.
-                let mut copy = pdfcraft_engine::RichCopy::default();
+                let mut copy = openpdf_engine::RichCopy::default();
                 if !spent {
                     let glyphs: Vec<usize> = match rect {
                         Some(r) => t.glyphs_in(r),
@@ -253,7 +253,7 @@ impl Automation {
                         Some(left) => html_left = left,
                         None => {
                             spent = true;
-                            copy = pdfcraft_engine::RichCopy::default();
+                            copy = openpdf_engine::RichCopy::default();
                         }
                     }
                 }
@@ -356,6 +356,103 @@ impl Automation {
         Ok(out)
     }
 
+    /// Find and replace (Edit text ▸ Replace): every match (or the first) rewritten inside its
+    /// own paragraph through the same engine plan as the window's Replace all, one undo step.
+    /// The page text is searched too (as `text_find` does), so matches no paragraph holds are
+    /// counted as not editable and the counts add up to what `text_find` reports.
+    pub(crate) fn text_replace(&mut self, a: &Args) -> Result<Value> {
+        self.text_replace_with(a, &mut extract_parallel)
+    }
+
+    pub(crate) fn text_replace_with(
+        &mut self,
+        a: &Args,
+        extract: &mut impl FnMut(&Arc<Vec<u8>>, Option<Arc<str>>, &[usize]) -> PageTexts,
+    ) -> Result<Value> {
+        let doc = self.doc(a)?;
+        let (id, n) = (doc.id, doc.info.pages.len());
+        let pages = match a.opt_ints("pages")? {
+            Some(_) => self.pages(a, "pages")?,
+            None => (0..n).collect(),
+        };
+        let query = openpdf_engine::find_replace::Replace {
+            find: a.str("find")?.to_owned(),
+            with: a.str("replace")?.to_owned(),
+            case_sensitive: a.opt_bool("case_sensitive")?.unwrap_or(false),
+            whole_words: a.opt_bool("whole_words")?.unwrap_or(false),
+        };
+        let all = a.opt_bool("all")?.unwrap_or(true);
+        let mut pages = pages;
+        pages.sort_unstable();
+        pages.dedup();
+        // Pages whose text the find bar couldn't read, reported with the plan, not dropped.
+        let mut unreadable: Vec<(usize, String)> = Vec::new();
+        let (which, found) = if all {
+            let mut found = std::collections::BTreeMap::new();
+            for (p, text) in self.page_text_results(id, &pages, &mut *extract)? {
+                match text {
+                    Ok(text) => {
+                        found.insert(p, text.find_opts(&query.find, query.case_sensitive, query.whole_words).len());
+                    }
+                    Err(e) => unreadable.push((p, e)),
+                }
+            }
+            unreadable.sort();
+            (Some(openpdf_engine::find_replace::Which::All), Some(found))
+        } else {
+            // The first match the find bar shows, and that one only: pages are read in order until
+            // one holds a match, and a page that can't be read stops the search there.
+            let mut texts = Vec::new();
+            let (mut start, mut batch) = (0, FIND_FIRST_BATCH.max(1));
+            'search: while start < pages.len() {
+                let end = pages.len().min(start.saturating_add(batch));
+                let mut results: std::collections::HashMap<usize, _> =
+                    self.page_text_results(id, &pages[start..end], &mut *extract)?.into_iter().collect();
+                for p in &pages[start..end] {
+                    match results.remove(p) {
+                        Some(Ok(text)) if text.find_opts_limited(&query.find, query.case_sensitive, query.whole_words, 1).is_empty() => {}
+                        Some(Ok(text)) => {
+                            texts.push((*p, text));
+                            break 'search;
+                        }
+                        Some(Err(e)) => {
+                            unreadable.push((*p, e));
+                            break 'search;
+                        }
+                        None => {}
+                    }
+                }
+                start = end;
+                batch = batch.saturating_mul(2).min(FIND_MAX_BATCH);
+            }
+            (openpdf_engine::find_replace::Which::first_in(texts.iter().map(|(p, t)| (*p, t.as_ref())), &query), None)
+        };
+        let mut plan = match which {
+            Some(which) => self.doc(a)?.plan_replace(&pages, &query, which, found.as_ref()).map_err(failed)?,
+            None => {
+                // Nothing to replace: still the permission and query checks of a plan.
+                self.doc(a)?.plan_replace(&[], &query, openpdf_engine::find_replace::Which::All, None).map_err(failed)?
+            }
+        };
+        for (p, e) in &unreadable {
+            plan.unreadable_page(*p, e);
+        }
+        let mut out = match plan.edit.clone() {
+            Some(edit) => self.apply(a, edit)?,
+            None => summary(self.doc(a)?),
+        };
+        let skipped: serde_json::Map<String, Value> = plan.skipped.iter().map(|(why, k)| (why.key().to_owned(), json!(k))).collect();
+        out["replaced"] = json!(plan.replaced);
+        out["changed"] = json!(plan.edit.is_some());
+        out["pages"] = json!(plan.pages.iter().map(|p| p + 1).collect::<Vec<_>>());
+        out["skipped"] = json!(plan.skipped_total());
+        out["skipped_by"] = Value::Object(skipped);
+        if !plan.refusals.is_empty() {
+            out["refusals"] = json!(plan.refusals);
+        }
+        Ok(out)
+    }
+
     pub(crate) fn command_list(&self, a: &Args) -> Result<Value> {
         let active = match a.opt_int("doc")? {
             Some(_) => Some(self.doc(a)?.id),
@@ -391,13 +488,13 @@ impl Automation {
 
 /// A rendered raster as PNG, through the engine's encoder (Export ▸ Image writes the same).
 pub(crate) fn encode_png(width: u32, height: u32, premultiplied: &[u8]) -> Result<Vec<u8>> {
-    pdfcraft_engine::export::encode_png(width, height, premultiplied).map_err(failed)
+    openpdf_engine::export::encode_png(width, height, premultiplied).map_err(failed)
 }
 
 /// The output of a page-rendering tool: the PNG of the 0-based `page`, followed by a JSON part
 /// listing its render warnings when there are any. Without warnings it is the PNG alone, as it
 /// always was.
-pub(crate) fn rendered_content(out: &pdfcraft_render::RenderedPage, page: usize) -> Result<Vec<Content>> {
+pub(crate) fn rendered_content(out: &openpdf_render::RenderedPage, page: usize) -> Result<Vec<Content>> {
     let data = encode_png(out.width, out.height, &out.rgba)?;
     let mut content = vec![Content::Png { data, width: out.width, height: out.height }];
     if !out.warnings.is_empty() {
@@ -408,12 +505,15 @@ pub(crate) fn rendered_content(out: &pdfcraft_render::RenderedPage, page: usize)
     Ok(content)
 }
 
-/// What a render warning means, in the words `pdfcraft-cli render` prints for it.
-fn render_warning_text(warning: pdfcraft_render::RenderWarning) -> &'static str {
-    use pdfcraft_render::RenderWarning;
+/// What a render warning means, in the words `openpdf-cli render` prints for it.
+fn render_warning_text(warning: openpdf_render::RenderWarning) -> &'static str {
+    use openpdf_render::RenderWarning;
     match warning {
-        RenderWarning::ContentTruncated => "content past the page's safety budget was skipped",
+        RenderWarning::ContentTruncated => {
+            "content past the page's safety budget, or a picture whose JBIG2 mask is past a decoder limit, was skipped"
+        }
         RenderWarning::ColourFallback => "a colour that could not be computed was painted in a fallback colour",
+        RenderWarning::MalformedIndexedImage => "an image with a malformed Indexed colour table may be drawn wrongly or not at all",
         RenderWarning::Type3WidthsMissing => "a Type 3 font has no /Widths; its glyphs were spaced by the widths their glyph procedures give",
     }
 }

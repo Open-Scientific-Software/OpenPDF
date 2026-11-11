@@ -1,6 +1,6 @@
 //! PDF stream filters (ISO 32000-2 §7.4).
 //!
-//! Layer L0, standalone: this crate depends on no other PdfCraft crate.
+//! Layer L0, standalone: this crate depends on no other OpenPDF crate.
 //!
 //! Decoding covers the general-purpose filters (`FlateDecode`, `LZWDecode` with
 //! TIFF/PNG predictors, `ASCIIHexDecode`, `ASCII85Decode`, `RunLengthDecode`).
@@ -8,22 +8,22 @@
 //! `Crypt` and unknown filters are reported as [`FilterError::Unsupported`] so
 //! callers keep such data encoded. CCITT fax and JBIG2 images decode on their own
 //! ([`decode_ccitt_within`], [`decode_jbig2_within`]), each spending from an allowance its caller
-//! shares across a run of images, as `pdfcraft_cos::ImageBudget::decode` does after the filters
+//! shares across a run of images, as `openpdf_cos::ImageBudget::decode` does after the filters
 //! before them. Neither decodes without one:
 //!
 //! ```compile_fail
-//! let _ = pdfcraft_filters::decode_jbig2(&[], None, 1, 1, 1 << 20);
+//! let _ = openpdf_filters::decode_jbig2(&[], None, 1, 1, 1 << 20);
 //! ```
 //!
 //! ```compile_fail
-//! let _ = pdfcraft_filters::decode_ccitt(&[], &pdfcraft_filters::CcittParams::default(), 1);
+//! let _ = openpdf_filters::decode_ccitt(&[], &openpdf_filters::CcittParams::default(), 1);
 //! ```
 //!
 //! ```
 //! let mut work = 1 << 20;
-//! assert!(pdfcraft_filters::decode_jbig2_within(&[], None, 1, 1, 1 << 20, &mut work).is_err());
-//! let p = pdfcraft_filters::CcittParams { columns: 8, ..Default::default() };
-//! assert!(pdfcraft_filters::decode_ccitt_within(&[], &p, 1, &mut work).is_ok());
+//! assert!(openpdf_filters::decode_jbig2_within(&[], None, 1, 1, 1 << 20, &mut work).is_err());
+//! let p = openpdf_filters::CcittParams { columns: 8, ..Default::default() };
+//! assert!(openpdf_filters::decode_ccitt_within(&[], &p, 1, &mut work).is_ok());
 //! ```
 //!
 //! 1-bit samples can be encoded as CCITT Group 4 ([`encode_g4`]) or lossless JBIG2
@@ -210,6 +210,18 @@ pub fn decode_tolerant(chain: &[(Filter, Params)], data: &[u8], max_output: usiz
 /// [`decode_tolerant`] bounded and counted as [`decode_counted`] is.
 pub fn decode_tolerant_counted(chain: &[(Filter, Params)], data: &[u8], max_output: usize) -> Result<(Vec<u8>, bool, usize), (FilterError, usize)> {
     run(chain, data, max_output, Some(max_output), false, false, None)
+}
+
+/// [`decode_tolerant_counted`] with the two bounds apart: `max_stage` bounds every stage, as
+/// [`decode_tolerant`]'s bound does, and `max_output` the bytes all stages decode together. A
+/// stage stopped by either gives [`FilterError::LimitExceeded`] and the bytes decoded before it.
+pub fn decode_tolerant_counted_each(
+    chain: &[(Filter, Params)],
+    data: &[u8],
+    max_stage: usize,
+    max_output: usize,
+) -> Result<(Vec<u8>, bool, usize), (FilterError, usize)> {
+    run(chain, data, max_stage, Some(max_output), false, false, None)
 }
 
 /// [`decode_tolerant`], spending from `work`, what decoding may still cost across a run of images:
@@ -449,6 +461,30 @@ mod tests {
         assert!(read <= 16 * data.len(), "{read} bytes decoded through the chain");
         assert!(matches!(long, Err(super::FilterError::Unsupported(_))), "{long:?}");
         assert_eq!(super::decode(&chain(super::MAX_CHAIN), &data, 1 << 20).ok(), Some(data));
+    }
+
+    /// [`decode_tolerant_counted_each`] holds every stage to its own bound as well as the stages
+    /// to their total: a Flate stage that would make more than that bound stops there, though
+    /// the total has room, and the stage after it gets nothing; within both, the chain reads
+    /// whole, one stage's output charged on top of another's.
+    #[test]
+    fn each_stage_is_held_to_its_own_bound_within_the_total() {
+        let hex = "00".repeat(1 << 16).into_bytes();
+        let data = super::flate::encode(&hex);
+        let chain = [(Filter::Flate, Params::default()), (Filter::AsciiHex, Params::default())];
+        // The total alone lets the Flate stage make all of the hex text, and the hex stage read it.
+        STAGE_BYTES.with(|c| c.set(0));
+        let whole = decode_tolerant_counted(&chain, &data, 3 << 16).map(|(v, _, _)| v);
+        assert_eq!(whole.ok(), Some(vec![0u8; 1 << 16]));
+        assert_eq!(STAGE_BYTES.with(|c| c.get()), data.len() + hex.len());
+        // Each stage held to 64 KiB, the Flate stage stops there and the hex stage gets nothing.
+        STAGE_BYTES.with(|c| c.set(0));
+        let held = decode_tolerant_counted_each(&chain, &data, 1 << 16, 3 << 16);
+        assert!(matches!(held, Err((FilterError::LimitExceeded(m), 0)) if m == 1 << 16), "{held:?}");
+        assert_eq!(STAGE_BYTES.with(|c| c.get()), data.len());
+        // Within both, it reads whole.
+        let (out, _, spent) = decode_tolerant_counted_each(&chain, &data, 2 << 16, 3 << 16).unwrap();
+        assert_eq!((out.len(), spent), (1 << 16, hex.len() + (1 << 16)));
     }
 
     use super::*;

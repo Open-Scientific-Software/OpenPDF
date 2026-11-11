@@ -5,8 +5,8 @@
 
 use std::sync::Arc;
 
-use pdfcraft_annot::appearance::smooth_segments;
-use pdfcraft_cos::{Dict, Document, ObjRef, Object, Stream};
+use openpdf_annot::appearance::smooth_segments;
+use openpdf_cos::{Dict, Document, ObjRef, Object, Stream};
 
 use crate::SignError;
 

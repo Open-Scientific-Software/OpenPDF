@@ -1,6 +1,6 @@
 # Workflow research and verification reference
 
-This reference connects archived workflow research with PdfCraft's existing feature catalogue. It is not a roadmap, a set of implementation assignments, or an approval to introduce features, storage formats, dependencies or architecture. Planning remains in the repository's existing `ROADMAP.md` and `parity/` records.
+This reference connects archived workflow research with OpenPDF's existing feature catalogue. It is not a roadmap, a set of implementation assignments, or an approval to introduce features, storage formats, dependencies or architecture. Planning remains in the repository's existing `ROADMAP.md` and `parity/` records.
 The catalogue and roadmap snapshot is [`924c4da4`](https://github.com/storytold/pdfcraft/tree/924c4da4ac2879ac9107c6c82e20ac6be5570f0a), dated 2026-10-16. Engine and automation names were inspected separately at [`3f044b62`](https://github.com/storytold/pdfcraft/tree/3f044b6263aa6605c3aa44ca6d065e1ab37d13b6), dated 2026-10-13. Catalogue status means the status recorded at that revision; it is not an independent verification verdict. No implementation tests, benchmarks, competitor sessions or conformance checks were executed for this reference.
 The [competitive research digest](competitive-research.md) provides the archived context. The [source register](source-register.csv) records source identifiers, URLs, archive dates and verification limits. Links below are locators for the retained research, not fresh confirmations of vendor behavior. The [feature mapping](feature-mapping.csv) contains the corresponding catalogue records. B01–B20 are reference section identifiers, not a second task or priority system.
 Evaluation dimensions name what an observation describes; they do not prescribe targets or new acceptance gates. Availability, structural validity, visual fidelity, interoperability and human usability are distinct evidence. Negative or incomplete observations remain distinguishable from successful checks.
@@ -421,7 +421,7 @@ Evaluation dimensions name what an observation describes; they do not prescribe 
 | `core.web-recovery` | planned | M4 |
 | `view.multiple-windows` | planned | M14 |
 
-**Archived research question.** Archived document-ownership studies distinguish the active tab from the document captured by a long-running operation and distinguish a staged candidate from an accepted save. Those studies are not evidence of a defect in current PdfCraft.
+**Archived research question.** Archived document-ownership studies distinguish the active tab from the document captured by a long-running operation and distinguish a staged candidate from an accepted save. Those studies are not evidence of a defect in current OpenPDF.
 
 **Evaluation dimensions.** Captured document/revision; destination identity; close-during-save outcome; external file replacement; write failure; coherent undo/redo; unrelated-document preservation; recovery binding; saved/reopened accepted state; cancellation and reported non-interruptible stages.
 

@@ -12,7 +12,7 @@ pub(super) fn resolve_field_conflicts(dst: &mut Document, fields: &[ObjRef]) -> 
     let planned = plan_renames(dst, fields, &mut taken);
     let mut renamed = Vec::new();
     for (node, new_t, old, new) in planned {
-        dst.update_dict(node, |d| d.set(b"T".to_vec(), Object::String(pdfcraft_cos::PdfString::text(&new_t))))?;
+        dst.update_dict(node, |d| d.set(b"T".to_vec(), Object::String(openpdf_cos::PdfString::text(&new_t))))?;
         renamed.push((old, new));
     }
     Ok(renamed)

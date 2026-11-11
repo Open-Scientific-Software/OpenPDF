@@ -20,7 +20,7 @@ pub(super) fn page_tools(ui: &mut egui::Ui, enabled: bool) -> Option<&'static st
         egui::Popup::menu(&more).show(|ui| {
             ui.set_min_width(260.0);
             for (id, label) in tools {
-                let Some(spec) = pdfcraft_engine::commands::command(id) else { continue };
+                let Some(spec) = openpdf_engine::commands::command(id) else { continue };
                 let item = egui::Button::image_and_text(icons::image(spec.icon, 16.0, ui.visuals().text_color()), label);
                 if ui.add(item).clicked() {
                     picked = Some(id);
@@ -87,7 +87,17 @@ pub(super) fn thumbnail_size(ui: &mut egui::Ui, t: &Tokens, view: &mut crate::Do
 /// (the selection page commands and Print act on) without moving the document. Right-click
 /// offers Extract, Cut, Copy and Paste on the selection, or on the page clicked; dragging
 /// moves the selection, or the page grabbed, to the gap it is dropped on.
-pub(super) fn pages(ui: &mut egui::Ui, t: &Tokens, info: &DocInfo, view: &mut crate::DocView, modal: bool, editable: bool, nav: &mut Option<Nav>) {
+#[allow(clippy::too_many_arguments)]
+pub(super) fn pages(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    info: &DocInfo,
+    view: &mut crate::DocView,
+    modal: bool,
+    keys: crate::page_keys::PageKeys,
+    editable: bool,
+    nav: &mut Option<Nav>,
+) {
     let focus_id = ui.make_persistent_id(("pages-keyboard", view.id));
     view.pages_focus_id = Some(focus_id);
     let keyboard = ui.interact(ui.clip_rect(), focus_id, Sense::focusable_noninteractive());
@@ -96,20 +106,18 @@ pub(super) fn pages(ui: &mut egui::Ui, t: &Tokens, info: &DocInfo, view: &mut cr
     // Escape remains with the panel after the pointer moves away.
     ui.memory_mut(|m| m.set_focus_lock_filter(focus_id, egui::EventFilter { escape: true, ..Default::default() }));
     // Escape drops the selection while the pointer is over the panel and nothing else wants the key.
-    if !modal
-        && !view.selected.is_empty()
+    if !view.selected.is_empty()
         && (owns_keyboard || !ui.ctx().egui_wants_keyboard_input())
         && (owns_keyboard || ui.rect_contains_pointer(ui.clip_rect()))
-        && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        && keys.take(ui.ctx(), egui::Key::Escape)
     {
         view.clear_page_selection(Some(view.current));
     }
     // Delete (or Backspace) deletes the selection, or the current page, likewise.
-    if !modal
-        && editable
+    if editable
         && (owns_keyboard || !ui.ctx().egui_wants_keyboard_input())
         && (owns_keyboard || ui.rect_contains_pointer(ui.clip_rect()))
-        && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete) || i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace))
+        && (keys.take(ui.ctx(), egui::Key::Delete) || keys.take(ui.ctx(), egui::Key::Backspace))
     {
         delete_pages(view, info.pages.len());
     }
@@ -269,7 +277,7 @@ fn delete_pages(view: &mut crate::DocView, n: usize) {
     let before = pages.iter().filter(|p| **p < view.current).count();
     view.current = view.current.saturating_sub(before).min(n.saturating_sub(pages.len() + 1));
     view.clear_page_selection(None);
-    view.pending_edit = Some(pdfcraft_engine::Edit::DeletePages { pages });
+    view.pending_edit = Some(openpdf_engine::Edit::DeletePages { pages });
 }
 
 /// The gap (0 = before the first page, n = after the last) the pointer points at in the Pages
@@ -334,7 +342,7 @@ fn page_drag(ui: &mut egui::Ui, t: &Tokens, view: &mut crate::DocView, rows: &[R
     }
     view.current = moved_index(view.current, &moving, to);
     view.selected = (to..to + moving.len()).collect();
-    view.pending_edit = Some(pdfcraft_engine::Edit::MovePages { pages: moving, to });
+    view.pending_edit = Some(openpdf_engine::Edit::MovePages { pages: moving, to });
 }
 
 #[cfg(test)]

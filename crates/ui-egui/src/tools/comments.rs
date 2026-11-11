@@ -9,12 +9,12 @@
 //!   Reply, Set status, Colour and Delete.
 //! - **Composer:** the floating "Add a comment" card used for new notes, text boxes and edits.
 //!
-//! Everything is turned into `pdfcraft_engine::Edit`s, queued on the view as `pending_edit` and
+//! Everything is turned into `openpdf_engine::Edit`s, queued on the view as `pending_edit` and
 //! applied by the app, so each change is one undo step.
 
 use egui::{Color32, CornerRadius, Pos2, Rect, Sense, Stroke, pos2, vec2};
-use pdfcraft_engine::{Edit, LineEnding, Markup, NewAnnotation, NoteIcon, ReviewState, Rgb, Shape, Style};
-use pdfcraft_render::{Annotation, DocInfo, PageInfo, PageText};
+use openpdf_engine::{Edit, LineEnding, Markup, NewAnnotation, NoteIcon, ReviewState, Rgb, Shape, Style};
+use openpdf_render::{Annotation, DocInfo, PageInfo, PageText};
 
 use crate::canvas::{DocView, PageXform};
 use crate::page_pointer::PagePointer;
@@ -26,6 +26,7 @@ mod geometry;
 mod input;
 mod menu;
 mod paint;
+mod popups;
 mod state;
 
 pub(crate) use composer::{composer, submit_key};
@@ -45,6 +46,7 @@ use menu::{RECENT_CUSTOM, same_colour};
 pub(crate) use paint::paint_page;
 #[cfg(test)]
 use paint::{changing_points, drawn_shape, edited_in_view};
+pub(crate) use popups::popups;
 #[cfg(test)]
 use state::after_delete;
 use state::login_name;
@@ -290,7 +292,7 @@ impl CommentTool {
             Self::Caret => Shape::Caret { rect: [0.0; 4] },
             Self::ReplaceText => Shape::TextMarkup { kind: Markup::StrikeOut, quads: Vec::new() },
             Self::Eraser => Shape::Ink { strokes: Vec::new() },
-            Self::Attach => Shape::Attachment { at: [0.0; 2], icon: pdfcraft_engine::AttachIcon::PushPin, file: String::new(), data: Vec::new() },
+            Self::Attach => Shape::Attachment { at: [0.0; 2], icon: openpdf_engine::AttachIcon::PushPin, file: String::new(), data: Vec::new() },
         }
     }
 }
@@ -374,9 +376,9 @@ impl CommentPrefs {
     }
 
     /// The text box tool's border shape (the other tools keep a rectangle).
-    pub fn set_border_shape(&mut self, tool: CommentTool, shape: pdfcraft_engine::BorderShape) {
+    pub fn set_border_shape(&mut self, tool: CommentTool, shape: openpdf_engine::BorderShape) {
         if let Some((_, s)) = self.styles.iter_mut().find(|(t, _)| *t == tool) {
-            s.border_shape = if tool == CommentTool::TextBox { shape } else { pdfcraft_engine::BorderShape::Rectangle };
+            s.border_shape = if tool == CommentTool::TextBox { shape } else { openpdf_engine::BorderShape::Rectangle };
         }
     }
 
@@ -443,12 +445,21 @@ pub(crate) fn made_by(a: &Annotation, tool: CommentTool) -> bool {
 /// The tool whose defaults "Make Current Properties Default" should update.
 ///
 /// Arrows are stored as Line annotations. An arrow ending belongs to the Arrow tool, so its
-/// defaults stay separate from a plain line.
-pub(crate) fn tool_for_default(a: &Annotation, endings: Option<&[LineEnding]>) -> Option<CommentTool> {
+/// defaults stay separate from a plain line. A Replace Text group is selected by its caret (the
+/// group's primary, ISO 32000-2 §12.5.6.2), so a caret whose group holds a Replace Text strikeout
+/// (`/IT /StrikeOutTextEdit`) belongs to the Replace Text tool; `all` is the document's listing.
+pub(crate) fn tool_for_default(all: &[Annotation], a: &Annotation, endings: Option<&[LineEnding]>) -> Option<CommentTool> {
     match tool_for(a) {
         Some(CommentTool::Line) if endings.is_some_and(|ends| ends.iter().copied().any(arrow_ending)) => Some(CommentTool::Arrow),
+        Some(CommentTool::Caret) if replaces_text(all, a) => Some(CommentTool::ReplaceText),
         other => other,
     }
+}
+
+/// Whether the caret `a` is the primary of a Replace Text group: a grouped strikeout with
+/// `/IT /StrikeOutTextEdit` is one of its subordinates.
+fn replaces_text(all: &[Annotation], a: &Annotation) -> bool {
+    all.iter().any(|s| s.is_group_member() && s.subtype == "StrikeOut" && s.intent.as_deref() == Some("StrikeOutTextEdit") && s.replies_to(a))
 }
 
 fn arrow_ending(ending: LineEnding) -> bool {

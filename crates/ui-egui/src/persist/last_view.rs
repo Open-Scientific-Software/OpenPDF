@@ -5,7 +5,7 @@
 
 use serde::Serialize;
 
-use crate::PdfCraftApp;
+use crate::OpenPDFApp;
 use crate::canvas::{self, ViewDefaults};
 
 /// How many files' views are remembered (the most recently closed or saved first).
@@ -38,7 +38,7 @@ fn absolute(path: &str) -> String {
     path.to_string()
 }
 
-impl PdfCraftApp {
+impl OpenPDFApp {
     /// How view `index` shows its document now; `None` for a document without a file. In full
     /// screen, the display it will go back to, at the page reached.
     fn view_to_remember(&self, index: usize) -> Option<LastView> {
@@ -112,14 +112,16 @@ impl PdfCraftApp {
         let pages = doc.info.pages.len();
         let Some(last) = self.last_views.iter().find(|l| l.path == path).cloned() else { return };
         let Some(view) = self.views.get_mut(index) else { return };
-        if let Some((layout, continuous)) = canvas::parse_display_token(&last.display) {
-            view.set_display(layout, continuous);
-        }
-        view.set_cover(last.cover);
-        if let Some(defaults) = ViewDefaults::default().with_zoom(&last.zoom) {
-            match defaults.fit {
-                canvas::Fit::None => view.set_zoom(defaults.zoom),
-                fit => view.set_fit(fit),
+        if !self.always_default_view {
+            if let Some((layout, continuous)) = canvas::parse_display_token(&last.display) {
+                view.set_display(layout, continuous);
+            }
+            view.set_cover(last.cover);
+            if let Some(defaults) = ViewDefaults::default().with_zoom(&last.zoom) {
+                match defaults.fit {
+                    canvas::Fit::None => view.set_zoom(defaults.zoom),
+                    fit => view.set_fit(fit),
+                }
             }
         }
         if last.page < pages {

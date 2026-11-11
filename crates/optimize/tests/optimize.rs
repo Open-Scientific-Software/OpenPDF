@@ -2,17 +2,17 @@
 
 use std::sync::Arc;
 
-use pdfcraft_cos::{Dict, Document, ObjRef, Object, SaveOptions, Stream, write_full};
-use pdfcraft_filters::{Filter, Params};
-use pdfcraft_optimize::{
+use openpdf_cos::{Dict, Document, ObjRef, Object, SaveOptions, Stream, write_full};
+use openpdf_filters::{Filter, Params};
+use openpdf_optimize::{
     Compatibility, Compression, ImageSettings, MonoCompression, MonoSettings, OptimizeError, Settings, SpaceCategory, audit_space,
     effective_resolutions, optimize,
 };
 
 /// What image `s` decodes to, its fax or JBIG2 data included, with no limit on the work: the
 /// samples an operation would read through its `ImageBudget`.
-fn decoded_image(doc: &Document, s: &Stream) -> Result<Vec<u8>, pdfcraft_cos::CosError> {
-    pdfcraft_cos::ImageBudget::with_work(u64::MAX).decode(doc, s, pdfcraft_cos::MAX_DECODED)
+fn decoded_image(doc: &Document, s: &Stream) -> Result<Vec<u8>, openpdf_cos::CosError> {
+    openpdf_cos::ImageBudget::with_work(u64::MAX).decode(doc, s, openpdf_cos::MAX_DECODED)
 }
 
 fn image(doc: &mut Document, w: u32, h: u32, n: usize, jpeg: bool, smask: Option<ObjRef>) -> ObjRef {
@@ -94,7 +94,7 @@ fn image_resolution_uses_the_pages_physical_unit() {
         (Some(Object::Int(-10)), 1.0),
         (Some(Object::Real(0.5)), 1.0),
         (Some(Object::name("Ten")), 1.0),
-        (Some(Object::Int(100_000)), pdfcraft_model::MAX_USER_UNIT),
+        (Some(Object::Int(100_000)), openpdf_model::MAX_USER_UNIT),
     ] {
         for indirect in [false, true] {
             let mut doc = Document::new_empty();
@@ -155,7 +155,7 @@ fn images_are_measured_where_drawn_and_downsampled() {
         &[("A", masked), ("B", photo), ("C", twice)],
         "q 72 0 0 72 36 36 cm /A Do Q q 1 0 0 1 100 100 cm 600 0 0 400 0 0 cm /B Do Q q 72 0 0 72 0 0 cm /C Do Q q 288 0 0 288 300 300 cm /C Do Q",
     );
-    let pages = pdfcraft_annot::page_refs(&doc).unwrap();
+    let pages = openpdf_annot::page_refs(&doc).unwrap();
     let ppi = effective_resolutions(&doc, &pages);
     assert_eq!(ppi[&big].round(), 600.0);
     assert_eq!(ppi[&small].round(), 50.0);
@@ -183,9 +183,9 @@ fn images_are_measured_where_drawn_and_downsampled() {
 
     // The optimized file opens, and the page still shows the picture where it was.
     let reopened = Document::open(Arc::new(after_bytes.clone())).unwrap();
-    assert_eq!(pdfcraft_annot::page_refs(&reopened).unwrap().len(), 2);
-    let mut r = pdfcraft_render::PageRenderer::new(Arc::new(after_bytes), pdfcraft_render::RenderConfig::default());
-    let out = r.render(pdfcraft_render::RenderRequest { page: 0, scale: 1.0, ..Default::default() });
+    assert_eq!(openpdf_annot::page_refs(&reopened).unwrap().len(), 2);
+    let mut r = openpdf_render::PageRenderer::new(Arc::new(after_bytes), openpdf_render::RenderConfig::default());
+    let out = r.render(openpdf_render::RenderRequest { page: 0, scale: 1.0, ..Default::default() });
     assert!(out.error.is_none(), "{:?}", out.error);
     // Top-left image area (36..180 x 600..744 user → y from the top 48..192): drawn, not white.
     let i = ((100 * out.width + 100) * 4) as usize;
@@ -313,14 +313,14 @@ fn mono_image(doc: &mut Document, w: u32, h: u32, data: &[u8], predictor: Option
     let s = match predictor {
         None => Stream::flate(d, data),
         Some(predictor) => {
-            let params = pdfcraft_filters::Params { predictor, colors: 1, bits_per_component: 1, columns: w as i64, early_change: 1 };
+            let params = openpdf_filters::Params { predictor, colors: 1, bits_per_component: 1, columns: w as i64, early_change: 1 };
             let mut parms = Dict::new();
             parms.set(b"Predictor".to_vec(), Object::Int(predictor));
             parms.set(b"BitsPerComponent".to_vec(), Object::Int(1));
             parms.set(b"Columns".to_vec(), Object::Int(w as i64));
             d.set(b"Filter".to_vec(), Object::name("FlateDecode"));
             d.set(b"DecodeParms".to_vec(), Object::Dict(parms));
-            Stream::from_raw(d, pdfcraft_filters::encode(&pdfcraft_filters::Filter::Flate, &params, data).unwrap())
+            Stream::from_raw(d, openpdf_filters::encode(&openpdf_filters::Filter::Flate, &params, data).unwrap())
         }
     };
     doc.add(Object::Stream(s))
@@ -328,8 +328,8 @@ fn mono_image(doc: &mut Document, w: u32, h: u32, data: &[u8], predictor: Option
 
 fn render(doc: &Document) -> Vec<u8> {
     let bytes = write_full(doc, &SaveOptions::default()).unwrap();
-    let mut r = pdfcraft_render::PageRenderer::new(Arc::new(bytes), pdfcraft_render::RenderConfig::default());
-    let out = r.render(pdfcraft_render::RenderRequest { page: 0, scale: 1.0, ..Default::default() });
+    let mut r = openpdf_render::PageRenderer::new(Arc::new(bytes), openpdf_render::RenderConfig::default());
+    let out = r.render(openpdf_render::RenderRequest { page: 0, scale: 1.0, ..Default::default() });
     assert!(out.error.is_none(), "{:?}", out.error);
     out.rgba.to_vec()
 }
@@ -351,7 +351,7 @@ fn black_and_white_images_become_ccitt_group_4() {
         Object::name("Indexed"),
         Object::name("DeviceRGB"),
         1.into(),
-        Object::String(pdfcraft_cos::PdfString::literal(vec![0xC0, 0x10, 0x10, 0xF8, 0xF0, 0xE0])),
+        Object::String(openpdf_cos::PdfString::literal(vec![0xC0, 0x10, 0x10, 0xF8, 0xF0, 0xE0])),
     ]);
     let indexed = mono_image(&mut doc, w, h, &text, None, &[("BitsPerComponent", 1.into()), ("ColorSpace", indexed_cs.clone())]);
     let predicted = mono_image(&mut doc, w, h, &text, Some(15), &[("BitsPerComponent", 1.into()), ("ColorSpace", Object::name("DeviceGray"))]);
@@ -380,7 +380,7 @@ fn black_and_white_images_become_ccitt_group_4() {
     // 64 × 8 white: its Group 4 data is smaller than its Flate data, but not by the longer
     // dictionary Group 4 needs.
     let tiny = mono_image(&mut doc, 64, 8, &[0xFF; 64], None, &[("BitsPerComponent", 1.into()), ("ColorSpace", Object::name("DeviceGray"))]);
-    let tiny_g4 = pdfcraft_filters::encode_g4(&[0xFF; 64], 64, 8).unwrap();
+    let tiny_g4 = openpdf_filters::encode_g4(&[0xFF; 64], 64, 8).unwrap();
     assert!(tiny_g4.len() < stream(&doc, tiny).raw.len(), "{} against {}", tiny_g4.len(), stream(&doc, tiny).raw.len());
     let p = page(
         &mut doc,
@@ -505,7 +505,7 @@ fn images_whose_decode_parms_are_references_come_out_as_with_them_direct() {
         let one_bit = mono_image(&mut doc, w, h, &bilevel(w, h, false), Some(15), &grey);
         let black_and_white_samples = eight_bit(&bilevel(w, h, false), w, h);
         let shades: Vec<u8> = (0..w * h).map(|i| ((i % w) * 255 / w) as u8 ^ ((i / w) as u8 & 0x0F)).collect();
-        let params = pdfcraft_filters::Params { predictor: 15, colors: 1, bits_per_component: 8, columns: w as i64, early_change: 1 };
+        let params = openpdf_filters::Params { predictor: 15, colors: 1, bits_per_component: 8, columns: w as i64, early_change: 1 };
         let mut parms = Dict::new();
         parms.set(b"Predictor".to_vec(), Object::Int(15));
         parms.set(b"Columns".to_vec(), Object::Int(w as i64));
@@ -518,14 +518,14 @@ fn images_whose_decode_parms_are_references_come_out_as_with_them_direct() {
         d.set(b"ColorSpace".to_vec(), Object::name("DeviceGray"));
         d.set(b"Filter".to_vec(), Object::name("FlateDecode"));
         d.set(b"DecodeParms".to_vec(), Object::Dict(parms));
-        let coded = pdfcraft_filters::encode(&pdfcraft_filters::Filter::Flate, &params, &shades).unwrap();
+        let coded = openpdf_filters::encode(&openpdf_filters::Filter::Flate, &params, &shades).unwrap();
         let eight_bit = doc.add(Object::Stream(Stream::from_raw(d.clone(), coded)));
-        let params = pdfcraft_filters::Params { predictor: 10, ..params };
+        let params = openpdf_filters::Params { predictor: 10, ..params };
         let mut parms = Dict::new();
         parms.set(b"Predictor".to_vec(), Object::Int(10));
         parms.set(b"Columns".to_vec(), Object::Int(w as i64));
         d.set(b"DecodeParms".to_vec(), Object::Dict(parms));
-        let black_and_white = pdfcraft_filters::encode(&pdfcraft_filters::Filter::Flate, &params, &black_and_white_samples).unwrap();
+        let black_and_white = openpdf_filters::encode(&openpdf_filters::Filter::Flate, &params, &black_and_white_samples).unwrap();
         let packed = doc.add(Object::Stream(Stream::from_raw(d.clone(), black_and_white)));
         let palette = vec![0, 0, 255, 255, 255, 255];
         d.set(
@@ -534,11 +534,11 @@ fn images_whose_decode_parms_are_references_come_out_as_with_them_direct() {
                 Object::name("Indexed"),
                 Object::name("DeviceRGB"),
                 1.into(),
-                Object::String(pdfcraft_cos::PdfString::literal(palette)),
+                Object::String(openpdf_cos::PdfString::literal(palette)),
             ]),
         );
         let entries = samples_of(&bilevel(w, h, false), w, h, [&[0], &[1]], 8);
-        let entries = pdfcraft_filters::encode(&pdfcraft_filters::Filter::Flate, &params, &entries).unwrap();
+        let entries = openpdf_filters::encode(&openpdf_filters::Filter::Flate, &params, &entries).unwrap();
         let indexed = doc.add(Object::Stream(Stream::from_raw(d, entries)));
         for r in [one_bit, eight_bit, packed, indexed] {
             let mut s = stream(&doc, r);
@@ -617,7 +617,7 @@ fn images_whose_data_decodes_far_past_their_samples_are_left_alone() {
         let digits: Vec<u8> = data.iter().flat_map(|b| format!("{b:02X}").into_bytes()).collect();
         let mut text: Vec<u8> = digits.chunks(64).flat_map(|line| line.iter().copied().chain(*b"\n")).collect();
         text.push(b'>');
-        pdfcraft_filters::encode_flate(&text)
+        openpdf_filters::encode_flate(&text)
     };
     let mut doc = Document::new_empty();
     let as_hex = |doc: &mut Document, data: &[u8], bits: i64, (w, h): (u32, u32)| {
@@ -776,7 +776,7 @@ fn eight_bit_black_and_white_images_become_one_bit() {
         Object::name("Indexed"),
         Object::name("DeviceGray"),
         255.into(),
-        Object::String(pdfcraft_cos::PdfString::literal((0..=255u8).rev().collect::<Vec<_>>())),
+        Object::String(openpdf_cos::PdfString::literal((0..=255u8).rev().collect::<Vec<_>>())),
     ]);
     let indexed = image(&mut doc, &grey, &[("ColorSpace", palette)]);
     let keyed = image(&mut doc, &grey, &[gray_cs, ("Mask", Object::Array(vec![0.into(), 0.into()]))]);
@@ -871,7 +871,7 @@ fn rgb_and_two_colour_indexed_black_and_white_images_become_one_bit() {
             Object::name("Indexed"),
             Object::name("DeviceRGB"),
             (entries.len() as i64 / 3 - 1).into(),
-            Object::String(pdfcraft_cos::PdfString::literal(entries.to_vec())),
+            Object::String(openpdf_cos::PdfString::literal(entries.to_vec())),
         ])
     };
     let blue_white = palette(&[0, 0, 255, 255, 255, 255]);
@@ -992,7 +992,7 @@ fn a_resampled_group_4_image_is_stored_as_flate_when_smaller() {
     parms.set(b"K".to_vec(), Object::Int(-1));
     parms.set(b"Columns".to_vec(), Object::Int(w.into()));
     d.set(b"DecodeParms".to_vec(), Object::Dict(parms));
-    let img = doc.add(Object::Stream(Stream::from_raw(d, pdfcraft_filters::encode_g4(&stripes, w, h).unwrap())));
+    let img = doc.add(Object::Stream(Stream::from_raw(d, openpdf_filters::encode_g4(&stripes, w, h).unwrap())));
     // 144 × 57.6 pt is 600 ppi.
     page(&mut doc, &[("A", img)], "q 144 0 0 57.6 20 600 cm /A Do Q");
     let r = optimize(&mut doc, &Settings::default()).unwrap();
@@ -1023,7 +1023,7 @@ fn decode_arrays_read_as_numbers_however_written() {
         Object::name("Indexed"),
         Object::name("DeviceRGB"),
         1.into(),
-        Object::String(pdfcraft_cos::PdfString::literal(vec![0, 0, 255, 255, 255, 255])),
+        Object::String(openpdf_cos::PdfString::literal(vec![0, 0, 255, 255, 255, 255])),
     ]);
     let indices = samples_of(&text, w, h, [&[0], &[1]], 8);
     let max = doc.add(Object::Int(255));
@@ -1480,7 +1480,7 @@ fn ambiguous_monochrome_text_is_recompressed_without_lossy_reduction() {
         for (k, v) in entries {
             d.set(k.as_bytes().to_vec(), v.clone());
         }
-        doc.add(Object::Stream(Stream::from_raw(d, pdfcraft_filters::encode_g4(&text, w, h).unwrap())))
+        doc.add(Object::Stream(Stream::from_raw(d, openpdf_filters::encode_g4(&text, w, h).unwrap())))
     };
     // Group 4 behind ASCIIHexDecode, its parameters second in the array.
     let behind_hex = |doc: &mut Document| {
@@ -1646,7 +1646,7 @@ fn monochrome_downsampling_leaves_halftones_and_overwide_rows_at_their_resolutio
         assert_eq!(size(*r), (Some(1200), Some(480)), "halftone {i}");
     }
 
-    for (columns, resampled) in [(pdfcraft_filters::MAX_CCITT_COLUMNS, 1), (pdfcraft_filters::MAX_CCITT_COLUMNS + 1, 0)] {
+    for (columns, resampled) in [(openpdf_filters::MAX_CCITT_COLUMNS, 1), (openpdf_filters::MAX_CCITT_COLUMNS + 1, 0)] {
         let mut doc = Document::new_empty();
         let white = vec![0xFF; (columns as usize).div_ceil(8) * 2];
         let img = mono_image(&mut doc, columns, 2, &white, None, &grey);
@@ -1664,7 +1664,7 @@ fn monochrome_downsampling_leaves_halftones_and_overwide_rows_at_their_resolutio
 #[test]
 fn a_fax_image_behind_a_decompression_bomb_is_left_alone() {
     let (w, h) = (1200u32, 480u32);
-    let g4 = pdfcraft_filters::encode_g4(&bilevel(w, h, false), w, h).unwrap();
+    let g4 = openpdf_filters::encode_g4(&bilevel(w, h, false), w, h).unwrap();
     for padding in [0, 4 << 20] {
         let mut doc = Document::new_empty();
         let mut code = g4.clone();
@@ -1680,7 +1680,7 @@ fn a_fax_image_behind_a_decompression_bomb_is_left_alone() {
         parms.set(b"K".to_vec(), Object::Int(-1));
         parms.set(b"Columns".to_vec(), Object::Int(w.into()));
         d.set(b"DecodeParms".to_vec(), Object::Array(vec![Object::Null, Object::Dict(parms)]));
-        let img = doc.add(Object::Stream(Stream::from_raw(d, pdfcraft_filters::encode_flate(&code))));
+        let img = doc.add(Object::Stream(Stream::from_raw(d, openpdf_filters::encode_flate(&code))));
         // 144 × 57.6 pt is 600 ppi.
         page(&mut doc, &[("A", img)], "q 144 0 0 57.6 20 600 cm /A Do Q");
         let before = stream(&doc, img).raw;
@@ -1697,7 +1697,7 @@ fn a_fax_image_behind_a_decompression_bomb_is_left_alone() {
 
 /// A CCITT image `w` × `h` coded as Group 4 from `bits`, behind ASCIIHexDecode when `hex`.
 fn g4_image(doc: &mut Document, bits: &[u8], (w, h): (u32, u32), hex: bool) -> ObjRef {
-    let g4 = pdfcraft_filters::encode_g4(bits, w, h).unwrap();
+    let g4 = openpdf_filters::encode_g4(bits, w, h).unwrap();
     let mut d = Dict::new();
     d.set(b"Subtype".to_vec(), Object::name("Image"));
     d.set(b"Width".to_vec(), Object::Int(w.into()));
@@ -1858,10 +1858,10 @@ fn group_3_fax_images_become_group_4() {
     for (k, on_bytes) in [(0, None), (1, None), (0, Some(false)), (0, Some(true)), (1, Some(true))] {
         let g3 = group_3(&runs, k > 0, on_bytes);
         let (end_of_line, encoded_byte_align) = (k > 0 && on_bytes.is_none(), on_bytes.is_some());
-        let p = pdfcraft_filters::CcittParams { k, columns: w.into(), end_of_line, encoded_byte_align, ..Default::default() };
+        let p = openpdf_filters::CcittParams { k, columns: w.into(), end_of_line, encoded_byte_align, ..Default::default() };
         let mut work = u64::MAX;
         assert_eq!(
-            pdfcraft_filters::decode_ccitt_within(&g3, &p, h, &mut work).unwrap(),
+            openpdf_filters::decode_ccitt_within(&g3, &p, h, &mut work).unwrap(),
             bits,
             "/K {k}, on bytes {on_bytes:?}: the Group 3 data is the picture"
         );
@@ -1927,7 +1927,7 @@ fn black_and_white_images_become_jbig2() {
         Object::name("Indexed"),
         Object::name("DeviceRGB"),
         1.into(),
-        Object::String(pdfcraft_cos::PdfString::literal(vec![0xC0, 0x10, 0x10, 0xF8, 0xF0, 0xE0])),
+        Object::String(openpdf_cos::PdfString::literal(vec![0xC0, 0x10, 0x10, 0xF8, 0xF0, 0xE0])),
     ]);
     let indexed = mono_image(&mut doc, w, h, &text, None, &[("BitsPerComponent", 1.into()), ("ColorSpace", indexed_cs.clone())]);
     page(
@@ -2064,7 +2064,7 @@ fn rendered_text_becomes_jbig2_symbols() {
     assert_eq!(r.images_recompressed, 1);
     let s = stream(&doc, im);
     assert_eq!(s.dict.name(b"Filter"), Some(&b"JBIG2Decode"[..]));
-    let generic = pdfcraft_filters::encode_jbig2_generic(&text, w, h).unwrap();
+    let generic = openpdf_filters::encode_jbig2_generic(&text, w, h).unwrap();
     assert!(s.raw.len() * 2 < generic.len(), "symbols {} bytes, generic {}", s.raw.len(), generic.len());
     assert!(!s.dict.contains(b"DecodeParms"), "alone, it shares no dictionary");
     assert!(render(&doc) == before, "the page looks the same");
@@ -2073,8 +2073,8 @@ fn rendered_text_becomes_jbig2_symbols() {
 /// Page `index` of `doc`, saved and opened again, rendered at scale 1.
 fn render_page(doc: &Document, index: usize) -> Vec<u8> {
     let bytes = write_full(doc, &SaveOptions::default()).unwrap();
-    let mut r = pdfcraft_render::PageRenderer::new(Arc::new(bytes), pdfcraft_render::RenderConfig::default());
-    let out = r.render(pdfcraft_render::RenderRequest { page: index, scale: 1.0, ..Default::default() });
+    let mut r = openpdf_render::PageRenderer::new(Arc::new(bytes), openpdf_render::RenderConfig::default());
+    let out = r.render(openpdf_render::RenderRequest { page: index, scale: 1.0, ..Default::default() });
     assert!(out.error.is_none(), "{:?}", out.error);
     out.rgba.to_vec()
 }
@@ -2149,7 +2149,7 @@ fn jbig2_pages_share_one_symbol_dictionary() {
         })
         .collect();
     let before: Vec<Vec<u8>> = (0..pages.len()).map(|p| render_page(&doc, p)).collect();
-    let alone: usize = pages.iter().map(|text| pdfcraft_filters::encode_jbig2(text, w, h).unwrap().len()).sum();
+    let alone: usize = pages.iter().map(|text| openpdf_filters::encode_jbig2(text, w, h).unwrap().len()).sum();
     let settings = Settings { mono: MonoSettings { compression: MonoCompression::Jbig2, ..MonoSettings::REDUCE }, ..Settings::default() };
     let report = optimize(&mut doc, &settings).unwrap();
     let globals = globals_of(&doc, images[0]).expect("the first page names the globals");
@@ -2214,7 +2214,7 @@ fn retained_jbig2_shares_nothing() {
                 d.set(key.as_bytes().to_vec(), Object::Int(value));
             }
             d.set(b"Filter".to_vec(), Object::name("JBIG2Decode"));
-            let im = doc.add(Object::Stream(Stream::from_raw(d, pdfcraft_filters::encode_jbig2(&text, w, h).unwrap())));
+            let im = doc.add(Object::Stream(Stream::from_raw(d, openpdf_filters::encode_jbig2(&text, w, h).unwrap())));
             // 1200 samples over 144 pt: 600 ppi.
             page(&mut doc, &[("Im", im)], "q 144 0 0 115.2 6 300 cm /Im Do Q");
             im
@@ -2302,7 +2302,7 @@ fn jbig2_scans_are_averaged_and_stored_again() {
         page(&mut doc, &[("Im", im)], &format!("q {width} 0 0 {height} 20 600 cm /Im Do Q"));
         (doc, im)
     };
-    let coded = pdfcraft_filters::encode_jbig2_generic(&squares, w, h).unwrap();
+    let coded = openpdf_filters::encode_jbig2_generic(&squares, w, h).unwrap();
     // 144 × 57.6 pt is 600 ppi.
     let at_600 = (144.0, 57.6);
     for compression in [MonoCompression::CcittG4, MonoCompression::Jbig2, MonoCompression::Retain] {
@@ -2334,7 +2334,7 @@ fn jbig2_scans_are_averaged_and_stored_again() {
     // At 300 ppi, below 450: rendered text, whose letters repeat, coded as one generic region.
     let (tw, th) = (600u32, 480u32);
     let text = rendered_text(tw, th);
-    let generic = pdfcraft_filters::encode_jbig2_generic(&text, tw, th).unwrap();
+    let generic = openpdf_filters::encode_jbig2_generic(&text, tw, th).unwrap();
     let at_300 = (144.0, 115.2);
     for compression in [MonoCompression::CcittG4, MonoCompression::Retain] {
         let settings = Settings { mono: MonoSettings { compression, ..MonoSettings::REDUCE }, ..Settings::default() };
@@ -2376,7 +2376,7 @@ fn jbig2_scans_are_averaged_and_stored_again() {
 }
 
 /// A whole 300 dpi letter page of rendered text, more marks than one JBIG2 text region of the
-/// decoder PdfCraft renders with takes, still looks the same as JBIG2 symbols.
+/// decoder OpenPDF renders with takes, still looks the same as JBIG2 symbols.
 #[test]
 fn a_dense_page_of_rendered_text_looks_the_same_as_jbig2_symbols() {
     let mut doc = Document::new_empty();
@@ -2390,7 +2390,7 @@ fn a_dense_page_of_rendered_text_looks_the_same_as_jbig2_symbols() {
     assert_eq!(r.images_recompressed, 1);
     let s = stream(&doc, im);
     assert_eq!(s.dict.name(b"Filter"), Some(&b"JBIG2Decode"[..]));
-    assert!(s.raw.len() * 2 < pdfcraft_filters::encode_jbig2_generic(&text, w, h).unwrap().len(), "symbol coded");
+    assert!(s.raw.len() * 2 < openpdf_filters::encode_jbig2_generic(&text, w, h).unwrap().len(), "symbol coded");
     // The copies take several text regions (segment type 7, ISO/IEC 14492 7.3), read from the
     // segment headers (7.2): number, flags, referred-to count and numbers, page, data length.
     let mut regions = 0;
@@ -2490,7 +2490,7 @@ fn form_submit_import_and_reset_actions_are_discarded_and_the_fields_stay() {
     let p = page(&mut doc, &[], "");
     let root = doc.root().unwrap();
     let triggers = with(Dict::new(), "U", action("ResetForm"));
-    let triggers = with(triggers, "E", with(action("JavaScript"), "JS", Object::String(pdfcraft_cos::PdfString::literal("app.alert(1)"))));
+    let triggers = with(triggers, "E", with(action("JavaScript"), "JS", Object::String(openpdf_cos::PdfString::literal("app.alert(1)"))));
     let button = with(with(with(Dict::new(), "Subtype", Object::name("Widget")), "FT", Object::name("Btn")), "A", action("SubmitForm"));
     let button = doc.add(Object::Dict(with(button, "AA", triggers)));
     let import = doc.add(Object::Dict(action("ImportData")));
@@ -2576,7 +2576,7 @@ fn form_actions_chained_past_the_limit_stop_the_optimization() {
     }
     doc.update_dict(root, |c| c.set(b"OpenAction".to_vec(), chain)).unwrap();
     let r = optimize(&mut doc, &Settings { discard_form_actions: true, ..Settings::default() });
-    assert!(matches!(r, Err(pdfcraft_optimize::OptimizeError::ActionLimit(at)) if at == root), "{r:?}");
+    assert!(matches!(r, Err(openpdf_optimize::OptimizeError::ActionLimit(at)) if at == root), "{r:?}");
 }
 
 #[test]
@@ -2613,7 +2613,7 @@ fn a_next_array_that_lists_itself_is_left_as_it_is() {
         let mut mixed = doc.clone();
         mixed.set(first, Object::Array(vec![Object::Ref(second), submit]));
         let r = optimize(&mut mixed, &settings);
-        assert!(matches!(r, Err(pdfcraft_optimize::OptimizeError::ActionLimit(_))), "{r:?}");
+        assert!(matches!(r, Err(openpdf_optimize::OptimizeError::ActionLimit(_))), "{r:?}");
     }
 }
 
@@ -2639,7 +2639,7 @@ fn a_shared_next_array_cleaned_for_too_many_actions_stops_the_optimization() {
     // Each referrer is under the limit for one object; together they pass the document's.
     let mut doc = shared_next_array(600);
     let r = optimize(&mut doc, &settings);
-    assert!(matches!(r, Err(pdfcraft_optimize::OptimizeError::ActionLimit(_))), "{r:?}");
+    assert!(matches!(r, Err(openpdf_optimize::OptimizeError::ActionLimit(_))), "{r:?}");
 }
 
 /// 80 direct dictionaries nested in each other under `/Deep`, the innermost one being `inner`.
@@ -2683,7 +2683,7 @@ fn deep_nesting_stops_the_optimization_only_when_a_form_action_is_past_the_limit
         let held = deep.add(nested(inner));
         deep.update_dict(p, |d| d.set(b"PieceInfo".to_vec(), Object::Ref(held))).unwrap();
         let r = optimize(&mut deep, &settings);
-        assert!(matches!(r, Err(pdfcraft_optimize::OptimizeError::ActionLimit(at)) if at == held), "case {n}: {r:?}");
+        assert!(matches!(r, Err(openpdf_optimize::OptimizeError::ActionLimit(at)) if at == held), "case {n}: {r:?}");
     }
 }
 
@@ -2933,7 +2933,7 @@ fn invalid_links_and_unreferenced_destinations_go() {
         d.set(b"Dest".to_vec(), dest);
         Object::Ref(doc.add(Object::Dict(d)))
     };
-    let s = |t: &str| Object::String(pdfcraft_cos::PdfString::literal(t.as_bytes().to_vec()));
+    let s = |t: &str| Object::String(openpdf_cos::PdfString::literal(t.as_bytes().to_vec()));
     let annots = vec![
         link(&mut doc, Object::Array(vec![Object::Ref(p), Object::name("Fit")])),
         link(&mut doc, Object::Array(vec![Object::Ref(ObjRef::new(999, 0)), Object::name("Fit")])),
@@ -2975,9 +2975,513 @@ fn invalid_links_and_unreferenced_destinations_go() {
     assert_eq!(optimize(&mut again, &off).unwrap().invalid_links, 0);
 }
 
+mod external_refs {
+    use super::*;
+
+    /// An action dictionary of type `s`, followed by `next` when given.
+    fn action(s: &str, next: Option<Object>) -> Object {
+        let mut d = Dict::new();
+        d.set(b"S".to_vec(), Object::name(s));
+        match s {
+            "GoToR" | "Launch" => d.set(b"F".to_vec(), Object::String(openpdf_cos::PdfString::literal(b"other.pdf".to_vec()))),
+            "URI" => d.set(b"URI".to_vec(), Object::String(openpdf_cos::PdfString::literal(b"https://example.com".to_vec()))),
+            _ => {}
+        }
+        if let Some(n) = next {
+            d.set(b"Next".to_vec(), n);
+        }
+        Object::Dict(d)
+    }
+
+    fn link_with(a: Option<Object>, dest: Option<Object>) -> Object {
+        let mut d = Dict::new();
+        d.set(b"Type".to_vec(), Object::name("Annot"));
+        d.set(b"Subtype".to_vec(), Object::name("Link"));
+        d.set(b"Rect".to_vec(), Object::Array(vec![0.into(), 0.into(), 10.into(), 10.into()]));
+        if let Some(a) = a {
+            d.set(b"A".to_vec(), a);
+        }
+        if let Some(dest) = dest {
+            d.set(b"Dest".to_vec(), dest);
+        }
+        Object::Dict(d)
+    }
+
+    /// The action types an `/A` value runs, in order (depth-first through `/Next`), at most 1,000.
+    fn chain(doc: &Document, a: &Object) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut stack = vec![a.clone()];
+        while let Some(o) = stack.pop() {
+            if out.len() >= 1_000 {
+                break;
+            }
+            match doc.resolve(&o).as_ref() {
+                Object::Array(items) => stack.extend(items.iter().rev().cloned()),
+                Object::Dict(d) => {
+                    out.push(
+                        d.get(b"S")
+                            .map(|s| doc.resolve(s))
+                            .and_then(|s| s.as_name().map(|n| String::from_utf8_lossy(n).into_owned()))
+                            .unwrap_or_default(),
+                    );
+                    if let Some(n) = d.get(b"Next") {
+                        stack.push(n.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// A one-page document whose page holds `annots`, with one bookmark per action in `bookmarks`.
+    fn linked_doc(annots: impl FnOnce(&mut Document, ObjRef) -> Vec<Object>, bookmarks: &[Object]) -> (Document, ObjRef, Vec<ObjRef>) {
+        let mut doc = Document::new_empty();
+        let p = page(&mut doc, &[], "BT ET");
+        let annots = annots(&mut doc, p);
+        doc.update_dict(p, |d| d.set(b"Annots".to_vec(), Object::Array(annots))).unwrap();
+        let outlines = doc.add(Object::Null);
+        let items: Vec<ObjRef> = bookmarks.iter().map(|_| doc.add(Object::Null)).collect();
+        for (i, (r, a)) in items.iter().zip(bookmarks).enumerate() {
+            let mut item = Dict::new();
+            item.set(b"Title".to_vec(), Object::String(openpdf_cos::PdfString::literal(format!("Item {i}").into_bytes())));
+            item.set(b"Parent".to_vec(), Object::Ref(outlines));
+            item.set(b"A".to_vec(), a.clone());
+            if let Some(n) = items.get(i + 1) {
+                item.set(b"Next".to_vec(), Object::Ref(*n));
+            }
+            doc.set(*r, Object::Dict(item));
+        }
+        let mut o = Dict::new();
+        if let (Some(first), Some(last)) = (items.first(), items.last()) {
+            o.set(b"First".to_vec(), Object::Ref(*first));
+            o.set(b"Last".to_vec(), Object::Ref(*last));
+        }
+        doc.set(outlines, Object::Dict(o));
+        let root = doc.root().unwrap();
+        doc.update_dict(root, |c| c.set(b"Outlines".to_vec(), Object::Ref(outlines))).unwrap();
+        (doc, p, items)
+    }
+
+    fn annots_of(doc: &Document, p: ObjRef) -> Vec<Dict> {
+        let annots = doc.get(p).as_dict().unwrap().get(b"Annots").cloned().unwrap();
+        doc.resolve(&annots).as_array().unwrap().iter().map(|a| doc.resolve(a).as_dict().unwrap().clone()).collect()
+    }
+
+    #[test]
+    fn links_and_bookmarks_to_other_documents_are_discarded_and_links_within_stay() {
+        let (doc, p, items) = linked_doc(
+            |doc, p| {
+                let here = Object::Array(vec![Object::Ref(p), Object::name("Fit")]);
+                let mut goto = Dict::new();
+                goto.set(b"S".to_vec(), Object::name("GoTo"));
+                goto.set(b"D".to_vec(), here.clone());
+                let remote = doc.add(link_with(Some(action("GoToR", None)), None));
+                vec![
+                    Object::Ref(remote),
+                    link_with(Some(action("Launch", None)), None),
+                    link_with(Some(action("GoToE", None)), None),
+                    link_with(Some(action("URI", None)), None),
+                    link_with(Some(Object::Dict(goto)), None),
+                    link_with(None, Some(here)),
+                    link_with(Some(action("GoToR", Some(action("URI", None)))), None),
+                ]
+            },
+            &[action("GoToR", None), action("Named", None)],
+        );
+        let on = Settings { discard_external_refs: true, ..Settings::default() };
+        // Off by default: nothing changes.
+        let mut off = doc.clone();
+        let report = optimize(&mut off, &Settings::default()).unwrap();
+        assert_eq!((report.external_links, report.external_bookmarks), (0, 0));
+        assert_eq!(annots_of(&off, p).len(), 7);
+        let mut doc = doc;
+        let report = optimize(&mut doc, &on).unwrap();
+        assert_eq!((report.external_links, report.external_bookmarks, report.invalid_links), (4, 1, 0), "{report:?}");
+        let left: Vec<Vec<String>> = annots_of(&doc, p).iter().map(|d| d.get(b"A").map(|a| chain(&doc, a)).unwrap_or_default()).collect();
+        assert_eq!(
+            left,
+            [vec!["URI"], vec!["GoTo"], vec![], vec!["URI"]],
+            "the web link, the jump within and the /Dest link stay; the chained web link keeps its URI"
+        );
+        assert!(annots_of(&doc, p)[2].get(b"Dest").is_some());
+        let bookmark = |doc: &Document, r: ObjRef| doc.get(r).as_dict().unwrap().clone();
+        assert!(bookmark(&doc, items[0]).get(b"A").is_none(), "the bookmark stays, without its action");
+        assert_eq!(bookmark(&doc, items[0]).get(b"Next"), Some(&Object::Ref(items[1])), "and its place in the outline");
+        assert_eq!(chain(&doc, bookmark(&doc, items[1]).get(b"A").unwrap()), ["Named"]);
+    }
+
+    #[test]
+    fn discarding_a_remote_action_keeps_the_links_local_destination() {
+        let (mut doc, p, _) =
+            linked_doc(|_, p| vec![link_with(Some(action("GoToR", None)), Some(Object::Array(vec![Object::Ref(p), Object::name("Fit")])))], &[]);
+        let report = optimize(&mut doc, &Settings { discard_external_refs: true, ..Settings::default() }).unwrap();
+        assert_eq!(report.external_links, 1);
+        let bytes = write_full(&doc, &SaveOptions::default()).unwrap();
+        let reopened = Document::open(Arc::new(bytes)).unwrap();
+        let links = annots_of(&reopened, p);
+        assert_eq!(links.len(), 1);
+        assert!(links[0].get(b"A").is_none());
+        assert_eq!(links[0].get(b"Dest"), Some(&Object::Array(vec![Object::Ref(p), Object::name("Fit")])));
+    }
+
+    #[test]
+    fn repeated_indirect_remote_link_is_removed_from_one_page() {
+        let (mut doc, p, _) = linked_doc(
+            |doc, _| {
+                let link = doc.add(link_with(Some(action("GoToR", None)), None));
+                vec![Object::Ref(link), Object::Ref(link)]
+            },
+            &[],
+        );
+        let report = optimize(&mut doc, &Settings { discard_external_refs: true, ..Settings::default() }).unwrap();
+        assert_eq!(report.external_links, 1, "{report:?}");
+        assert!(annots_of(&doc, p).is_empty(), "both references leave the page");
+    }
+
+    #[test]
+    fn shared_indirect_remote_link_with_empty_next_is_removed_from_every_page() {
+        let (mut doc, first, items) = linked_doc(|_, _| Vec::new(), &[action("Named", None), action("GoToR", None)]);
+        let second = page(&mut doc, &[], "BT ET");
+        let link = doc.add(link_with(Some(action("GoToR", Some(Object::Array(vec![Object::Null])))), None));
+        for p in [first, second] {
+            doc.update_dict(p, |d| d.set(b"Annots".to_vec(), Object::Array(vec![Object::Ref(link)]))).unwrap();
+        }
+        doc.update_dict(items[0], |d| d.set(b"First".to_vec(), Object::Ref(items[1]))).unwrap();
+        let report = optimize(&mut doc, &Settings { discard_external_refs: true, ..Settings::default() }).unwrap();
+        assert_eq!(report.external_links, 1, "{report:?}");
+        assert_eq!(report.external_bookmarks, 1, "{report:?}");
+        assert!(doc.get(items[1]).as_dict().unwrap().get(b"A").is_none(), "the shared bookmark has no action");
+        assert!(annots_of(&doc, first).is_empty(), "the first page loses the link");
+        assert!(annots_of(&doc, second).is_empty(), "the second page loses the link");
+        assert!(doc.get(link).as_dict().unwrap().get(b"A").is_none(), "the shared link has no action");
+    }
+
+    #[test]
+    fn an_action_to_another_document_hands_its_place_to_the_actions_after_it() {
+        let (doc, p, _) = linked_doc(
+            |doc, p| {
+                let here = Object::Array(vec![Object::Ref(p), Object::name("Fit")]);
+                // A shared Launch, stored on its own with an indirect /S, followed by a web link.
+                let launch_name = doc.add(Object::name("Launch"));
+                let Object::Dict(mut launch) = action("Launch", Some(action("URI", None))) else { panic!("action() builds a dictionary") };
+                launch.set(b"S".to_vec(), Object::Ref(launch_name));
+                let launch = doc.add(Object::Dict(launch));
+                let mut goto = Dict::new();
+                goto.set(b"S".to_vec(), Object::name("GoTo"));
+                goto.set(b"D".to_vec(), here);
+                goto.set(
+                    b"Next".to_vec(),
+                    Object::Array(vec![action("GoToR", Some(action("JavaScript", None))), Object::Ref(launch), action("Named", None)]),
+                );
+                // A remote go-to whose web link comes back to it.
+                let (a1, a2) = (doc.add(Object::Null), doc.add(Object::Null));
+                doc.set(a1, action("GoToR", Some(Object::Ref(a2))));
+                doc.set(a2, action("URI", Some(Object::Ref(a1))));
+                // A remote go-to that leads a list: the rest follow the first action left.
+                let list = action("GoToR", Some(Object::Array(vec![action("SubmitForm", Some(action("Named", None))), action("URI", None)])));
+                vec![
+                    link_with(Some(Object::Dict(goto)), None),
+                    link_with(Some(Object::Ref(a1)), None),
+                    link_with(Some(list), None),
+                    link_with(Some(Object::Ref(launch)), None),
+                ]
+            },
+            &[],
+        );
+        let mut doc = doc;
+        let report = optimize(&mut doc, &Settings { discard_external_refs: true, ..Settings::default() }).unwrap();
+        assert_eq!(report.external_links, 4, "{report:?}");
+        let left: Vec<Vec<String>> = annots_of(&doc, p).iter().map(|d| chain(&doc, d.get(b"A").unwrap())).collect();
+        assert_eq!(
+            left,
+            [vec!["GoTo", "JavaScript", "URI", "Named"], vec!["URI"], vec!["SubmitForm", "Named", "URI"], vec!["URI"]],
+            "the actions after a removed one run in their order, and a chain that comes back ends there"
+        );
+    }
+
+    #[test]
+    fn entries_that_are_not_actions_do_not_take_the_place_of_a_removed_action() {
+        let (doc, p, items) = linked_doc(
+            |doc, _| {
+                // A null, then a reference to an empty object, before the web link.
+                let empty = doc.add(Object::Null);
+                let next = Object::Array(vec![Object::Null, Object::Ref(empty), action("URI", None), Object::Null]);
+                vec![link_with(Some(action("GoToR", Some(next))), None)]
+            },
+            &[
+                action("Launch", Some(Object::Array(vec![Object::Null, action("URI", None)]))),
+                action("GoToR", Some(Object::Array(vec![Object::Null, Object::Null]))),
+            ],
+        );
+        let mut doc = doc;
+        let report = optimize(&mut doc, &Settings { discard_external_refs: true, ..Settings::default() }).unwrap();
+        assert_eq!((report.external_links, report.external_bookmarks), (1, 2), "{report:?}");
+        let links = annots_of(&doc, p);
+        assert_eq!(links.len(), 1, "the link keeps its web link, so it stays on the page");
+        assert_eq!(chain(&doc, links[0].get(b"A").unwrap()), ["URI"]);
+        let bookmark = |r: ObjRef| doc.get(r).as_dict().unwrap().clone();
+        assert_eq!(chain(&doc, bookmark(items[0]).get(b"A").unwrap()), ["URI"]);
+        assert!(bookmark(items[1]).get(b"A").is_none(), "a chain of nulls alone leaves no action");
+    }
+
+    #[test]
+    fn a_chain_deeper_than_the_limit_loses_its_tail_and_one_without_a_remote_action_stays() {
+        let deep = |n: usize, last: &str| (0..n).fold(action(last, None), |next, _| action("URI", Some(next)));
+        let (doc, p, _) = linked_doc(|_, _| vec![link_with(Some(deep(600, "GoToR")), None), link_with(Some(deep(600, "Named")), None)], &[]);
+        let mut doc = doc;
+        let report = optimize(&mut doc, &Settings { discard_external_refs: true, ..Settings::default() }).unwrap();
+        assert_eq!(report.external_links, 1, "{report:?}");
+        let left: Vec<Vec<String>> = annots_of(&doc, p).iter().map(|d| chain(&doc, d.get(b"A").unwrap())).collect();
+        assert!(left[0].len() < 600 && left[0].iter().all(|s| s == "URI"), "cut before the remote go-to: {} actions", left[0].len());
+        assert_eq!(left[1].len(), 601, "a deep chain with nothing to remove is kept whole");
+    }
+
+    #[test]
+    fn a_long_chain_of_indirect_actions_stays_indirect_and_reads_back_after_saving() {
+        // 130 indirect web links, then a remote go-to: the parser reads at most 128 nested levels.
+        let mut tail = None;
+        let (doc, p, _) = linked_doc(
+            |doc, _| {
+                let mut r = doc.add(action("GoToR", None));
+                for _ in 0..130 {
+                    r = doc.add(action("URI", Some(Object::Ref(r))));
+                }
+                tail = Some(r);
+                vec![link_with(Some(Object::Ref(r)), None)]
+            },
+            &[],
+        );
+        let mut doc = doc;
+        let report = optimize(&mut doc, &Settings { discard_external_refs: true, ..Settings::default() }).unwrap();
+        assert_eq!(report.external_links, 1, "{report:?}");
+        let a = annots_of(&doc, p)[0].get(b"A").cloned().unwrap();
+        assert!(matches!(a, Object::Ref(r) if Some(r) != tail), "a new indirect action: {a:?}");
+        let old = Object::Ref(tail.unwrap());
+        assert_eq!(chain(&doc, &old).last().map(String::as_str), Some("GoToR"), "the old chain is not edited");
+        let bytes = write_full(&doc, &SaveOptions::default()).unwrap();
+        let reopened = Document::open(Arc::new(bytes)).unwrap();
+        let a = annots_of(&reopened, p)[0].get(b"A").cloned().unwrap();
+        assert_eq!(chain(&reopened, &a), vec!["URI"; 130], "every web link reads back");
+    }
+
+    #[test]
+    fn promoted_action_chains_read_back_after_saving() {
+        let (doc, p, _) = linked_doc(
+            |doc, _| {
+                let tail = (0..126).fold(action("Named", None), |next, _| action("Named", Some(next)));
+                let first = doc.add(tail);
+                let next = Object::Array(vec![Object::Ref(first), action("URI", None)]);
+                let link = doc.add(link_with(Some(action("GoToR", Some(next))), None));
+                vec![Object::Ref(link)]
+            },
+            &[],
+        );
+        let bytes = write_full(&doc, &SaveOptions::default()).unwrap();
+        let mut doc = Document::open(Arc::new(bytes)).unwrap();
+        let original = annots_of(&doc, p)[0].get(b"A").cloned().unwrap();
+        assert_eq!(chain(&doc, &original).len(), 129);
+        let report = optimize(&mut doc, &Settings { discard_external_refs: true, ..Settings::default() }).unwrap();
+        assert_eq!(report.external_links, 1);
+        let bytes = write_full(&doc, &SaveOptions::default()).unwrap();
+        let reopened = Document::open(Arc::new(bytes)).unwrap();
+        let a = annots_of(&reopened, p)[0].get(b"A").cloned().unwrap();
+        let expected: Vec<_> = std::iter::repeat_n("Named".to_string(), 127).chain(["URI".to_string()]).collect();
+        assert_eq!(chain(&reopened, &a), expected);
+    }
+
+    #[test]
+    fn shared_actions_that_multiply_stop_the_optimization_when_one_opens_another_document() {
+        use openpdf_optimize::OptimizeError;
+        // Forty levels of indirect actions, each listing the next level twice: 2^40 paths.
+        let shared = |doc: &mut Document, last: &str| {
+            let mut r = doc.add(action(last, None));
+            for _ in 0..40 {
+                r = doc.add(action("URI", Some(Object::Array(vec![Object::Ref(r), Object::Ref(r)]))));
+            }
+            r
+        };
+        let mut link = None;
+        let (doc, _, _) = linked_doc(
+            |doc, _| {
+                let a = shared(doc, "GoToR");
+                let r = doc.add(link_with(Some(Object::Ref(a)), None));
+                link = Some(r);
+                vec![Object::Ref(r)]
+            },
+            &[],
+        );
+        let on = Settings { discard_external_refs: true, ..Settings::default() };
+        let r = optimize(&mut doc.clone(), &on);
+        assert!(matches!(r, Err(OptimizeError::ExternalRefLimit(o)) if Some(o) == link), "{r:?}");
+        let (doc, p, _) = linked_doc(
+            |doc, _| {
+                let a = shared(doc, "Named");
+                vec![link_with(Some(Object::Ref(a)), None)]
+            },
+            &[],
+        );
+        let before = annots_of(&doc, p);
+        let mut doc = doc;
+        let report = optimize(&mut doc, &on).unwrap();
+        assert_eq!(report.external_links, 0, "{report:?}");
+        assert_eq!(annots_of(&doc, p), before, "nothing to remove, however the actions are shared");
+    }
+
+    #[test]
+    fn a_shared_chain_without_remote_actions_is_looked_at_once() {
+        // 600 levels that each list a 2,000-action chain of web links sixty times, then a remote go-to.
+        let (doc, p, _) = linked_doc(
+            |doc, _| {
+                let mut g = doc.add(action("URI", None));
+                for _ in 0..2_000 {
+                    g = doc.add(action("URI", Some(Object::Ref(g))));
+                }
+                let a = (0..600).fold(action("GoToR", None), |next, _| {
+                    let mut list = vec![Object::Ref(g); 60];
+                    list.push(next);
+                    action("URI", Some(Object::Array(list)))
+                });
+                vec![link_with(Some(a), None)]
+            },
+            &[],
+        );
+        let mut doc = doc;
+        let report = optimize(&mut doc, &Settings { discard_external_refs: true, ..Settings::default() }).unwrap();
+        assert_eq!(report.external_links, 1, "{report:?}");
+        let left = annots_of(&doc, p);
+        assert!(!chain(&doc, left[0].get(b"A").unwrap()).iter().any(|s| s == "GoToR"));
+    }
+
+    #[test]
+    fn a_link_named_through_an_indirect_subtype_is_discarded_and_a_form_field_keeps_its_action() {
+        let (doc, p, _) = linked_doc(
+            |doc, _| {
+                let name = doc.add(Object::name("Link"));
+                let Object::Dict(mut indirect) = link_with(Some(action("GoToR", None)), None) else { panic!("link_with() builds a dictionary") };
+                indirect.set(b"Subtype".to_vec(), Object::Ref(name));
+                let Object::Dict(mut widget) = link_with(Some(action("GoToR", None)), None) else { panic!("link_with() builds a dictionary") };
+                widget.set(b"Subtype".to_vec(), Object::name("Widget"));
+                vec![Object::Dict(indirect), Object::Dict(widget)]
+            },
+            &[],
+        );
+        let mut doc = doc;
+        let report = optimize(&mut doc, &Settings { discard_external_refs: true, ..Settings::default() }).unwrap();
+        assert_eq!(report.external_links, 1, "{report:?}");
+        let left = annots_of(&doc, p);
+        assert_eq!(left.len(), 1, "the link goes");
+        assert_eq!(left[0].name(b"Subtype"), Some(&b"Widget"[..]));
+        assert_eq!(chain(&doc, left[0].get(b"A").unwrap()), ["GoToR"], "the form field keeps its action");
+    }
+
+    #[test]
+    fn thread_actions_into_another_file_and_data_imports_are_discarded_and_threads_here_stay() {
+        let with_file = |s: &str| {
+            let Object::Dict(mut d) = action(s, None) else { panic!("action() builds a dictionary") };
+            d.set(b"F".to_vec(), Object::String(openpdf_cos::PdfString::literal(b"other.pdf".to_vec())));
+            d.set(b"D".to_vec(), Object::Int(0));
+            Object::Dict(d)
+        };
+        let here = {
+            let Object::Dict(mut d) = action("Thread", None) else { panic!("action() builds a dictionary") };
+            d.set(b"D".to_vec(), Object::Int(0));
+            Object::Dict(d)
+        };
+        let (doc, p, _) = linked_doc(
+            |_, _| {
+                vec![link_with(Some(with_file("Thread")), None), link_with(Some(here.clone()), None), link_with(Some(with_file("ImportData")), None)]
+            },
+            &[],
+        );
+        let mut doc = doc;
+        let report = optimize(&mut doc, &Settings { discard_external_refs: true, ..Settings::default() }).unwrap();
+        assert_eq!(report.external_links, 2, "{report:?}");
+        let left = annots_of(&doc, p);
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].get(b"A"), Some(&here), "the thread in this document stays");
+    }
+
+    #[test]
+    fn an_outline_over_the_limit_stops_the_optimization() {
+        use openpdf_optimize::OptimizeError;
+        let bookmarks = vec![action("Named", None); 100_001];
+        let (doc, _, _) = linked_doc(|_, _| Vec::new(), &bookmarks);
+        let r = optimize(&mut doc.clone(), &Settings { discard_external_refs: true, ..Settings::default() });
+        assert!(matches!(r, Err(OptimizeError::ExternalRefLimit(_))), "{r:?}");
+    }
+
+    #[test]
+    fn bookmarks_stored_inside_other_bookmarks_lose_their_actions_too() {
+        let (mut doc, _, _) = linked_doc(|_, _| Vec::new(), &[]);
+        let bookmark = |title: &str, a: Object| {
+            let mut d = Dict::new();
+            d.set(b"Title".to_vec(), Object::String(openpdf_cos::PdfString::literal(title.as_bytes().to_vec())));
+            d.set(b"A".to_vec(), a);
+            d
+        };
+        let third = doc.add(Object::Dict(bookmark("C", action("GoToR", None))));
+        let mut second = bookmark("B", action("Launch", None));
+        second.set(b"First".to_vec(), Object::Ref(third));
+        let mut first = bookmark("A", action("GoToR", Some(action("Named", None))));
+        first.set(b"Next".to_vec(), Object::Dict(second));
+        let mut outlines = Dict::new();
+        outlines.set(b"First".to_vec(), Object::Dict(first));
+        let root = doc.root().unwrap();
+        doc.update_dict(root, |c| c.set(b"Outlines".to_vec(), Object::Dict(outlines))).unwrap();
+        let report = optimize(&mut doc, &Settings { discard_external_refs: true, ..Settings::default() }).unwrap();
+        assert_eq!(report.external_bookmarks, 3, "{report:?}");
+        let catalog = doc.get(root).as_dict().cloned().unwrap();
+        let first = catalog.get(b"Outlines").and_then(Object::as_dict).and_then(|o| o.get(b"First")).and_then(Object::as_dict).cloned().unwrap();
+        assert_eq!(chain(&doc, first.get(b"A").unwrap()), ["Named"]);
+        let second = first.get(b"Next").and_then(Object::as_dict).cloned().unwrap();
+        assert!(second.get(b"A").is_none());
+        assert!(doc.get(third).as_dict().unwrap().get(b"A").is_none());
+    }
+
+    #[test]
+    fn a_removed_link_kept_by_the_structure_tree_reads_back_without_its_action() {
+        let mut link = None;
+        let (doc, p, _) = linked_doc(
+            |doc, _| {
+                let r = doc.add(link_with(Some(action("GoToR", None)), None));
+                link = Some(r);
+                vec![Object::Ref(r)]
+            },
+            &[],
+        );
+        let mut doc = doc;
+        let mut objr = Dict::new();
+        objr.set(b"Type".to_vec(), Object::name("OBJR"));
+        objr.set(b"Obj".to_vec(), Object::Ref(link.unwrap()));
+        objr.set(b"Pg".to_vec(), Object::Ref(p));
+        let mut element = Dict::new();
+        element.set(b"S".to_vec(), Object::name("Link"));
+        element.set(b"K".to_vec(), Object::Dict(objr));
+        let mut tree = Dict::new();
+        tree.set(b"Type".to_vec(), Object::name("StructTreeRoot"));
+        tree.set(b"K".to_vec(), Object::Dict(element));
+        let tree = doc.add(Object::Dict(tree));
+        let root = doc.root().unwrap();
+        doc.update_dict(root, |c| c.set(b"StructTreeRoot".to_vec(), Object::Ref(tree))).unwrap();
+        let report = optimize(&mut doc, &Settings { discard_external_refs: true, ..Settings::default() }).unwrap();
+        assert_eq!(report.external_links, 1, "{report:?}");
+        assert!(annots_of(&doc, p).is_empty(), "the link leaves its page");
+        let bytes = write_full(&doc, &SaveOptions::default()).unwrap();
+        let reopened = Document::open(Arc::new(bytes)).unwrap();
+        let catalog = reopened.get(reopened.root().unwrap()).as_dict().cloned().unwrap();
+        let tree = reopened.dict(catalog.get(b"StructTreeRoot").unwrap()).unwrap();
+        let element = reopened.dict(tree.get(b"K").unwrap()).unwrap();
+        let objr = reopened.dict(element.get(b"K").unwrap()).unwrap();
+        let kept = reopened.dict(objr.get(b"Obj").unwrap()).unwrap();
+        assert_eq!(kept.name(b"Subtype"), Some(&b"Link"[..]));
+        assert!(kept.get(b"A").is_none(), "the link's object holds no action to another document: {kept:?}");
+    }
+}
+
 #[test]
 fn progress_is_reported_per_image_and_a_refusal_cancels() {
-    use pdfcraft_optimize::{OptimizeError, Stage, optimize_with_progress};
+    use openpdf_optimize::{OptimizeError, Stage, optimize_with_progress};
     let build = || {
         let mut doc = Document::new_empty();
         let a = image(&mut doc, 300, 300, 3, false, None);
@@ -3418,7 +3922,7 @@ fn printed_page(rows: usize, jpeg: impl Fn(usize) -> bool, edit: impl Fn(usize, 
 
 /// The images the first page's content stream draws, by name, with their streams.
 fn drawn_images(doc: &Document) -> Vec<Stream> {
-    let pages = pdfcraft_annot::page_refs(doc).unwrap();
+    let pages = openpdf_annot::page_refs(doc).unwrap();
     let p = doc.get(pages[0]).as_dict().cloned().unwrap();
     let res = doc.resolve(p.get(b"Resources").unwrap()).as_dict().cloned().unwrap();
     let xo = doc.resolve(res.get(b"XObject").unwrap()).as_dict().cloned().unwrap();
@@ -3426,7 +3930,7 @@ fn drawn_images(doc: &Document) -> Vec<Stream> {
         Object::Stream(s) => s.decoded().unwrap(),
         _ => panic!("contents"),
     };
-    pdfcraft_content::parse(&c)
+    openpdf_content::parse(&c)
         .ops
         .iter()
         .filter(|o| o.is("Do"))
@@ -3507,7 +4011,7 @@ fn a_page_picture_printed_as_one_pixel_strips_is_merged_into_one_image() {
 
 #[test]
 fn the_mobile_preset_makes_a_printed_page_small() {
-    use pdfcraft_optimize::Preset;
+    use openpdf_optimize::Preset;
     let (doc, _) = printed_page(200, |_| true, |_, s| s);
     let bytes = |d: &Document| write_full(d, &SaveOptions::default()).unwrap().len();
     let before = bytes(&doc);
@@ -3569,7 +4073,7 @@ fn damaged_flate(readable: &[u8], rest: &[u8]) -> Stream {
 #[test]
 fn strips_on_a_page_damaged_partway_are_left_as_they_are() {
     let (mut doc, _) = printed_page(40, |_| false, |_, s| s);
-    let p = pdfcraft_annot::page_refs(&doc).unwrap()[0];
+    let p = openpdf_annot::page_refs(&doc).unwrap()[0];
     let bad = damaged_flate(b"0 g\n", b"q 1000 0 0 1 0 0 cm /R0 Do Q");
     let damaged = doc.add(Object::Stream(bad.clone()));
     let first = doc.get(p).as_dict().unwrap().get(b"Contents").cloned().unwrap();
@@ -3669,7 +4173,7 @@ fn a_deeply_nested_form_is_measured_at_its_largest_use() {
             for c in &pages {
                 page(&mut doc, &[("F", outer)], c);
             }
-            let refs = pdfcraft_annot::page_refs(&doc).unwrap();
+            let refs = openpdf_annot::page_refs(&doc).unwrap();
             assert_eq!(effective_resolutions(&doc, &refs)[&img].round(), 150.0, "{levels} levels, {label}");
             optimize(&mut doc, &Settings::default()).unwrap();
             assert_eq!(stream(&doc, img).dict.int(b"Width"), Some(1200), "{levels} levels, {label}");
@@ -3691,7 +4195,7 @@ fn a_form_drawing_itself_is_walked_once_per_use() {
     d.dict.set(b"Resources".to_vec(), Object::Dict(resources(x)));
     doc.set(f, Object::Stream(d));
     page(&mut doc, &[("F", f)], "q 72 0 0 72 36 36 cm /F Do Q");
-    let refs = pdfcraft_annot::page_refs(&doc).unwrap();
+    let refs = openpdf_annot::page_refs(&doc).unwrap();
     // Only the outer use: the cycle isn't followed, and doesn't count as a missed use.
     assert_eq!(effective_resolutions(&doc, &refs)[&img].round(), 1200.0);
 }
@@ -3712,7 +4216,7 @@ fn a_shared_form_without_resources_draws_each_callers_image() {
         outers.push(inner);
     }
     page(&mut doc, &[("A", outers[0]), ("B", outers[1])], "q 72 0 0 72 36 36 cm /A Do Q q 576 0 0 576 18 100 cm /B Do Q");
-    let refs = pdfcraft_annot::page_refs(&doc).unwrap();
+    let refs = openpdf_annot::page_refs(&doc).unwrap();
     let ppi = effective_resolutions(&doc, &refs);
     assert_eq!(ppi[&a].round(), 1200.0);
     assert_eq!(ppi.get(&b).map(|p| p.round()), Some(150.0));
@@ -3730,7 +4234,7 @@ fn images_are_not_resampled_when_some_uses_could_not_be_measured() {
         &[("F", deep), ("Im", img), ("O", other)],
         "q 72 0 0 72 36 36 cm /Im Do Q q 72 0 0 72 200 36 cm /O Do Q q 576 0 0 576 18 100 cm /F Do Q",
     );
-    let refs = pdfcraft_annot::page_refs(&doc).unwrap();
+    let refs = openpdf_annot::page_refs(&doc).unwrap();
     let ppi = effective_resolutions(&doc, &refs);
     assert_eq!((ppi[&img], ppi[&other]), (f64::INFINITY, f64::INFINITY));
     optimize(&mut doc, &Settings::default()).unwrap();
@@ -3750,7 +4254,7 @@ fn images_are_not_resampled_when_some_uses_could_not_be_measured() {
         next = label;
     }
     page(&mut doc, &names, "q 72 0 0 72 36 36 cm /F1 Do Q");
-    let refs = pdfcraft_annot::page_refs(&doc).unwrap();
+    let refs = openpdf_annot::page_refs(&doc).unwrap();
     assert_eq!(effective_resolutions(&doc, &refs)[&img], f64::INFINITY);
 }
 
@@ -3761,9 +4265,9 @@ fn images_are_not_resampled_when_a_page_enters_more_forms_than_allowed() {
     let mut doc = Document::new_empty();
     let img = image(&mut doc, 1200, 1200, 3, false, None);
     let empty = form(&mut doc, None, "");
-    let draws = "/E Do ".repeat(pdfcraft_cos::MAX_PAGE_FORMS + 1);
+    let draws = "/E Do ".repeat(openpdf_cos::MAX_PAGE_FORMS + 1);
     page(&mut doc, &[("E", empty), ("Im", img)], &format!("q 72 0 0 72 36 36 cm /Im Do Q {draws}"));
-    let refs = pdfcraft_annot::page_refs(&doc).unwrap();
+    let refs = openpdf_annot::page_refs(&doc).unwrap();
     assert_eq!(effective_resolutions(&doc, &refs)[&img], f64::INFINITY);
 }
 
@@ -3790,7 +4294,7 @@ fn compatibility_level_sets_version_unpacks_for_1_4_and_checks_encryption() {
         assert!(bytes.starts_with(format!("%PDF-{expected}\n").as_bytes()), "{expected}");
         let has_objstm = bytes.windows(7).any(|w| w == b"/ObjStm");
         assert_eq!(has_objstm, compat != Compatibility::Pdf1_4, "{compat:?}");
-        let info = pdfcraft_render::inspect(Arc::new(bytes), None).unwrap();
+        let info = openpdf_render::inspect(Arc::new(bytes), None).unwrap();
         assert_eq!(info.pdf_version, expected);
     }
 
@@ -3804,8 +4308,8 @@ fn compatibility_level_sets_version_unpacks_for_1_4_and_checks_encryption() {
     // Encryption that requires a newer PDF version than the chosen compatibility is refused.
     let mut aes256 = base.clone();
     aes256
-        .set_encryption(&pdfcraft_cos::NewEncryption {
-            algorithm: pdfcraft_cos::Algorithm::Aes256,
+        .set_encryption(&openpdf_cos::NewEncryption {
+            algorithm: openpdf_cos::Algorithm::Aes256,
             user_password: "u",
             owner_password: "o",
             permissions: -1,
@@ -3822,8 +4326,8 @@ fn compatibility_level_sets_version_unpacks_for_1_4_and_checks_encryption() {
 
     let mut aes128 = base;
     aes128
-        .set_encryption(&pdfcraft_cos::NewEncryption {
-            algorithm: pdfcraft_cos::Algorithm::Aes128,
+        .set_encryption(&openpdf_cos::NewEncryption {
+            algorithm: openpdf_cos::Algorithm::Aes128,
             user_password: "u",
             owner_password: "o",
             permissions: -1,
@@ -3907,7 +4411,7 @@ fn indirectly_referenced_destination_is_kept() {
     // used, silently breaking the link.
     let mut doc = Document::new_empty();
     let p = page(&mut doc, &[], "BT ET");
-    let s = |t: &str| Object::String(pdfcraft_cos::PdfString::literal(t.as_bytes().to_vec()));
+    let s = |t: &str| Object::String(openpdf_cos::PdfString::literal(t.as_bytes().to_vec()));
     // A link whose /Dest is `ref -> "target"`, and an unused destination for contrast.
     let name_ref = Object::Ref(doc.add(s("target")));
     let mut link = Dict::new();
@@ -3939,7 +4443,7 @@ fn a_destination_named_only_by_a_remote_or_embedded_go_to_is_removed() {
     // destination of the same name that nothing else uses is unreferenced.
     let mut doc = Document::new_empty();
     let p = page(&mut doc, &[], "BT ET");
-    let s = |t: &str| Object::String(pdfcraft_cos::PdfString::literal(t.as_bytes().to_vec()));
+    let s = |t: &str| Object::String(openpdf_cos::PdfString::literal(t.as_bytes().to_vec()));
     let link = |doc: &mut Document, action: Dict| {
         let mut link = Dict::new();
         link.set(b"Type".to_vec(), Object::name("Annot"));
@@ -3986,13 +4490,142 @@ fn named_dest_keys(doc: &Document) -> Vec<Vec<u8>> {
     arr.chunks(2).filter_map(|c| doc.resolve(&c[0]).as_string().map(|s| s.bytes.clone())).collect()
 }
 
+/// A `/PieceInfo` data dictionary holding `private`.
+fn app_data(private: Object) -> Object {
+    let mut d = Dict::new();
+    d.set(b"LastModified".to_vec(), Object::String(openpdf_cos::PdfString::literal(b"D:20260101000000Z".to_vec())));
+    d.set(b"Private".to_vec(), private);
+    Object::Dict(d)
+}
+
+fn marked(doc: &mut Document, marker: &str, extra: &[(&str, Object)]) -> ObjRef {
+    let mut d = Dict::new();
+    d.set(b"Marker".to_vec(), Object::String(openpdf_cos::PdfString::literal(marker.as_bytes().to_vec())));
+    for (k, v) in extra {
+        d.set(k.as_bytes().to_vec(), v.clone());
+    }
+    doc.add(Object::Dict(d))
+}
+
+fn saved(doc: &Document) -> Vec<u8> {
+    write_full(doc, &SaveOptions { object_streams: false, ..SaveOptions::default() }).unwrap()
+}
+
+fn contains(bytes: &[u8], text: &str) -> bool {
+    bytes.windows(text.len()).any(|w| w == text.as_bytes())
+}
+
+#[test]
+fn search_indexes_in_the_catalog_go_and_other_application_data_stays() {
+    let mut doc = Document::new_empty();
+    let p = page(&mut doc, &[], "BT ET");
+    // The first index holds two objects that refer to each other, and one the page also uses.
+    let shared = marked(&mut doc, "SHARED-DATA", &[]);
+    let a = marked(&mut doc, "INDEX-A", &[("Shared", Object::Ref(shared))]);
+    let b = marked(&mut doc, "INDEX-B", &[("Next", Object::Ref(a))]);
+    doc.update_dict(a, |d| d.set(b"Next".to_vec(), Object::Ref(b))).unwrap();
+    let c = marked(&mut doc, "INDEX-C", &[]);
+    let keep = marked(&mut doc, "KEEP-APP", &[]);
+    let mut info = Dict::new();
+    info.set(b"IBM-ODIndexes".to_vec(), app_data(Object::Ref(a)));
+    info.set(b"MySearchINDEX".to_vec(), app_data(Object::Ref(c)));
+    info.set(b"Illustrator".to_vec(), app_data(Object::Ref(keep)));
+    let root = doc.root().unwrap();
+    doc.update_dict(root, |cat| cat.set(b"PieceInfo".to_vec(), Object::Dict(info))).unwrap();
+    let mut page_info = Dict::new();
+    page_info.set(b"PageIndexer".to_vec(), app_data(Object::Ref(shared)));
+    doc.update_dict(p, |d| d.set(b"PieceInfo".to_vec(), Object::Dict(page_info))).unwrap();
+
+    // Off by default: nothing changes.
+    let mut untouched = doc.clone();
+    assert!(!Settings::default().discard_search_index);
+    assert_eq!(optimize(&mut untouched, &Settings::default()).unwrap().search_indexes, 0);
+    let bytes = saved(&untouched);
+    assert!(["INDEX-A", "INDEX-B", "INDEX-C", "KEEP-APP"].iter().all(|m| contains(&bytes, m)));
+
+    let r = optimize(&mut doc, &Settings { discard_search_index: true, ..Settings::default() }).unwrap();
+    assert_eq!(r.search_indexes, 2);
+    let cat = doc.get(root).as_dict().cloned().unwrap();
+    let info = cat.get(b"PieceInfo").and_then(Object::as_dict).cloned().unwrap();
+    assert_eq!(info.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>(), vec![b"Illustrator".to_vec()]);
+    // The saved file leaves out the objects only the indexes held, the cycle included; the
+    // object the page also uses, the other application's data and the page's own entry stay.
+    let bytes = saved(&doc);
+    assert!(!["INDEX-A", "INDEX-B", "INDEX-C"].iter().any(|m| contains(&bytes, m)));
+    assert!(["SHARED-DATA", "KEEP-APP", "PageIndexer"].iter().all(|m| contains(&bytes, m)));
+    let reopened = Document::open(Arc::new(bytes)).unwrap();
+    let cat = reopened.get(reopened.root().unwrap()).as_dict().cloned().unwrap();
+    let info = reopened.dict(cat.get(b"PieceInfo").unwrap()).unwrap();
+    assert!(info.contains(b"Illustrator") && info.len() == 1);
+}
+
+#[test]
+fn an_indirect_piece_info_is_left_for_its_other_users() {
+    let mut doc = Document::new_empty();
+    let p = page(&mut doc, &[], "BT ET");
+    let idx = marked(&mut doc, "INDEX-DATA", &[]);
+    let mut info = Dict::new();
+    info.set(b"Index".to_vec(), app_data(Object::Ref(idx)));
+    let info = doc.add(Object::Dict(info));
+    let root = doc.root().unwrap();
+    doc.update_dict(root, |cat| cat.set(b"PieceInfo".to_vec(), Object::Ref(info))).unwrap();
+    doc.update_dict(p, |d| d.set(b"PieceInfo".to_vec(), Object::Ref(info))).unwrap();
+    let settings = Settings { discard_search_index: true, ..Settings::default() };
+    let r = optimize(&mut doc, &settings).unwrap();
+    // The catalog's only entry was an index, so /PieceInfo goes; the page keeps the shared one.
+    assert_eq!(r.search_indexes, 1);
+    assert!(!doc.get(root).as_dict().unwrap().contains(b"PieceInfo"));
+    assert!(doc.get(info).as_dict().unwrap().contains(b"Index"));
+    assert!(contains(&saved(&doc), "INDEX-DATA"));
+
+    // A /PieceInfo that is not a dictionary is left as it is.
+    let mut doc = Document::new_empty();
+    page(&mut doc, &[], "BT ET");
+    let root = doc.root().unwrap();
+    doc.update_dict(root, |cat| cat.set(b"PieceInfo".to_vec(), Object::Int(7))).unwrap();
+    assert_eq!(optimize(&mut doc, &settings).unwrap().search_indexes, 0);
+    assert_eq!(doc.get(root).as_dict().unwrap().int(b"PieceInfo"), Some(7));
+}
+
+#[test]
+fn retained_deep_application_data_reads_back_after_discarding_an_index() {
+    let mut doc = Document::new_empty();
+    page(&mut doc, &[], "BT ET");
+    let deep = (0..127).fold(Object::Int(7), |child, _| {
+        let mut d = Dict::new();
+        d.set(b"Child".to_vec(), child);
+        Object::Dict(d)
+    });
+    let mut info = Dict::new();
+    info.set(b"Index".to_vec(), app_data(Object::Int(0)));
+    info.set(b"OtherApp".to_vec(), deep);
+    let info = doc.add(Object::Dict(info));
+    let root = doc.root().unwrap();
+    doc.update_dict(root, |c| c.set(b"PieceInfo".to_vec(), Object::Ref(info))).unwrap();
+    let retained = |doc: &Document| {
+        let catalog = doc.get(doc.root().unwrap());
+        let info = doc.resolve(catalog.as_dict().unwrap().get(b"PieceInfo").unwrap());
+        let mut value = info.as_dict().unwrap().get(b"OtherApp").unwrap().clone();
+        for _ in 0..127 {
+            value = doc.resolve(&value).as_dict().unwrap().get(b"Child").unwrap().clone();
+        }
+        value
+    };
+    let mut doc = Document::open(Arc::new(saved(&doc))).unwrap();
+    assert_eq!(retained(&doc), Object::Int(7));
+    let report = optimize(&mut doc, &Settings { discard_search_index: true, ..Settings::default() }).unwrap();
+    assert_eq!(report.search_indexes, 1);
+    let reopened = Document::open(Arc::new(saved(&doc))).unwrap();
+    assert_eq!(retained(&reopened), Object::Int(7));
+}
+
 /// Page content long enough for LZW codes to grow past 9 bits, where `EarlyChange` matters.
 fn lzw_ops() -> Vec<u8> {
     (0..300).flat_map(|i| format!("{} {} m {} {} l S\n", i % 97, i * 7 % 389, i * 13 % 612, i * 31 % 792).into_bytes()).collect()
 }
 
 fn lzw(data: &[u8], params: &Params) -> Vec<u8> {
-    pdfcraft_filters::encode(&Filter::Lzw, params, data).unwrap()
+    openpdf_filters::encode(&Filter::Lzw, params, data).unwrap()
 }
 
 /// `params` as a `/DecodeParms` dictionary, only the entries that differ from the defaults.
@@ -4055,7 +4688,7 @@ fn lzw_streams_become_flate_and_decode_to_the_same_bytes() {
     let (img, px) = lzw_image(&mut doc, &png);
     let (img_late, _) = lzw_image(&mut doc, &png_late);
     page(&mut doc, &[("Im", img), ("Im2", img_late)], "q 64 0 0 48 72 600 cm /Im Do Q q 64 0 0 48 172 600 cm /Im2 Do Q");
-    let pg = pdfcraft_annot::page_refs(&doc).unwrap()[0];
+    let pg = openpdf_annot::page_refs(&doc).unwrap()[0];
     doc.update_dict(pg, |d| {
         d.set(b"Contents".to_vec(), Object::Array(vec![Object::Ref(c_early), Object::Ref(c_late), d.get(b"Contents").unwrap().clone()]))
     })
@@ -4085,7 +4718,7 @@ fn lzw_streams_become_flate_and_decode_to_the_same_bytes() {
 /// and nothing runs after it.
 #[test]
 fn a_cancel_lands_during_the_lzw_pass() {
-    use pdfcraft_optimize::{OptimizeError, Stage, optimize_with_progress};
+    use openpdf_optimize::{OptimizeError, Stage, optimize_with_progress};
     let build = |streams: usize| {
         let mut doc = Document::new_empty();
         let mut d = Dict::new();
@@ -4131,8 +4764,8 @@ fn a_page_drawn_from_lzw_streams_renders_the_same_after_conversion() {
     doc.update_dict(pg, |p| p.set(b"Contents".to_vec(), Object::Ref(c))).unwrap();
     let render = |doc: &Document| {
         let bytes = write_full(doc, &SaveOptions::default()).unwrap();
-        let mut r = pdfcraft_render::PageRenderer::new(Arc::new(bytes), pdfcraft_render::RenderConfig::default());
-        let out = r.render(pdfcraft_render::RenderRequest { page: 0, scale: 1.0, ..Default::default() });
+        let mut r = openpdf_render::PageRenderer::new(Arc::new(bytes), openpdf_render::RenderConfig::default());
+        let out = r.render(openpdf_render::RenderRequest { page: 0, scale: 1.0, ..Default::default() });
         assert!(out.error.is_none(), "{:?}", out.error);
         out.rgba
     };
@@ -4176,7 +4809,7 @@ fn lzw_inside_a_filter_chain_is_replaced_and_the_other_stages_kept() {
     let after = stream(&doc, pic);
     assert_eq!(after.dict.get(b"Filter"), Some(&Object::Array(vec![Object::name("FlateDecode"), Object::name("DCTDecode")])));
     assert!(!after.dict.contains(b"DecodeParms"), "all null: dropped");
-    let inside = pdfcraft_filters::decode(&[(Filter::Flate, Params::default())], &after.raw, 1 << 20).unwrap();
+    let inside = openpdf_filters::decode(&[(Filter::Flate, Params::default())], &after.raw, 1 << 20).unwrap();
     assert_eq!(inside, jpeg, "the JPEG bytes are kept exactly");
 }
 
@@ -4209,7 +4842,7 @@ fn lzw_streams_that_cannot_be_read_or_are_not_asked_for_stay_unchanged() {
     let mut objstm = filtered(&["LZWDecode"], good.clone());
     objstm.dict.set(b"Type".to_vec(), Object::name("ObjStm"));
     let mut external = filtered(&["LZWDecode"], good.clone());
-    external.dict.set(b"F".to_vec(), Object::String(pdfcraft_cos::PdfString::literal(b"data.bin".to_vec())));
+    external.dict.set(b"F".to_vec(), Object::String(openpdf_cos::PdfString::literal(b"data.bin".to_vec())));
     let cases = [
         ("corrupt LZW", filtered(&["LZWDecode"], corrupt), Settings::default()),
         ("corrupt under a PNG predictor", bad_predictor, Settings::default()),
@@ -4269,7 +4902,7 @@ fn indexed_thin_rules_survive_averaging_for_both_palette_orders_and_decodes() {
                 Object::name("Indexed"),
                 Object::name("DeviceGray"),
                 1.into(),
-                Object::String(pdfcraft_cos::PdfString::literal(palette)),
+                Object::String(openpdf_cos::PdfString::literal(palette)),
             ]);
             let mut entries = vec![("BitsPerComponent", 1.into()), ("ColorSpace", cs)];
             if inverted {
@@ -4293,7 +4926,7 @@ fn indexed_thin_rules_survive_averaging_for_both_palette_orders_and_decodes() {
 }
 
 /// An image past what the JBIG2 decoder takes on a side stays as it is: JBIG2 can state the size,
-/// but PdfCraft's decoder refuses such a stream, so stored as JBIG2 it drew nothing here. At 65,535
+/// but OpenPDF's decoder refuses such a stream, so stored as JBIG2 it drew nothing here. At 65,535
 /// on a side, the same bars do become JBIG2, so the fixture does reach that choice, and the coding
 /// stored (symbols, here) reads back through that decoder.
 #[test]
@@ -4428,7 +5061,7 @@ fn an_indexed_image_used_beyond_the_page_content_read_is_not_averaged() {
     for y in 0..h as usize {
         data[y * stride + 101 / 8] &= !(0x80 >> (101 % 8));
     }
-    let palette = Object::String(pdfcraft_cos::PdfString::literal(vec![0, 0, 0, 255, 255, 255]));
+    let palette = Object::String(openpdf_cos::PdfString::literal(vec![0, 0, 0, 255, 255, 255]));
     let indexed = Object::Array(vec![Object::name("Indexed"), Object::name("DeviceRGB"), 1.into(), palette]);
     let cases = [(&indexed, false, 600), (&indexed, true, 1200), (&Object::name("DeviceGray"), false, 600), (&Object::name("DeviceGray"), true, 600)];
     for (cs, in_annotation, width) in cases {
@@ -4461,7 +5094,7 @@ fn an_indexed_palette_is_read_by_the_luma_of_its_colours() {
     for y in 0..h as usize {
         data[y * stride + 101 / 8] &= !(0x80 >> (101 % 8));
     }
-    let palette = Object::String(pdfcraft_cos::PdfString::literal(vec![0, 0, 255, 255, 0, 0]));
+    let palette = Object::String(openpdf_cos::PdfString::literal(vec![0, 0, 255, 255, 0, 0]));
     let optimized = |space: &str| {
         let cs = Object::Array(vec![Object::name(space), Object::name("DeviceRGB"), 1.into(), palette.clone()]);
         let mut doc = Document::new_empty();
@@ -4490,7 +5123,7 @@ fn an_indexed_image_is_averaged_only_in_a_spelling_it_can_read() {
     for y in 0..h as usize {
         data[y * stride + 101 / 8] &= !(0x80 >> (101 % 8));
     }
-    let table = || Object::String(pdfcraft_cos::PdfString::literal(vec![0, 0, 0, 255, 255, 255]));
+    let table = || Object::String(openpdf_cos::PdfString::literal(vec![0, 0, 0, 255, 255, 255]));
     let indexed = |family: Object, base: Object, hival: Object, table: Object| Object::Array(vec![family, base, hival, table]);
     let rgb = || Object::name("DeviceRGB");
     let plain = || indexed(Object::name("Indexed"), rgb(), 1.into(), table());
@@ -4518,7 +5151,7 @@ fn an_indexed_image_is_averaged_only_in_a_spelling_it_can_read() {
     assert_eq!(width(&|_| vec![("ColorSpace", indexed(Object::name("Indexed"), base.clone(), 1.into(), table()))]), averaged, "the base in an array");
     assert_eq!(width(&|_| vec![("ColorSpace", indexed(Object::name("I"), rgb(), 1.into(), table()))]), kept, "an inline abbreviation");
     assert_eq!(width(&|_| vec![("ColorSpace", indexed(Object::name("Indexed"), rgb(), Object::Real(1.0), table()))]), kept, "a real hival");
-    let long = Object::String(pdfcraft_cos::PdfString::literal([vec![0, 0, 0, 255, 255, 255], vec![0; 4097]].concat()));
+    let long = Object::String(openpdf_cos::PdfString::literal([vec![0, 0, 0, 255, 255, 255], vec![0; 4097]].concat()));
     assert_eq!(width(&|_| vec![("ColorSpace", indexed(Object::name("Indexed"), rgb(), 1.into(), long.clone()))]), kept, "a string past a palette");
     // 16 KiB of raw data is all a table may take, whatever it decodes to.
     let mut d = Dict::new();
@@ -4526,7 +5159,7 @@ fn an_indexed_image_is_averaged_only_in_a_spelling_it_can_read() {
     let table_of = |raw: usize| {
         let d = d.clone();
         let hex: Vec<u8> = b"000000FFFFFF".iter().copied().chain(std::iter::repeat_n(b' ', raw - 13)).chain(*b">").collect();
-        move |doc: &mut Document| doc.add(Object::Stream(pdfcraft_cos::Stream::from_raw(d.clone(), hex.clone())))
+        move |doc: &mut Document| doc.add(Object::Stream(openpdf_cos::Stream::from_raw(d.clone(), hex.clone())))
     };
     for (raw, expected) in [(16384, averaged), (16385, kept)] {
         let add = table_of(raw);
@@ -4587,7 +5220,7 @@ fn mixed_text_and_small_halftone_regions_keep_their_tones_with_wide_white_margin
 fn dictionary_destinations_broken_named_destinations_and_both_dest_tables() {
     let mut doc = Document::new_empty();
     let p = page(&mut doc, &[], "BT ET");
-    let s = |t: &str| Object::String(pdfcraft_cos::PdfString::literal(t.as_bytes().to_vec()));
+    let s = |t: &str| Object::String(openpdf_cos::PdfString::literal(t.as_bytes().to_vec()));
     let dict_dest = |target: ObjRef| {
         let mut d = Dict::new();
         d.set(b"D".to_vec(), Object::Array(vec![Object::Ref(target), Object::name("Fit")]));
@@ -4682,6 +5315,32 @@ fn dictionary_destinations_broken_named_destinations_and_both_dest_tables() {
     assert_eq!(named_dest_keys(&doc), vec![b"dict_ok".to_vec()]);
     let left_old = doc.get(old_dests).as_dict().cloned().unwrap();
     assert!(left_old.contains(b"old_ok") && !left_old.contains(b"broken_old"), "{left_old:?}");
+}
+
+/// Recolouring keeps a picture's soft mask, but not a picture whose mask has a `/Matte`: that is
+/// a colour in the picture's own space.
+#[test]
+fn recolouring_keeps_soft_masks_and_leaves_matted_pictures() {
+    use openpdf_cos::{Dict, Document, Object, Stream};
+    use openpdf_optimize::{ImageTarget, recolour_image};
+    let mut doc = Document::new_empty();
+    let picture = |mask| {
+        let mut d = Dict::new();
+        d.set(b"Subtype".to_vec(), Object::name("Image"));
+        d.set(b"Width".to_vec(), Object::Int(1));
+        d.set(b"Height".to_vec(), Object::Int(1));
+        d.set(b"BitsPerComponent".to_vec(), Object::Int(8));
+        d.set(b"ColorSpace".to_vec(), Object::name("DeviceRGB"));
+        d.set(b"SMask".to_vec(), Object::Ref(mask));
+        Stream::flate(d, &[255, 0, 0])
+    };
+    let plain = doc.add(Object::Stream(Stream::flate(Dict::new(), &[128])));
+    let new = recolour_image(&doc, &picture(plain), ImageTarget::Gray).unwrap();
+    assert_eq!(new.dict.get(b"SMask"), Some(&Object::Ref(plain)));
+    let mut matted = Dict::new();
+    matted.set(b"Matte".to_vec(), Object::Array(vec![Object::Int(0); 3]));
+    let matted = doc.add(Object::Stream(Stream::flate(matted, &[128])));
+    assert!(recolour_image(&doc, &picture(matted), ImageTarget::Gray).is_none());
 }
 
 /// A one-bit stencil of `w` × `h`, solid but for a hole in its middle.
@@ -4902,7 +5561,7 @@ fn one_object_under_two_generations_comes_out_the_same_with_any_number_of_thread
 /// Pages too small for a run aren't read, and that must not cost the smallest run there can be.
 #[test]
 fn the_fewest_strips_that_make_a_picture_are_merged() {
-    use pdfcraft_optimize::fragments::MIN_FRAGMENTS;
+    use openpdf_optimize::fragments::MIN_FRAGMENTS;
     let keep = Settings {
         gray: ImageSettings { downsample: false, target_ppi: 150.0, above_ppi: 225.0, compression: Compression::Retain },
         ..Settings::default()

@@ -4,13 +4,13 @@
 //! categories; [`sanitize`] removes all of them. Every removal makes the next save a full
 //! rewrite, so the earlier revision (which still holds the data) leaves the file.
 
-use pdfcraft_content::Matrix;
-use pdfcraft_cos::{Dict, Document, ObjRef, Object};
+use openpdf_content::Matrix;
+use openpdf_cos::{Dict, Document, ObjRef, Object};
 
 use crate::interp::{Mode, Scope, process};
 use crate::{RedactError, Report, annots_of, listed_annotations, page_streams, page_streams_within};
 
-/// The categories of Acrobat's Remove Hidden Information panel that PdfCraft handles.
+/// The categories of Acrobat's Remove Hidden Information panel that OpenPDF handles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Hidden {
     /// Document information (`/Info`) and XMP metadata streams.
@@ -419,10 +419,51 @@ fn strip_owned(o: &mut Object, role: Held, keys: &[&[u8]], depth: usize) {
     }
 }
 
+/// Every value of `key` held outside a name map, as [`owners`] finds them: with the indirect
+/// object that holds it and whether it is that object's own entry (rather than one in a
+/// dictionary written inside it). Fails as [`owners`] does for a graph nested too deeply.
+pub(crate) fn owned_values(doc: &Document, key: &[u8]) -> Result<Vec<(ObjRef, bool, Object)>, RedactError> {
+    let (_, holders) = owners(doc, &[key])?;
+    let mut out = Vec::new();
+    for (r, role) in holders {
+        collect_owned(&doc.get(r), role, key, 0, &mut |own, v| out.push((r, own, v.clone())));
+    }
+    Ok(out)
+}
+
+/// Calls `found` with each value of `key` in `o` and what it holds in place, outside name maps
+/// (the reading counterpart of [`strip_owned`]), and whether it is `o`'s own entry.
+fn collect_owned(o: &Object, role: Held, key: &[u8], depth: usize, found: &mut dyn FnMut(bool, &Object)) {
+    if depth > MAX_DIRECT_DEPTH {
+        return;
+    }
+    let (d, role) = match o {
+        Object::Array(a) => {
+            for v in a {
+                collect_owned(v, Held::Owner, key, depth + 1, found);
+            }
+            return;
+        }
+        Object::Dict(d) => (d, role),
+        Object::Stream(s) => (&s.dict, Held::Owner),
+        _ => return,
+    };
+    if role != Held::Map
+        && let Some(v) = d.get(key)
+    {
+        found(depth == 0, v);
+    }
+    for (k, v) in d.iter() {
+        if matches!(v, Object::Array(_) | Object::Dict(_)) {
+            collect_owned(v, role.child(k), key, depth + 1, found);
+        }
+    }
+}
+
 /// A comment as the comments list sees it, less file attachments (removed with Attachments) and
 /// redaction marks.
 fn is_comment(subtype: &[u8]) -> bool {
-    !matches!(subtype, b"FileAttachment" | b"Redact") && pdfcraft_annot::is_comment_subtype(&String::from_utf8_lossy(subtype))
+    !matches!(subtype, b"FileAttachment" | b"Redact") && openpdf_annot::is_comment_subtype(&String::from_utf8_lossy(subtype))
 }
 
 /// The layers that are off in the default configuration: listed off (or not listed on, under
@@ -589,11 +630,11 @@ fn content_pass(doc: &mut Document, text: bool, layers: bool, write: bool) -> Re
     let mut retired_properties = Vec::new();
     // The page tree is read once, and again only after a page's rewrite (pinning its inherited
     // resources can change its ancestors), not once per page: a scan of many pages stays linear.
-    let mut pages = pdfcraft_model::pages(doc);
+    let mut pages = openpdf_model::pages(doc);
     let n = pages.len();
     for pi in 0..n {
         let Some(page) = pages.get(pi).cloned() else { break };
-        let mut budget = pdfcraft_cos::DecodeBudget::page();
+        let mut budget = openpdf_cos::DecodeBudget::page();
         let Ok((list, data)) = page_streams_within(doc, &page.dict, pi, &mut budget) else {
             if write {
                 return Err(RedactError::Unreadable(pi + 1));
@@ -606,7 +647,7 @@ fn content_pass(doc: &mut Document, text: bool, layers: bool, write: bool) -> Re
         let resources = page.dict.get(b"Resources").and_then(|r| doc.resolve(r).as_dict().cloned()).unwrap_or_default();
         let mut report = Report::default();
         let mode = if write { Mode::Apply } else { Mode::Verify };
-        let mut images = pdfcraft_cos::ImageBudget::new(doc);
+        let mut images = openpdf_cos::ImageBudget::new(doc);
         let mut scope = Scope::new(&[], mode, &mut report, budget, &mut images);
         if text {
             let c = page.crop(doc);
@@ -621,7 +662,8 @@ fn content_pass(doc: &mut Document, text: bool, layers: bool, write: bool) -> Re
         let blocks = scope.layer_blocks;
         let glyphs = scope.report.glyphs;
         let retained_for_page = std::mem::take(&mut scope.retained_off_layers);
-        drop(scope);
+        // What the walk leaves of the page's allowance, the cleanups below spend.
+        let mut budget = scope.into_budget();
         total += out.residue + blocks + glyphs;
         retained_off_layers.extend(retained_for_page);
         if !write {
@@ -640,7 +682,7 @@ fn content_pass(doc: &mut Document, text: bool, layers: bool, write: bool) -> Re
             dict.remove(b"Length");
             // The source text of an added item (Edit ▸ Add content) would keep what was removed.
             dict.remove(b"PCAdded");
-            new_list[i] = Object::Ref(doc.add(Object::Stream(pdfcraft_cos::Stream::flate(dict, &bytes))));
+            new_list[i] = Object::Ref(doc.add(Object::Stream(openpdf_cos::Stream::flate(dict, &bytes))));
             changed = true;
         }
         if changed || !out.xobjects.is_empty() || !out.replaced.is_empty() {
@@ -653,16 +695,18 @@ fn content_pass(doc: &mut Document, text: bool, layers: bool, write: bool) -> Re
             let mut res = resources.clone();
             if !out.xobjects.is_empty() || !out.replaced.is_empty() {
                 let mut xo = res.get(b"XObject").and_then(|x| doc.resolve(x).as_dict().cloned()).unwrap_or_default();
-                // A full save keeps whatever is still referenced: unlink the originals this page no
-                // longer draws so the removed form or image bytes cannot survive in the saved file.
-                crate::interp::prune(&mut xo, &out.replaced, &page_content);
+                // The rewritten XObjects first, as on Apply Redactions' pages: `prune` follows a
+                // rewritten form left without resources of its own only under a name it can find.
                 for (n, r) in &out.xobjects {
                     xo.set(n.clone(), Object::Ref(*r));
                 }
+                // A full save keeps whatever is still referenced: unlink the originals this page no
+                // longer draws so the removed form or image bytes cannot survive in the saved file.
+                crate::interp::prune(doc, &mut budget, &mut xo, &out.replaced, &page_content)?;
                 res.set(b"XObject".to_vec(), Object::Dict(xo));
             }
-            retired_properties.extend(crate::interp::prune_properties(doc, &mut res, &page_content)?);
-            crate::type3::prune_type3_from_resources(doc, &mut res, &page_content, Some(&page.dict))?;
+            retired_properties.extend(crate::interp::prune_properties(doc, &mut budget, &mut res, &page_content)?);
+            crate::type3::prune_type3_from_resources(doc, &mut budget, &mut res, &page_content, Some(&page.dict))?;
             doc.update_dict(page.obj, |d| {
                 d.set(b"Contents".to_vec(), Object::Array(new_list));
                 d.set(b"Resources".to_vec(), Object::Dict(res));
@@ -671,11 +715,11 @@ fn content_pass(doc: &mut Document, text: bool, layers: bool, write: bool) -> Re
             let (changed_ids, empty_ids) = crate::tags::touched(
                 doc,
                 &resources,
-                pdfcraft_content::Pieces::join(&data).data(),
-                pdfcraft_content::Pieces::join(&page_content).data(),
+                openpdf_content::Pieces::join(&data).data(),
+                openpdf_content::Pieces::join(&page_content).data(),
             );
             crate::tags::clean(doc, page.obj, None, &changed_ids, &empty_ids)?;
-            pages = pdfcraft_model::pages(doc);
+            pages = openpdf_model::pages(doc);
         }
         for (old, new, changed, empty) in out.tag_changes {
             crate::tags::clean(doc, page.obj, Some((old, new)), &changed, &empty)?;
@@ -705,7 +749,7 @@ pub fn scan_only(doc: &Document, which: &[Hidden]) -> Vec<(Hidden, usize)> {
     let annots_read = std::cell::OnceCell::<Vec<Dict>>::new();
     let annots = || {
         annots_read.get_or_init(|| {
-            pdfcraft_model::pages(doc).iter().flat_map(|p| annots_of(doc, &p.dict)).filter_map(|a| doc.resolve(&a).as_dict().cloned()).collect()
+            openpdf_model::pages(doc).iter().flat_map(|p| annots_of(doc, &p.dict)).filter_map(|a| doc.resolve(&a).as_dict().cloned()).collect()
         })
     };
     let count_sub = |s: &[u8]| annots().iter().filter(|a| a.name(b"Subtype") == Some(s)).count();
@@ -740,7 +784,7 @@ pub fn scan_only(doc: &Document, which: &[Hidden]) -> Vec<(Hidden, usize)> {
                 }
                 Hidden::Comments => annots().iter().filter(|a| is_comment(a.name(b"Subtype").unwrap_or(b""))).count(),
                 Hidden::FormFields => {
-                    let n = pdfcraft_forms::fields(doc).len();
+                    let n = openpdf_forms::fields(doc).len();
                     if n > 0 {
                         n
                     } else if cat.contains(b"AcroForm") {
@@ -768,6 +812,20 @@ pub fn scan_only(doc: &Document, which: &[Hidden]) -> Vec<(Hidden, usize)> {
             (h, n)
         })
         .collect()
+}
+
+/// [`crate::globals::unshare`] for what left without marks: past `images` it is refused as finding
+/// what shares the dictionaries is, since the error redaction gives (redact fewer pages at a time)
+/// means nothing when no page was chosen.
+pub(crate) fn unshare_unmarked(
+    doc: &mut Document,
+    before: &std::collections::HashSet<u32>,
+    images: &mut openpdf_cos::ImageBudget,
+) -> Result<usize, RedactError> {
+    crate::globals::unshare(doc, before, images).map_err(|e| match e {
+        RedactError::ImagesPastAllowance => RedactError::SharedJbig2Budget,
+        e => e,
+    })
 }
 
 /// Take from the outline of catalog `cat` every action that does more than go to a place in this
@@ -826,7 +884,7 @@ fn drop_page_annotations(doc: &mut Document, which: &[Hidden], fields: bool) -> 
     };
     // The annotations to remove, on every page first, so a pop-up listed on another page than
     // its parent goes with it.
-    let pages = pdfcraft_model::pages(doc);
+    let pages = openpdf_model::pages(doc);
     let removed: std::collections::HashSet<ObjRef> = pages
         .iter()
         .flat_map(|p| annots_of(doc, &p.dict))
@@ -879,6 +937,9 @@ pub(crate) fn remove_counted(
     let count = |h: Hidden| counts.iter().find(|c| c.0 == h).map_or(0, |c| c.1);
     let (root, _) = catalog(doc).ok_or(RedactError::NothingToApply)?;
     let mut done = Vec::new();
+    // What a full save keeps before anything is removed: an image that leaves, by whatever route
+    // below, takes a shared JBIG2 dictionary with it (`unshare_unmarked`, last).
+    let kept_before = crate::globals::kept(doc)?;
     let has_acroform = doc.get(root).as_dict().is_some_and(|d| d.contains(b"AcroForm"));
     let fields = which.contains(&Hidden::FormFields) && (count(Hidden::FormFields) > 0 || has_acroform);
     // Pages' annotation lists change only for these; otherwise every page is left as it is.
@@ -888,13 +949,9 @@ pub(crate) fn remove_counted(
     let listed_before = if annotations { listed_annotations(doc) } else { std::collections::HashSet::new() };
     if fields {
         // Fields without appearances get one first, so their values stay visible.
-        for f in pdfcraft_forms::fields(doc) {
-            if f.widgets.iter().any(|w| !doc.get(w.obj).as_dict().is_some_and(|d| d.contains(b"AP"))) {
-                pdfcraft_forms::redraw_field(doc, &f.name)?;
-            }
-        }
-        let n = pdfcraft_model::pages(doc).len();
-        pdfcraft_edit::flatten(doc, &(0..n).collect::<Vec<_>>(), false, true)?;
+        openpdf_forms::redraw_fields(doc, |doc, f| f.widgets.iter().any(|w| !doc.get(w.obj).as_dict().is_some_and(|d| d.contains(b"AP"))))?;
+        let n = openpdf_model::pages(doc).len();
+        openpdf_edit::flatten(doc, &(0..n).collect::<Vec<_>>(), false, true)?;
         doc.update_dict(root, |d| {
             d.remove(b"AcroForm");
         })?;
@@ -1001,6 +1058,9 @@ pub(crate) fn remove_counted(
     if done.is_empty() && unlinked == 0 {
         return Err(RedactError::NothingToApply);
     }
+    // Images stored again without a dictionary, and the dictionaries read to know copies, are
+    // decoded within an allowance of their own.
+    unshare_unmarked(doc, &kept_before, &mut openpdf_cos::ImageBudget::new(doc))?;
     // The rewrite drops the revisions that held the removed content, so it is a different file from
     // its source: it gets a new identifier, whoever asked for the removal (the remove-hidden edit
     // and the optimizer's discard option call this function directly, not through [`sanitize`]).

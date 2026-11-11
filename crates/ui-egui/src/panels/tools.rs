@@ -1,6 +1,6 @@
 use super::edit::{actions_menu, edit_panel, stamp_palette};
 use super::{
-    Align2, Availability, Color32, CornerRadius, LeftPanel, PdfCraftApp, Rect, Sense, Stroke, TOOL_GROUPS, Tokens, ToolGroup, catalog, icons, theme,
+    Align2, Availability, Color32, CornerRadius, LeftPanel, OpenPDFApp, Rect, Sense, Stroke, TOOL_GROUPS, Tokens, ToolGroup, catalog, icons, theme,
     vec2, widgets,
 };
 
@@ -10,7 +10,7 @@ fn hue(g: &ToolGroup) -> Color32 {
     Color32::from_rgb(g.hue[0], g.hue[1], g.hue[2])
 }
 
-pub fn left_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
+pub fn left_panel(app: &mut OpenPDFApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     // Organize closed another way (the grid's Close, or a page opened from it) closes the tool too,
     // as its panel's Close does, back to the workspace's own panel.
@@ -69,7 +69,7 @@ pub(super) fn clear_of_scrollbar(ui: &mut egui::Ui) {
 
 /// The All tools sidebar: Expand (the full view) and Close, then the tool list, the first few
 /// tools until View more shows them all.
-fn all_tools(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens) {
+fn all_tools(app: &mut OpenPDFApp, ui: &mut egui::Ui, t: &Tokens) {
     // Labels distinct from the Combine grid's Expand and Collapse, which can show beside them.
     let (expand, close) = panel_header(ui, t, "All tools", Some(("maximize-2", tl!("Expand all tools"))));
     if expand {
@@ -92,15 +92,27 @@ fn all_tools(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens) {
         }
         ui.add_space(4.0);
         let more = if app.all_tools_expanded { "View less" } else { "View more" };
-        if ui
-            .add(
-                egui::Label::new(egui::RichText::new(tl!(more)).color(t.accent_text).font(theme::medium(13.0)))
-                    .selectable(false)
-                    .sense(Sense::click()),
-            )
-            .on_hover_cursor(egui::CursorIcon::PointingHand)
-            .clicked()
-        {
+        // Match the tool rows' icon and label columns so the list's final action
+        // stays aligned, with the whole row available as a click/keyboard target.
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tl!(more)));
+        let press = theme::Press::track(ui, &resp);
+        press.wash(ui, rect, 6, false);
+        if resp.has_focus() {
+            ui.painter().rect_stroke(rect, 6, Stroke::new(1.0, t.accent_text), egui::StrokeKind::Inside);
+        }
+        let body = rect.translate(press.offset());
+        icons::paint(
+            ui,
+            Rect::from_min_size(body.min + vec2(6.0, 7.0), vec2(20.0, 20.0)),
+            if app.all_tools_expanded { "chevron-up" } else { "chevron-down" },
+            16.0,
+            t.accent_text,
+        );
+        let clipped = row_label(ui, tl!(more), theme::medium(13.0), t.accent_text, body.left_center() + vec2(36.0, 0.0), rect.width() - 44.0);
+        let resp = theme::hand(resp);
+        let resp = if clipped { resp.on_hover_text(tl!(more)) } else { resp };
+        if resp.clicked() {
             app.all_tools_expanded = !app.all_tools_expanded;
         }
     });
@@ -195,7 +207,7 @@ fn tool_row(ui: &mut egui::Ui, t: &Tokens, g: &ToolGroup, is_pinned: bool) -> (e
 }
 
 /// Draw the detail view for one tool group, dispatching its commands and tool-specific panels.
-fn tool_detail(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens, g: &'static ToolGroup) {
+fn tool_detail(app: &mut OpenPDFApp, ui: &mut egui::Ui, t: &Tokens, g: &'static ToolGroup) {
     if g.id == "edit" {
         edit_panel(app, ui, t, g);
         return;
@@ -301,6 +313,9 @@ fn tool_detail(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens, g: &'static
             if let Some(cmd) = crate::fill_sign::signature_entries(ui, app, t) {
                 run = Some(cmd);
             }
+            // Where the signing happens, not only in Preferences, and once: not also in the Sign
+            // menu over the page, where it was easy to miss (#2149).
+            lock_on_save_row(ui, &mut app.flatten_fill_sign_on_save);
         }
     });
     if footer {
@@ -328,5 +343,45 @@ fn tool_detail(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens, g: &'static
     }
     if let Some(cmd) = run {
         app.run_command(cmd);
+    }
+}
+
+/// Match the signature rows' icon centre (15 pt) and label inset (30 pt).
+fn lock_on_save_row(ui: &mut egui::Ui, checked: &mut bool) -> egui::Response {
+    egui::Frame::new()
+        .inner_margin(egui::Margin { left: 8, right: 0, top: 0, bottom: 0 })
+        .show(ui, |ui| {
+            ui.spacing_mut().icon_spacing = 8.0;
+            ui.spacing_mut().interact_size.y = 30.0;
+            ui.add(widgets::checkbox(checked, egui::RichText::new(tl!("Lock into the page when saving")).font(theme::regular(13.0))))
+        })
+        .inner
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    #[test]
+    fn lock_on_save_matches_signature_label_inset() {
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx, crate::theme::ThemeKind::Dark);
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            ui.set_width(248.0);
+            widgets::ghost_button(ui, "plus", "Add signature");
+            lock_on_save_row(ui, &mut false);
+        });
+        let texts: Vec<_> = output
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+        let signature = texts.iter().find(|t| t.galley.job.text == "Add signature").unwrap();
+        let lock = texts.iter().find(|t| t.galley.job.text == "Lock into the page when saving").unwrap();
+        assert!((signature.pos.x - lock.pos.x).abs() < 0.5, "labels must share the same inset: {} vs {}", signature.pos.x, lock.pos.x);
+        output.drop_without_applying_deltas();
     }
 }

@@ -98,7 +98,7 @@ pub enum FillMark {
 }
 
 impl FillMark {
-    /// The `/Name` of the stamp PdfCraft draws for it.
+    /// The `/Name` of the stamp OpenPDF draws for it.
     pub fn name(self) -> &'static str {
         match self {
             FillMark::Check => "PCCheck",
@@ -148,7 +148,7 @@ impl FillMark {
     }
 }
 
-/// The stamps of Acrobat's stamp palette (drawn in PdfCraft's own style).
+/// The stamps of Acrobat's stamp palette (drawn in OpenPDF's own style).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum StampKind {
     // Standard business.
@@ -417,13 +417,17 @@ pub enum Shape {
         contours: Vec<Vec<[f64; 2]>>,
     },
     /// A custom stamp: a picture already in the document (an image XObject, or a form XObject
-    /// whose `/Matrix` maps it to `size` points) filling `rect`, named `name`.
+    /// whose `/Matrix` maps it to `size` points) filling `rect`, named `name`. With `line`, a
+    /// line of text under the picture (#1741): a dynamic stamp's name, date and time, filled in
+    /// when it was placed; the picture then fills the rectangle above it
+    /// ([`CUSTOM_LINE_BAND`](crate::CUSTOM_LINE_BAND)).
     CustomStamp {
         rect: [f64; 4],
         name: String,
         picture: ObjRef,
         image: bool,
         size: (f64, f64),
+        line: Option<String>,
     },
     /// A redaction mark (§12.5.6.23) over quadrilaterals (text) or one rectangle as a quad
     /// (areas, pages). `overlay` is the text shown on the box once applied, drawn with `look`.
@@ -642,7 +646,7 @@ impl Default for Style {
     }
 }
 
-/// The shape of a text box's or typewriter text's border (PdfCraft's `/PCBorderShape`, absent for
+/// The shape of a text box's or typewriter text's border (OpenPDF's `/PCBorderShape`, absent for
 /// a rectangle). An oval or a circle goes around the text box, which keeps its place: `/Rect`
 /// grows to hold it, centred on the text box, and `/RD` says where the text box is inside
 /// (§12.5.6.6), as for a callout. Other apps that redraw the comment draw a rectangle.

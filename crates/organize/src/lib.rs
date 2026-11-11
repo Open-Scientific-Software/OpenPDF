@@ -1,6 +1,6 @@
-//! pdfcraft-organize — page and document-structure edits (L4).
+//! openpdf-organize — page and document-structure edits (L4).
 //!
-//! Every operation mutates a `pdfcraft_cos::Document` (copy-on-write), so callers snapshot the
+//! Every operation mutates a `openpdf_cos::Document` (copy-on-write), so callers snapshot the
 //! document before an edit for undo. Operations never drop data they do not understand.
 //!
 //! Page-tree strategy: before restructuring, inheritable page attributes (`Resources`,
@@ -11,7 +11,7 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
-use pdfcraft_cos::{Dict, Document, ObjRef, Object, PdfString, XrefEntry};
+use openpdf_cos::{Dict, Document, ObjRef, Object, PdfString, XrefEntry};
 
 mod attachments;
 mod boxes;
@@ -27,7 +27,7 @@ mod transition;
 pub mod view;
 mod xmp;
 
-pub use attachments::{add_attachment, attachment_keys, delete_attachment, mime_for_name};
+pub use attachments::{add_attachment, attachment_keys, delete_attachment, mime_for_name, set_attachment_description};
 pub use boxes::{BoxSpec, PageBox, page_boxes, set_page_box};
 pub use comments::import_comments;
 pub use dedupe::dedupe_resources;
@@ -59,7 +59,7 @@ pub enum OrganizeError {
     #[error("{0}")]
     Invalid(String),
     #[error("{0}")]
-    Cos(#[from] pdfcraft_cos::CosError),
+    Cos(#[from] openpdf_cos::CosError),
 }
 
 const INHERITABLE: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
@@ -87,7 +87,7 @@ type Owners = [Option<std::sync::Arc<Object>>; 4];
 /// Depth-first walk over the leaf pages under `top`. It keeps one cursor per open `/Kids` array,
 /// never one entry per child, and carries inherited attributes as the nodes that set them, so a
 /// child listed many times or shared between nodes is skipped by the seen check before anything
-/// is queued or copied (`pdfcraft_model::pages` walks the same way). Cycles in broken trees end
+/// is queued or copied (`openpdf_model::pages` walks the same way). Cycles in broken trees end
 /// at the seen check and at most a million nodes are visited.
 struct PageWalk<'a> {
     doc: &'a Document,

@@ -4,7 +4,7 @@
 //! widgets. An existing direct `/Document` root and direct `/ParentTree /Nums` are extended;
 //! unusual tree layouts are refused before any edit is made.
 
-use pdfcraft_cos::{Dict, Document, ObjRef, Object};
+use openpdf_cos::{Dict, Document, ObjRef, Object};
 
 fn reference(object: Option<&Object>, what: &str) -> Result<ObjRef, String> {
     object.and_then(Object::as_ref).ok_or_else(|| format!("the {what} must be an indirect reference"))
@@ -53,11 +53,19 @@ pub fn tag_form_fields(doc: &mut Document) -> Result<usize, String> {
     }
     let existing_root = catalog.get(b"StructTreeRoot").filter(|v| !matches!(*doc.resolve(v), Object::Null)).cloned();
     let mark_info = catalog.get(b"MarkInfo").map(|v| doc.resolve(v)).as_deref().and_then(Object::as_dict).cloned().unwrap_or_default();
-    let pages = pdfcraft_model::pages(doc);
+    let pages = openpdf_model::pages(doc);
     let mut widgets = Vec::new();
     // A widget listed in more than one page's /Annots is tagged once (one key, one /Form).
     let mut seen = std::collections::HashSet::new();
+    // A shared indirect /Annots array is scanned for the first page that lists it: its widgets
+    // are tagged once anyway, so scanning it again for every page only repeats the work.
+    let mut arrays = std::collections::HashSet::new();
     for page in &pages {
+        if let Some(array) = page.dict.get(b"Annots").and_then(Object::as_ref)
+            && !arrays.insert(array)
+        {
+            continue;
+        }
         let annots = page.dict.get(b"Annots").map(|a| doc.resolve(a)).as_deref().and_then(Object::as_array).cloned().unwrap_or_default();
         for annot in annots {
             let Some(reference) = annot.as_ref() else { continue };

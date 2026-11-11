@@ -6,11 +6,12 @@
 #[cfg(not(target_arch = "wasm32"))]
 use crate::file_filter::AddFilterAnyCase as _;
 use egui::{Color32, CornerRadius, Pos2, Rect, Stroke};
-use pdfcraft_engine::{Added, AddedContent, AddedText, Edit};
-use pdfcraft_render::DocInfo;
+use openpdf_engine::{Added, AddedContent, AddedText, Edit};
+use openpdf_render::DocInfo;
 
 use crate::canvas::{DocView, PageToolContext, PageXform};
 use crate::page_cursor::Layer;
+use crate::page_keys::PageKeys;
 use crate::page_router::{Hit, Owner, PagePress};
 use crate::theme::Tokens;
 use crate::widgets;
@@ -28,7 +29,7 @@ pub(crate) fn undrawable(d: &TextDraft, memo: &UndrawableMemo) -> Option<char> {
     {
         return *c;
     }
-    let c = pdfcraft_engine::first_undrawable(&t);
+    let c = openpdf_engine::first_undrawable(&t);
     *memo.borrow_mut() = Some((t, c));
     c
 }
@@ -46,15 +47,15 @@ pub(crate) fn undrawable_message(c: char) -> String {
     )
 }
 
-/// The warning after an edit that saved text its font can't draw: PdfCraft drew `?` for it (a form
+/// The warning after an edit that saved text its font can't draw: OpenPDF drew `?` for it (a form
 /// field, which other viewers redraw from its value, or a comment, where the `?` shows everywhere).
-pub(crate) fn undrawn_message(n: &pdfcraft_engine::TextNotice) -> String {
+pub(crate) fn undrawn_message(n: &openpdf_engine::TextNotice) -> String {
     let template = if n.redrawn_elsewhere {
         tl!(
-            "This field's font can't draw “{c}” ({code}), so PdfCraft shows ? in its place. The value is saved, and other PDF viewers redraw the field from it."
+            "This field's font can't draw “{c}” ({code}), so OpenPDF shows ? in its place. The value is saved, and other PDF viewers redraw the field from it."
         )
     } else {
-        tl!("The fonts PdfCraft writes with can't draw “{c}” ({code}), so it shows as ? in every PDF viewer. The text is saved.")
+        tl!("The fonts OpenPDF writes with can't draw “{c}” ({code}), so it shows as ? in every PDF viewer. The text is saved.")
     };
     crate::i18n::fmt(template, &[("c", &n.ch.to_string()), ("code", &format!("U+{:04X}", u32::from(n.ch)))])
 }
@@ -83,7 +84,7 @@ pub struct TextDraft {
 impl TextDraft {
     /// Take the shared text box for this box ([`crate::edit_text_ui::forget_typing_before`]): its
     /// own history, or none once the page has its text.
-    pub(crate) fn claim_typing(&mut self, ctx: &egui::Context, doc: pdfcraft_engine::DocId) {
+    pub(crate) fn claim_typing(&mut self, ctx: &egui::Context, doc: openpdf_engine::DocId) {
         crate::edit_text_ui::forget_typing_before(ctx, input_id(), doc, &mut self.typing_from, &self.style.text);
     }
 
@@ -153,11 +154,11 @@ impl ContentView {
 #[derive(Default)]
 pub(crate) struct MoveBackground {
     key: Option<(u64, usize, usize)>,
-    renderer: Option<pdfcraft_render::RenderPool>,
+    renderer: Option<openpdf_render::RenderPool>,
     texture: Option<egui::TextureHandle>,
     /// The item alone on a transparent page: the pixels that follow the pointer. The page's own
     /// raster has whatever the item covers in its box too, which must stay where it is (#4464).
-    item_renderer: Option<pdfcraft_render::RenderPool>,
+    item_renderer: Option<openpdf_render::RenderPool>,
     item: Option<egui::TextureHandle>,
     tag: Option<u64>,
     /// The item's display-space box when the gesture started.
@@ -179,7 +180,7 @@ impl MoveBackground {
         self.texture.is_some() && self.item.is_some()
     }
 
-    pub fn prepare(&mut self, ctx: &egui::Context, doc: &pdfcraft_engine::Document, cv: &ContentView, scale: f32) {
+    pub fn prepare(&mut self, ctx: &egui::Context, doc: &openpdf_engine::Document, cv: &ContentView, scale: f32) {
         let picture = |page, index| on_page(doc.added(), page).into_iter().any(|(i, a)| i == index && matches!(a.content, AddedContent::Image(_)));
         let key = match (cv.grab, cv.selected) {
             (Some((gp, Grab::Move, _)), Some((sp, si))) if gp == sp => Some((doc.edit_generation(), sp, si)),
@@ -208,7 +209,7 @@ impl MoveBackground {
         let tag = (scale * 1000.0) as u64;
         if self.tag != Some(tag) {
             for r in [renderer, item_renderer] {
-                r.set_queue(vec![pdfcraft_render::RenderRequest { page, scale, tag, ..Default::default() }]);
+                r.set_queue(vec![openpdf_render::RenderRequest { page, scale, tag, ..Default::default() }]);
             }
             self.tag = Some(tag);
         }
@@ -275,29 +276,30 @@ impl MoveBackground {
             return;
         }
         let r = screen_rect(xf, info, page, from);
+        let base = self.settling.map_or(r, |s| screen_rect(xf, info, page, s));
         let to = if let Some((_, grab, start)) = cv.grab {
             let Some(p) = pointer else { return };
-            dragged(r, grab, p - start, self.picture)
-        } else if let Some(to) = self.settling {
-            let to = screen_rect(xf, info, page, to);
+            dragged(base, grab, p - start, self.picture)
+        } else if self.settling.is_some() {
             // A moved text box keeps its top edge (its height follows its lines).
-            if self.picture { to } else { r.translate(to.left_top() - r.left_top()) }
+            if self.picture { base } else { r.translate(base.left_top() - r.left_top()) }
         } else {
             return;
         };
         let painter = painter.with_clip_rect(painter.clip_rect().intersect(xf.rect));
         xf.paint_image(&painter, background.id(), 0.0, 0.0, 1.0, 1.0);
-        // A pixel around the box, so its edges come along.
+        // A pixel around the box, so its edges come along. Clip the source to the page raster so
+        // an item extending past the page border never samples clamped edge texels (#3938, #4477).
         let (r, to) = (r.expand(1.0), to.expand(1.0));
+        let clipped = r.intersect(xf.rect);
+        if !clipped.is_positive() || r.width() <= 0.0 || r.height() <= 0.0 {
+            return;
+        }
+        let map = |p: Pos2| Pos2::new(to.min.x + (p.x - r.min.x) / r.width() * to.width(), to.min.y + (p.y - r.min.y) / r.height() * to.height());
         let mut mesh = egui::Mesh::with_texture(item.id());
-        for (a, b) in [
-            (r.left_top(), to.left_top()),
-            (r.right_top(), to.right_top()),
-            (r.right_bottom(), to.right_bottom()),
-            (r.left_bottom(), to.left_bottom()),
-        ] {
+        for a in [clipped.left_top(), clipped.right_top(), clipped.right_bottom(), clipped.left_bottom()] {
             let (u, v) = xf.screen_to_norm(a);
-            mesh.vertices.push(egui::epaint::Vertex { pos: b, uv: Pos2::new(u, v), color: Color32::WHITE });
+            mesh.vertices.push(egui::epaint::Vertex { pos: map(a), uv: Pos2::new(u, v), color: Color32::WHITE });
         }
         mesh.add_triangle(0, 1, 2);
         mesh.add_triangle(0, 2, 3);
@@ -344,7 +346,11 @@ fn dragged(r: Rect, grab: Grab, d: egui::Vec2, keep_aspect: bool) -> Rect {
         Grab::Corner(left, top) => {
             let (mut dx, mut dy) = (if left { -d.x } else { d.x }, if top { -d.y } else { d.y });
             if keep_aspect && r.width() > 0.0 && r.height() > 0.0 {
-                let k = ((r.width() + dx) / r.width()).max((r.height() + dy) / r.height()).max(0.05);
+                // Use the axis with the larger relative pointer change so shrinking along one axis
+                // does not freeze when the other axis has not moved inward (#4477).
+                let (rx, ry) = (dx / r.width(), dy / r.height());
+                let delta = if rx.abs() > ry.abs() { rx } else { ry };
+                let k = (1.0 + delta).max(0.05);
                 dx = r.width() * k - r.width();
                 dy = r.height() * k - r.height();
             }
@@ -373,7 +379,8 @@ pub(crate) fn hit(xf: &PageXform, info: &DocInfo, page: usize, added: &[Added], 
     let items: Vec<(usize, &Added)> = on_page(added, page).into_iter().filter(|(_, a)| matches!(a.content, AddedContent::Text(_))).collect();
     let selected = view.content.selected.filter(|s| s.0 == page).and_then(|(_, si)| items.iter().find(|(i, _)| *i == si));
     if let Some((index, a)) = selected
-        && let Some((_, left, top)) = handles(screen_rect(xf, info, page, a.content.rect())).into_iter().find(|(c, ..)| c.distance(p) <= 6.0)
+        && let Some((_, left, top)) =
+            handles(screen_rect(xf, info, page, a.content.rect()).expand(1.0)).into_iter().find(|(c, ..)| c.distance(p) <= 6.0)
     {
         let icon = if left == top { egui::CursorIcon::ResizeNwSe } else { egui::CursorIcon::ResizeNeSw };
         return Some(Hit::new(Owner::Added { index: *index, corner: Some((left, top)) }, Layer::Handle, icon));
@@ -589,7 +596,7 @@ pub(crate) fn paint_page(
 }
 
 /// The image controller owns image selection; the added-content panel follows the same XObject.
-pub(crate) fn sync_image_selection(view: &mut DocView, page: usize, images: &[pdfcraft_engine::PageImage], added: &[Added]) {
+pub(crate) fn sync_image_selection(view: &mut DocView, page: usize, images: &[openpdf_engine::PageImage], added: &[Added]) {
     let Some(selection) = view.image_selection.as_ref().filter(|selection| selection.page == page) else { return };
     if view.content.draft.is_some() {
         return;
@@ -626,8 +633,9 @@ pub(crate) fn release_image_selection(view: &mut DocView, added: &[Added]) {
     }
 }
 
-/// Delete removes the selected item; Escape clears the selection.
-pub(crate) fn keys(ctx: &egui::Context, view: &mut DocView, image_controller_active: bool) {
+/// Delete removes the selected item; Escape clears the selection. Not while something is over the
+/// pages.
+pub(crate) fn keys(ctx: &egui::Context, keys: PageKeys, view: &mut DocView, image_controller_active: bool) {
     if image_controller_active && view.image_selection.is_some()
         || matches!(view.pending_edit.as_ref(), Some(Edit::EditPageImage { .. }))
         || view.content.selected.is_none()
@@ -636,7 +644,8 @@ pub(crate) fn keys(ctx: &egui::Context, view: &mut DocView, image_controller_act
     {
         return;
     }
-    let (del, esc) = ctx.input(|i| (i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace), i.key_pressed(egui::Key::Escape)));
+    let del = keys.pressed(ctx, egui::Key::Delete) || keys.pressed(ctx, egui::Key::Backspace);
+    let esc = keys.pressed(ctx, egui::Key::Escape);
     // Not while a button is down: the press held would then name another item.
     if del
         && !view.content.held
@@ -665,7 +674,7 @@ pub(crate) fn after_refresh(view: &mut DocView, added: &[Added]) {
 /// The in-place text editor, with Done and Discard beside it. Returns the edit once the text is
 /// committed (a click away, or Done), and whether Done finished adding text. Discard or Escape
 /// throws the draft away.
-pub(crate) fn editor(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, added: &[Added]) -> (Option<Edit>, bool) {
+pub(crate) fn editor(ctx: &egui::Context, keys: PageKeys, view: &mut DocView, info: &DocInfo, added: &[Added]) -> (Option<Edit>, bool) {
     let doc_id = view.id;
     let Some(page) = view.content.draft.as_ref().map(|d| d.page) else { return (None, false) };
     let Some(xf) = view.page_xform(page) else { return (None, false) };
@@ -686,11 +695,11 @@ pub(crate) fn editor(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, ad
             draft.rect = source;
         } else {
             let natural = ctx.fonts_mut(|f| f.layout_no_wrap(draft.text.clone(), font.clone(), Color32::BLACK).size().x) as f64 / zoom as f64;
-            let width = natural.max(pdfcraft_engine::added_text_width(&text)) + 2.0;
+            let width = natural.max(openpdf_engine::added_text_width(&text)) + 2.0;
             let available = page_width - source[0];
             let width = width.max(source[2] - source[0]).min(available.max(1.0));
             draft.rect = [source[0], source[1], source[0] + width, source[3]];
-            draft.rect = pdfcraft_engine::added_text_rect(&AddedText { rect: draft.rect, ..text.clone() });
+            draft.rect = openpdf_engine::added_text_rect(&AddedText { rect: draft.rect, ..text.clone() });
         }
         view.content.layout = Some((text, zoom, page_width, draft.rect));
     }
@@ -704,10 +713,10 @@ pub(crate) fn editor(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, ad
     let width = r.width().max(60.0);
     // The alignment every line shares, its own or the box's.
     let first = draft.style.paragraph_align(0);
-    let shared = (1..pdfcraft_engine::paragraph_align::count(&draft.text)).all(|i| draft.style.paragraph_align(i) == first).then_some(first);
+    let shared = (1..openpdf_engine::paragraph_align::count(&draft.text)).all(|i| draft.style.paragraph_align(i) == first).then_some(first);
     let anchor = match shared {
-        Some(pdfcraft_engine::TextAlign::Center) => 0.5,
-        Some(pdfcraft_engine::TextAlign::Right) => 1.0,
+        Some(openpdf_engine::TextAlign::Center) => 0.5,
+        Some(openpdf_engine::TextAlign::Right) => 1.0,
         _ => 0.0,
     };
     let at = r.min - egui::vec2((width - r.width()) * anchor, 0.0);
@@ -805,7 +814,7 @@ pub(crate) fn editor(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, ad
                 // that is not a click away.
                 let on_buttons = ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| buttons.contains(p))
                     || crate::edit_text_ui::focus_pos(ui.ctx()).is_some_and(|p| buttons.contains(p));
-                cancel |= ui.input(|i| i.key_pressed(egui::Key::Escape));
+                cancel |= keys.pressed(ui.ctx(), egui::Key::Escape);
                 commit = done || resp.lost_focus() && !on_buttons && !outside && !view.objects.hold_editor;
             });
             // Page text is drawn with the standard fonts; anything else would be saved as `?` (#125).
@@ -838,7 +847,7 @@ fn finish(cv: &mut ContentView, d: TextDraft, added: &[Added]) -> Option<Edit> {
         return None;
     }
     let text = d.text.trim_end().to_string();
-    let aligns = pdfcraft_engine::paragraph_align::remap(&d.text, &text, &d.style.aligns);
+    let aligns = openpdf_engine::paragraph_align::remap(&d.text, &text, &d.style.aligns);
     let d = TextDraft { style: AddedText { aligns, ..d.style }, ..d };
     match d.index {
         None if text.trim().is_empty() => None,
@@ -877,7 +886,7 @@ fn aligned_galley(
     letter_spacing: f32,
     wrap: f32,
 ) -> std::sync::Arc<egui::Galley> {
-    use pdfcraft_engine::TextAlign;
+    use openpdf_engine::TextAlign;
     let job = |text: &str, align: TextAlign| {
         let mut job = spaced_job(text, font, color, letter_spacing, wrap, egui::Align::Min);
         job.justify = align == TextAlign::Justify;
@@ -929,7 +938,7 @@ pub(crate) fn hint(ui: &mut egui::Ui, t: &Tokens) {
     ui.add_space(4.0);
 }
 
-impl crate::PdfCraftApp {
+impl crate::OpenPDFApp {
     /// Pick an image file for the active document, read it, and call `then` with its name and
     /// bytes: now when `save_override` answers (tests and automation never see a native dialog),
     /// otherwise on a later frame, and only if that document is still the active one.
@@ -970,7 +979,7 @@ impl crate::PdfCraftApp {
             app.apply_edit(Edit::EditPageImage {
                 page,
                 index,
-                change: pdfcraft_engine::ImageEdit::Replace { name, bytes: std::sync::Arc::new(bytes) },
+                change: openpdf_engine::ImageEdit::Replace { name, bytes: std::sync::Arc::new(bytes) },
             });
         });
         #[cfg(target_arch = "wasm32")]
@@ -1045,7 +1054,7 @@ impl crate::PdfCraftApp {
             self.notify_error(tl!("The document's security settings don't allow this change"));
             return false;
         }
-        if !self.copy_page_image(page, index) || !self.apply_edit(Edit::EditPageImage { page, index, change: pdfcraft_engine::ImageEdit::Delete }) {
+        if !self.copy_page_image(page, index) || !self.apply_edit(Edit::EditPageImage { page, index, change: openpdf_engine::ImageEdit::Delete }) {
             return false;
         }
         if let Some(view) = self.views.get_mut(view) {
@@ -1059,7 +1068,7 @@ impl crate::PdfCraftApp {
     pub(crate) fn redact_page_image(&mut self, page: usize, index: usize) {
         let Some(rect) = self.page_image_box(page, index) else { return };
         let author = self.comment_prefs.author.clone();
-        let mark = self.redact_prefs.mark(page, vec![pdfcraft_engine::rect_quad(rect)], &author);
+        let mark = self.redact_prefs.mark(page, vec![openpdf_engine::rect_quad(rect)], &author);
         if self.apply_edit(mark) {
             self.notify_tr("The image is marked for redaction. Apply it with Redact a PDF");
         }
@@ -1266,7 +1275,7 @@ impl crate::PdfCraftApp {
                 .as_ref()
                 .map(|(w, h, _)| (*w as f64, *h as f64))
                 .or_else(|| {
-                    (bytes.len() <= 64_000_000 * 4).then(|| pdfcraft_engine::image_dimensions(&bytes)).flatten().map(|(w, h)| (w as f64, h as f64))
+                    (bytes.len() <= 64_000_000 * 4).then(|| openpdf_engine::image_dimensions(&bytes)).flatten().map(|(w, h)| (w as f64, h as f64))
                 })
                 .unwrap_or((100.0, 100.0));
             let (pw, ph) =
@@ -1284,7 +1293,7 @@ impl crate::PdfCraftApp {
 
         let added_before: std::collections::HashSet<_> =
             self.session.get(id).into_iter().flat_map(|doc| doc.added()).filter(|item| item.page == page).map(|item| item.obj).collect();
-        if self.apply_edit(pdfcraft_engine::Edit::AddImage { page, rect: target_rect, name, bytes: std::sync::Arc::new(bytes) }) {
+        if self.apply_edit(openpdf_engine::Edit::AddImage { page, rect: target_rect, name, bytes: std::sync::Arc::new(bytes) }) {
             let selection = self.session.get(id).and_then(|doc| {
                 let mut inserted =
                     doc.added().iter().filter(|item| item.page == page).enumerate().filter(|(_, item)| !added_before.contains(&item.obj));
@@ -1313,7 +1322,7 @@ impl crate::PdfCraftApp {
 
 /// What the image tools ask for.
 pub(crate) enum ImageAction {
-    Update(pdfcraft_engine::AddedContent),
+    Update(openpdf_engine::AddedContent),
     Replace,
 }
 
@@ -1323,13 +1332,13 @@ const FLIP_HORIZONTAL_ICON: &str = "flip-vertical-2";
 const FLIP_VERTICAL_ICON: &str = "flip-horizontal-2";
 
 /// Edit image: rotate, flip, crop, replace (shown while an added image is selected).
-pub(crate) fn image_panel(ui: &mut egui::Ui, t: &Tokens, img: &pdfcraft_engine::AddedImage) -> Option<ImageAction> {
+pub(crate) fn image_panel(ui: &mut egui::Ui, t: &Tokens, img: &openpdf_engine::AddedImage) -> Option<ImageAction> {
     let mut out = None;
     widgets::section_title(ui, tl!("Edit image"));
     ui.horizontal(|ui| {
         let mut i = img.clone();
         let r = i.rect;
-        let turn = |i: &mut pdfcraft_engine::AddedImage, k: u8| {
+        let turn = |i: &mut openpdf_engine::AddedImage, k: u8| {
             i.rotation = (i.rotation + k) % 4;
             // The box turns with the picture, around its centre.
             let (cx, cy, w, h) = ((r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0, r[2] - r[0], r[3] - r[1]);
@@ -1356,7 +1365,7 @@ pub(crate) fn image_panel(ui: &mut egui::Ui, t: &Tokens, img: &pdfcraft_engine::
         }
     });
     ui.label(egui::RichText::new(tl!("Crop (% trimmed from each side)")).small().color(t.text_muted));
-    let most = (1.0 - pdfcraft_engine::AddedImage::MIN_CROP_KEEP) * 100.0;
+    let most = (1.0 - openpdf_engine::AddedImage::MIN_CROP_KEEP) * 100.0;
     // Unrounded: a side the user doesn't touch keeps its stored value, also one read from a file.
     let shown = img.crop.map(|v| v * 100.0);
     let mut crop = shown;
@@ -1404,7 +1413,7 @@ mod tests {
 
     #[test]
     fn delivered_pixels_are_bounded_before_cache_or_document_changes() {
-        let mut app = crate::PdfCraftApp::new();
+        let mut app = crate::OpenPDFApp::new();
         app.create_blank();
         app.last_copied_image = Some((1, 1, vec![0, 255, 0, 255]));
         let before = app.last_copied_image.clone();
@@ -1419,7 +1428,7 @@ mod tests {
 
     #[test]
     fn delivered_pixels_keep_unpremultiplied_alpha() {
-        let mut app = crate::PdfCraftApp::new();
+        let mut app = crate::OpenPDFApp::new();
         app.create_blank();
         let image = egui::ColorImage::from_rgba_unmultiplied([1, 1], &[255, 0, 0, 128]);
         assert!(app.paste_received_image(0, &image));
@@ -1428,7 +1437,7 @@ mod tests {
 
     #[test]
     fn review_web_can_paste_an_internal_image_without_a_native_clipboard() {
-        let mut app = crate::PdfCraftApp::new();
+        let mut app = crate::OpenPDFApp::new();
         app.create_blank();
         app.system_clipboard = true;
         app.last_copied_image = Some((1, 1, vec![255, 0, 0, 255]));
@@ -1439,7 +1448,7 @@ mod tests {
 
     #[test]
     fn review_system_without_supported_formats_does_not_paste_a_cached_image() {
-        let mut app = crate::PdfCraftApp::new();
+        let mut app = crate::OpenPDFApp::new();
         app.create_blank();
         app.system_clipboard = true;
         app.last_copied_image = Some((1, 1, vec![255, 0, 0, 255]));
@@ -1448,20 +1457,20 @@ mod tests {
 
     #[test]
     fn review_cut_checks_modify_permission_before_writing_the_clipboard() {
-        let mut app = crate::PdfCraftApp::new();
+        let mut app = crate::OpenPDFApp::new();
         app.system_clipboard = false;
         app.create_blank();
         let png = crate::create_ui::png_from_rgba(1, 1, &[255, 0, 0, 255]).unwrap();
         app.add_image("test.png".into(), png);
-        app.apply_edit(Edit::Protect(pdfcraft_engine::Protection {
+        app.apply_edit(Edit::Protect(openpdf_engine::Protection {
             permissions_password: Some("owner".into()),
-            changes: pdfcraft_engine::Changes::None,
+            changes: openpdf_engine::Changes::None,
             copy: true,
             ..Default::default()
         }));
         let id = app.active_ids().unwrap().1;
         let bytes = app.session.save_bytes(id).unwrap();
-        let mut locked = crate::PdfCraftApp::new();
+        let mut locked = crate::OpenPDFApp::new();
         locked.system_clipboard = false;
         locked.open_bytes("locked.pdf", None, bytes.as_ref().clone()).unwrap();
         assert!(!locked.session.get(locked.active_ids().unwrap().1).unwrap().allows_modification());
@@ -1473,7 +1482,7 @@ mod tests {
 
     #[test]
     fn system_text_prevents_context_menu_paste_of_a_cached_image() {
-        let mut app = crate::PdfCraftApp::new();
+        let mut app = crate::OpenPDFApp::new();
         app.system_clipboard = false;
         app.create_blank();
         let id = app.active_ids().unwrap().1;
@@ -1486,11 +1495,11 @@ mod tests {
     }
 
     /// The image a flip button leaves behind, as the panel returns it.
-    fn flipped(tooltip: &str) -> pdfcraft_engine::AddedImage {
-        let img = pdfcraft_engine::AddedImage::new([0.0, 0.0, 100.0, 50.0], pdfcraft_cos::ObjRef::new(7, 0));
+    fn flipped(tooltip: &str) -> openpdf_engine::AddedImage {
+        let img = openpdf_engine::AddedImage::new([0.0, 0.0, 100.0, 50.0], openpdf_cos::ObjRef::new(7, 0));
         let mut fonts = false;
         let mut h = egui_kittest::Harness::new_ui_state(
-            move |ui, out: &mut Option<pdfcraft_engine::AddedImage>| {
+            move |ui, out: &mut Option<openpdf_engine::AddedImage>| {
                 // The app's fonts (the semibold section title) take effect from the next frame.
                 if !fonts {
                     ui.ctx().set_fonts(crate::theme::font_definitions());
@@ -1537,8 +1546,8 @@ mod tests {
         let texture = |name| Some(ctx.load_texture(name, egui::ColorImage::filled([1, 1], Color32::WHITE), egui::TextureOptions::LINEAR));
         // Bytes no parser accepts: every render answers with an error.
         let pool = || {
-            let pool = pdfcraft_render::RenderPool::new_inline(std::sync::Arc::new(b"not a pdf".to_vec()), Default::default());
-            pool.set_queue(vec![pdfcraft_render::RenderRequest { page: 0, scale: 2.0, tag: 2000, ..Default::default() }]);
+            let pool = openpdf_render::RenderPool::new_inline(std::sync::Arc::new(b"not a pdf".to_vec()), Default::default());
+            pool.set_queue(vec![openpdf_render::RenderRequest { page: 0, scale: 2.0, tag: 2000, ..Default::default() }]);
             pool
         };
         let mut mb = MoveBackground {
@@ -1595,5 +1604,15 @@ mod tests {
         // Page width = width + 10 (spacing after the last character) > width + 5: the page wraps.
         assert_eq!(rows(width + 5.0), 2, "the saved text wraps here, so the editor must too");
         assert_eq!(rows(width + 10.0), 1, "and keeps the line when the spacing fits");
+    }
+
+    /// #4477: dragging a corner handle predominantly inward on one axis must still shrink an image
+    /// proportionally instead of freezing because the other axis did not shrink.
+    #[test]
+    fn corner_resize_shrinks_image_when_dragged_inward_along_one_axis() {
+        let r = Rect::from_min_max(Pos2::new(100.0, 100.0), Pos2::new(200.0, 150.0));
+        let shrunk = dragged(r, Grab::Corner(false, false), egui::vec2(-40.0, 2.0), true);
+        assert!((shrunk.width() - 60.0).abs() < 1e-3, "width shrinks by 40%: {shrunk:?}");
+        assert!((shrunk.height() - 30.0).abs() < 1e-3, "height shrinks proportionally by 40%: {shrunk:?}");
     }
 }

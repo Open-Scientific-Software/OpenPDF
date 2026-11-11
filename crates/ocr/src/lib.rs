@@ -1,4 +1,4 @@
-//! pdfcraft-ocr — Scan & OCR ▸ Recognize text (L4).
+//! openpdf-ocr — Scan & OCR ▸ Recognize text (L4).
 //!
 //! The caller renders a page to pixels ([`OcrImage`]) and hands it to a [`Recognizer`]. Two
 //! engines exist: the pure-Rust `OcrsRecognizer` (ocrs, MIT/Apache-2.0, with its pre-trained
@@ -9,7 +9,7 @@
 //! page content: invisible text (rendering mode 3) over each word, so the page becomes a
 //! searchable image (Acrobat's "Searchable Image (Exact)": the image is left untouched).
 //!
-//! Visible editable output uses [`pdfcraft_fonts::TextPlan`] and optional craft-fonts glyph
+//! Visible editable output uses [`openpdf_fonts::TextPlan`] and optional craft-fonts glyph
 //! outlines; unsupported visible characters become `?` and are counted. The engine's invisible
 //! searchable layer uses empty Type3 programs and ToUnicode maps, preserving Unicode without
 //! display fonts. WinAnsi-only invisible text keeps the standard Helvetica layout here.
@@ -33,8 +33,8 @@ pub use ocrs::{
     ALPHABET, DETECTION_MODEL, DETECTION_MODEL_SHA256, LANGUAGES, Models, Ocr, OcrsRecognizer, RECOGNITION_MODEL, RECOGNITION_MODEL_SHA256,
 };
 
-pub use pdfcraft_fonts::TextPlan;
-pub use pdfcraft_fonts::helvetica_width;
+pub use openpdf_fonts::TextPlan;
+pub use openpdf_fonts::helvetica_width;
 
 /// Hard cap on either side of an image any code in this crate will touch, in pixels; larger
 /// images are rejected with [`OcrError::ImageTooLarge`] instead of being processed.
@@ -47,7 +47,7 @@ pub const MAX_PIXELS: u32 = 64_000_000;
 
 #[derive(Debug, thiserror::Error)]
 pub enum OcrError {
-    #[error("the text recognition models are not installed (reinstall PdfCraft, or set PDFCRAFT_MODELS to the folder that holds them)")]
+    #[error("the text recognition models are not installed (reinstall OpenPDF, or set OPENPDF_MODELS to the folder that holds them)")]
     NoModels,
     #[error("loading {0}: {1}")]
     Load(String, String),
@@ -283,10 +283,10 @@ struct PlannedRun {
     start: f64,
 }
 
-/// The planned runs of word `i` (the same index [`pdfcraft_fonts::TextPlan::for_words`] planned
+/// The planned runs of word `i` (the same index [`openpdf_fonts::TextPlan::for_words`] planned
 /// the words with), or `None` when the word is drawn in Helvetica: every character has a
 /// WinAnsi code, or nothing could be planned/registered for it (the pre-Unicode output).
-fn planned_runs(plan: &pdfcraft_fonts::TextPlan, word: usize) -> Option<(Vec<PlannedRun>, f64)> {
+fn planned_runs(plan: &openpdf_fonts::TextPlan, word: usize) -> Option<(Vec<PlannedRun>, f64)> {
     let enc = plan.encoding(word);
     if enc.is_empty() || !plan.registered(enc) {
         return None;
@@ -312,12 +312,12 @@ fn planned_runs(plan: &pdfcraft_fonts::TextPlan, word: usize) -> Option<(Vec<Pla
 /// (Helvetica's approximated, the Type3 faces' exact) and emitted as an explicit `Tz`
 /// percentage. Words whose box is empty (or whose text has no measurable width) are skipped; a
 /// page that ends up with nothing simply shows nothing.
-pub fn visible_text_layer(words: &[PlacedWord], plan: &pdfcraft_fonts::TextPlan) -> Vec<u8> {
+pub fn visible_text_layer(words: &[PlacedWord], plan: &openpdf_fonts::TextPlan) -> Vec<u8> {
     visible_text_layer_at(words, plan, 0)
 }
 
 /// Visible text for words starting at `word_offset` in a shared document plan.
-pub fn visible_text_layer_at(words: &[PlacedWord], plan: &pdfcraft_fonts::TextPlan, word_offset: usize) -> Vec<u8> {
+pub fn visible_text_layer_at(words: &[PlacedWord], plan: &openpdf_fonts::TextPlan, word_offset: usize) -> Vec<u8> {
     // The rendering mode and the font are graphics state, which `ET` doesn't reset: without
     // `q … Q` they would stay set for every later content stream on the page, so text added
     // after OCR (a header or footer) drew invisibly (#3029).
@@ -361,7 +361,7 @@ pub fn visible_text_layer_at(words: &[PlacedWord], plan: &pdfcraft_fonts::TextPl
                     current = Some(("PCHelv".to_string(), size));
                 }
                 out.extend_from_slice(format!("{} {} {} {} {} {} Tm ", num(ux), num(uy), num(vx), num(vy), num(o[0]), num(o[1])).as_bytes());
-                out.extend(pdfcraft_fonts::literal(&pdfcraft_fonts::win_ansi(&w.text)));
+                out.extend(openpdf_fonts::literal(&openpdf_fonts::win_ansi(&w.text)));
                 out.extend_from_slice(b" Tj\n");
             }
             Some((planned, total)) => {
@@ -385,7 +385,7 @@ pub fn visible_text_layer_at(words: &[PlacedWord], plan: &pdfcraft_fonts::TextPl
                         )
                         .as_bytes(),
                     );
-                    out.extend(pdfcraft_fonts::literal(&run.codes));
+                    out.extend(openpdf_fonts::literal(&run.codes));
                     out.extend_from_slice(b" Tj\n");
                 }
             }
@@ -400,7 +400,7 @@ pub fn visible_text_layer_at(words: &[PlacedWord], plan: &pdfcraft_fonts::TextPl
 /// `/PCHelv` (standard Helvetica); words with characters beyond WinAnsi are set in the plan's
 /// Type3 fonts, one run per font, with the same exact box fit. Marked content `/OCR` so it can
 /// be told apart from the page's own text.
-pub fn text_layer(words: &[PlacedWord], plan: &pdfcraft_fonts::TextPlan) -> Vec<u8> {
+pub fn text_layer(words: &[PlacedWord], plan: &openpdf_fonts::TextPlan) -> Vec<u8> {
     // `3 Tr` and the font are graphics state, which `ET` doesn't reset: without `q … Q` they
     // would stay set for every later content stream on the page, so text added after OCR (a
     // header or footer) drew invisibly (#3029).
@@ -436,7 +436,7 @@ pub fn text_layer(words: &[PlacedWord], plan: &pdfcraft_fonts::TextPlan) -> Vec<
                 let nums: Vec<String> = m.iter().map(|v| num(*v)).collect();
                 out.extend_from_slice(nums.join(" ").as_bytes());
                 out.extend_from_slice(b" Tm ");
-                out.extend(pdfcraft_fonts::literal(&pdfcraft_fonts::win_ansi(&w.text)));
+                out.extend(openpdf_fonts::literal(&openpdf_fonts::win_ansi(&w.text)));
                 out.extend_from_slice(b" Tj\n");
             }
             Some((planned, total)) => {
@@ -456,7 +456,7 @@ pub fn text_layer(words: &[PlacedWord], plan: &pdfcraft_fonts::TextPlan) -> Vec<
                     let nums: Vec<String> = m.iter().map(|v| num(*v)).collect();
                     out.extend_from_slice(nums.join(" ").as_bytes());
                     out.extend_from_slice(b" Tm ");
-                    out.extend(pdfcraft_fonts::literal(&run.codes));
+                    out.extend(openpdf_fonts::literal(&run.codes));
                     out.extend_from_slice(b" Tj\n");
                 }
             }
@@ -549,7 +549,7 @@ mod tests {
     /// alphabet (Chinese, for example) needs a text layer in another font first.
     #[test]
     fn the_model_alphabet_fits_the_text_layer_font() {
-        assert_eq!(pdfcraft_fonts::first_undrawable(ALPHABET), None);
+        assert_eq!(openpdf_fonts::first_undrawable(ALPHABET), None);
     }
 
     /// `with_confidence` is clamped to the documented 0–100 scale: negatives (and −inf) are 0,
@@ -698,7 +698,7 @@ mod tests {
     /// planned word must not inherit its font.
     #[test]
     fn helvetica_is_restored_after_a_planned_word() {
-        if pdfcraft_fonts::CRAFT_FONTS.is_empty() {
+        if openpdf_fonts::CRAFT_FONTS.is_empty() {
             eprintln!("skipping: built without craft-fonts (set CRAFT_FONTS_DIR to run it)");
             return;
         }
@@ -732,14 +732,14 @@ mod tests {
     /// same exact box fit as the Helvetica words (the matrix x-axis spans across / advance).
     #[test]
     fn planned_words_draw_in_their_font_with_the_same_exact_fit() {
-        if pdfcraft_fonts::CRAFT_FONTS.is_empty() {
+        if openpdf_fonts::CRAFT_FONTS.is_empty() {
             eprintln!("skipping: built without craft-fonts (set CRAFT_FONTS_DIR to run it)");
             return;
         }
         let w =
             PlacedWord { text: "日本".into(), origin: [10.0, 20.0], across: [60.0, 0.0], up: [0.0, 9.3], confidence: None, source: "ocrs".into() };
         let mut plan = TextPlan::for_words(["日本"]);
-        // The names the registrar (pdfcraft_edit::add_type3_fonts) fills in — this crate
+        // The names the registrar (openpdf_edit::add_type3_fonts) fills in — this crate
         // cannot reach it, so the test sets them where it reads them.
         for (i, font) in plan.fonts.iter_mut().enumerate() {
             font.name = format!("PCOcr{i}");
@@ -750,7 +750,7 @@ mod tests {
         let s = String::from_utf8(text_layer(std::slice::from_ref(&w), &plan)).unwrap();
         assert!(s.contains("/PCOcr0 1 Tf"), "{s}");
         assert!(s.contains(&format!("{} 0 0 10 10 22.1 Tm ", num(60.0 / total))), "{s}");
-        assert!(s.contains(&format!("Tm {} Tj\n", String::from_utf8_lossy(&pdfcraft_fonts::literal(&codes)))), "{s}");
+        assert!(s.contains(&format!("Tm {} Tj\n", String::from_utf8_lossy(&openpdf_fonts::literal(&codes)))), "{s}");
         // The visible layer: size from the box height, Tz from the Type3's own advance.
         let v = String::from_utf8(visible_text_layer(std::slice::from_ref(&w), &plan)).unwrap();
         let size = 9.3 / BOX_EM;
@@ -773,7 +773,7 @@ mod tests {
     /// by the plan.
     #[test]
     fn substitutions_are_written_as_the_font_s_question_mark() {
-        if pdfcraft_fonts::CRAFT_FONTS.is_empty() {
+        if openpdf_fonts::CRAFT_FONTS.is_empty() {
             eprintln!("skipping: built without craft-fonts (set CRAFT_FONTS_DIR to run it)");
             return;
         }
@@ -793,7 +793,7 @@ mod tests {
         assert_eq!(plan.encoding(0).len(), 3, "it still gets an encoding: the font's ?");
         let codes: Vec<u8> = plan.encoding(0).iter().map(|&(_, c)| c).collect();
         let s = String::from_utf8(text_layer(&[w], &plan)).unwrap();
-        assert!(s.contains(&format!("Tm {} Tj\n", String::from_utf8_lossy(&pdfcraft_fonts::literal(&codes)))), "{s}");
+        assert!(s.contains(&format!("Tm {} Tj\n", String::from_utf8_lossy(&openpdf_fonts::literal(&codes)))), "{s}");
     }
 
     #[test]
@@ -809,15 +809,15 @@ mod tests {
     /// Mirrors packaging/{windows/package.ps1,macos/package.sh,linux/package.sh,freebsd/package.sh}.
     #[test]
     fn finds_the_models_in_every_release_package_layout() {
-        let base = std::env::temp_dir().join(format!("pdfcraft-ocr-layouts-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("openpdf-ocr-layouts-{}", std::process::id()));
         let layouts = [
-            ("windows", "PdfCraft", "PdfCraft/models"),
-            ("macos", "PdfCraft.app/Contents/MacOS", "PdfCraft.app/Contents/Resources/models"),
-            ("linux-deb-rpm", "usr/bin", "usr/share/pdfcraft/models"),
-            ("linux-tar", "pdfcraft-1.0.0-linux-x86_64/bin", "pdfcraft-1.0.0-linux-x86_64/share/pdfcraft/models"),
-            ("appimage", "PdfCraft.AppDir/usr/bin", "PdfCraft.AppDir/usr/share/pdfcraft/models"),
-            ("flatpak", "app/bin", "app/share/pdfcraft/models"),
-            ("freebsd", "usr/local/bin", "usr/local/share/pdfcraft/models"),
+            ("windows", "OpenPDF", "OpenPDF/models"),
+            ("macos", "OpenPDF.app/Contents/MacOS", "OpenPDF.app/Contents/Resources/models"),
+            ("linux-deb-rpm", "usr/bin", "usr/share/openpdf/models"),
+            ("linux-tar", "openpdf-1.0.0-linux-x86_64/bin", "openpdf-1.0.0-linux-x86_64/share/openpdf/models"),
+            ("appimage", "OpenPDF.AppDir/usr/bin", "OpenPDF.AppDir/usr/share/openpdf/models"),
+            ("flatpak", "app/bin", "app/share/openpdf/models"),
+            ("freebsd", "usr/local/bin", "usr/local/share/openpdf/models"),
         ];
         for (name, exe_dir, models_dir) in layouts {
             let root = base.join(name);
@@ -848,7 +848,7 @@ mod tests {
     #[test]
     fn missing_models_message_is_for_end_users() {
         let message = OcrError::NoModels.to_string();
-        assert!(!message.contains("cargo") && message.contains("PDFCRAFT_MODELS"), "{message}");
+        assert!(!message.contains("cargo") && message.contains("OPENPDF_MODELS"), "{message}");
     }
 
     /// End to end on rendered text, when the models are installed (`cargo xtask models`).

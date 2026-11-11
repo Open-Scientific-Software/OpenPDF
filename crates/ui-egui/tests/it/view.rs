@@ -3,7 +3,7 @@
 use egui::{Key, Modifiers, MouseWheelUnit, TouchPhase};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
-use pdfcraft_ui_egui::PdfCraftApp;
+use openpdf_ui_egui::OpenPDFApp;
 
 /// Three 300×400 pt pages. Page 1 links to page 3.
 const PAGES: &[u8] = b"%PDF-1.7
@@ -18,14 +18,14 @@ trailer << /Root 1 0 R >>
 
 use crate::gpu;
 
-fn harness(options: &'static [(&'static str, &'static str)]) -> Harness<'static, PdfCraftApp> {
+fn harness(options: &'static [(&'static str, &'static str)]) -> Harness<'static, OpenPDFApp> {
     harness_stepping(1.0 / 4.0, options)
 }
 
 /// [`harness`] with frames `step_dt` seconds apart (a quarter second is kittest's default).
-fn harness_stepping(step_dt: f32, options: &'static [(&'static str, &'static str)]) -> Harness<'static, PdfCraftApp> {
+fn harness_stepping(step_dt: f32, options: &'static [(&'static str, &'static str)]) -> Harness<'static, OpenPDFApp> {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).with_step_dt(step_dt).build_eframe(move |_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("pages.pdf", None, PAGES.to_vec()).expect("opens");
         app.set_option("left", "closed").unwrap();
@@ -39,11 +39,11 @@ fn harness_stepping(step_dt: f32, options: &'static [(&'static str, &'static str
     h
 }
 
-fn rect(h: &Harness<'static, PdfCraftApp>, page: usize) -> Option<egui::Rect> {
+fn rect(h: &Harness<'static, OpenPDFApp>, page: usize) -> Option<egui::Rect> {
     h.state().views[0].page_screen_rect(page)
 }
 
-fn sidebar_key(h: &mut Harness<'static, PdfCraftApp>, key: Key, modifiers: Modifiers) {
+fn sidebar_key(h: &mut Harness<'static, OpenPDFApp>, key: Key, modifiers: Modifiers) {
     h.event(egui::Event::ModifiersChanged(modifiers));
     for pressed in [true, false] {
         h.event(egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers });
@@ -105,9 +105,9 @@ const MIXED: &[u8] = b"%PDF-1.7
 trailer << /Root 1 0 R >>
 %%EOF";
 
-fn mixed_harness(options: &'static [(&'static str, &'static str)]) -> Harness<'static, PdfCraftApp> {
+fn mixed_harness(options: &'static [(&'static str, &'static str)]) -> Harness<'static, OpenPDFApp> {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("mixed.pdf", None, MIXED.to_vec()).expect("opens");
         app.set_option("left", "closed").unwrap();
@@ -233,9 +233,9 @@ fn page_gaps_in_organizer_do_not_move_the_document_scroll_position() {
 }
 
 /// A three-page comparison, with the old pane leading while the new document stays active.
-fn page_gaps_comparison_harness() -> Harness<'static, PdfCraftApp> {
+fn page_gaps_comparison_harness() -> Harness<'static, OpenPDFApp> {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.set_option("left", "closed").unwrap();
         app.open_bytes("old.pdf", None, PAGES.to_vec()).unwrap();
@@ -284,9 +284,9 @@ fn page_gaps_comparison_control_preserves_both_states() {
 /// The saved default survives restart and applies to newly opened documents.
 #[test]
 fn page_gaps_default_survives_restart_and_applies_to_new_documents() {
-    let mut app = PdfCraftApp::new();
+    let mut app = OpenPDFApp::new();
     app.set_option("default-page-gaps", "off").unwrap();
-    let mut restored = PdfCraftApp::new();
+    let mut restored = OpenPDFApp::new();
     restored.restore(&app.persist());
     restored.open_bytes("pages.pdf", None, PAGES.to_vec()).unwrap();
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| restored);
@@ -338,7 +338,7 @@ fn page_gaps_work_for_mixed_sizes_and_two_page_rows() {
 fn page_gaps_stay_closed_at_fractional_device_scales() {
     for ppp in [1.0, 1.25, 1.5, 2.0] {
         let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).with_pixels_per_point(ppp).build_eframe(|_cc| {
-            let mut app = PdfCraftApp::new();
+            let mut app = OpenPDFApp::new();
             app.open_bytes("pages.pdf", None, PAGES.to_vec()).unwrap();
             for (key, value) in [("left", "closed"), ("panel", "none"), ("layout", "continuous"), ("zoom", "43"), ("page-gaps", "off")] {
                 app.set_option(key, value).unwrap();
@@ -366,7 +366,7 @@ fn two_up_layout_places_pages_side_by_side() {
 
 #[test]
 fn two_page_view_shows_one_spread_at_a_time_until_continuous() {
-    use pdfcraft_ui_egui::canvas::PageLayout;
+    use openpdf_ui_egui::canvas::PageLayout;
     // Two-page view without continuous scrolling shows just the current spread; the continuous
     // checkbox reveals the rest (#752).
     let mut h = harness(&[("layout", "two-page"), ("zoom", "50")]);
@@ -492,7 +492,7 @@ fn single_page_swipe_that_reaches_the_edge_does_not_turn_but_a_fresh_one_does() 
     let at = h.state().views[0].viewport_rect().center();
     h.hover_at(at);
     h.run_steps(4);
-    let send = |h: &mut Harness<'static, PdfCraftApp>, phase, dy| {
+    let send = |h: &mut Harness<'static, OpenPDFApp>, phase, dy| {
         h.event(wheel(MouseWheelUnit::Point, dy, phase));
         h.step();
     };
@@ -693,7 +693,7 @@ fn precise_touchpad_wheel_scrolls_one_to_one() {
 
 #[test]
 fn rapid_wheel_notches_accelerate_and_follow_touchpad_input() {
-    use pdfcraft_ui_egui::scroll_speed::ScrollSpeed;
+    use openpdf_ui_egui::scroll_speed::ScrollSpeed;
 
     let mut h = harness_stepping(1.0 / 60.0, &[("layout", "continuous"), ("zoom", "300")]);
     h.state_mut().set_option("animation_effects", "off").unwrap();
@@ -740,7 +740,7 @@ fn rapid_wheel_notches_accelerate_and_follow_touchpad_input() {
 
 #[test]
 fn changing_continuous_layout_resets_wheel_acceleration() {
-    use pdfcraft_ui_egui::scroll_speed::ScrollSpeed;
+    use openpdf_ui_egui::scroll_speed::ScrollSpeed;
 
     let mut h = harness_stepping(1.0 / 60.0, &[("layout", "continuous"), ("zoom", "300")]);
     h.state_mut().set_option("animation_effects", "off").unwrap();
@@ -789,7 +789,7 @@ fn scroll_regression_fractional_lines_preserve_distance_without_an_idle_tail() {
     let at = h.state().views[0].viewport_rect().center();
     h.hover_at(at);
     h.run_steps(2);
-    let line = pdfcraft_ui_egui::scroll_speed::ScrollSpeed::default().line_points();
+    let line = openpdf_ui_egui::scroll_speed::ScrollSpeed::default().line_points();
     let mut distance = 0.0;
     for _ in 0..24 {
         h.event(wheel(MouseWheelUnit::Line, -0.25, TouchPhase::Move));
@@ -835,7 +835,7 @@ fn scroll_regression_precise_input_resets_coarse_acceleration() {
     scroll_over(&mut h, 2);
     h.event(wheel(MouseWheelUnit::Line, -1.0, TouchPhase::Move));
     let distance = scroll_over(&mut h, 2);
-    let base = pdfcraft_ui_egui::scroll_speed::ScrollSpeed::default().line_points();
+    let base = openpdf_ui_egui::scroll_speed::ScrollSpeed::default().line_points();
     assert!((distance - base).abs() < 0.5, "a new coarse burst begins at the base distance: {distance}");
 }
 
@@ -849,15 +849,15 @@ fn scroll_regression_key_interrupt_retains_current_wheel_input() {
     h.event(egui::Event::Key { key: Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE });
     h.event(wheel(MouseWheelUnit::Line, -1.0, TouchPhase::Move));
     let distance = scroll_over(&mut h, 2);
-    let base = pdfcraft_ui_egui::scroll_speed::ScrollSpeed::default().line_points();
+    let base = openpdf_ui_egui::scroll_speed::ScrollSpeed::default().line_points();
     assert!((distance - base).abs() < 0.5, "new wheel input survives a simultaneous key: {distance}");
 }
 
 /// Steps `frames` frames and returns how far the document scrolled down over them, from the
 /// pages on screen in each pair of consecutive frames (a page can leave the screen on the way).
 /// Used by wheel and non-macOS glide tests below.
-fn scroll_over(h: &mut Harness<'static, PdfCraftApp>, frames: usize) -> f32 {
-    let tops = |h: &Harness<'static, PdfCraftApp>| (0..3).map(|p| rect(h, p).map(|r| r.min.y)).collect::<Vec<_>>();
+fn scroll_over(h: &mut Harness<'static, OpenPDFApp>, frames: usize) -> f32 {
+    let tops = |h: &Harness<'static, OpenPDFApp>| (0..3).map(|p| rect(h, p).map(|r| r.min.y)).collect::<Vec<_>>();
     let mut moved = 0.0;
     for _ in 0..frames {
         let before = tops(h);
@@ -874,7 +874,7 @@ fn scroll_over(h: &mut Harness<'static, PdfCraftApp>, frames: usize) -> f32 {
 /// it scrolled by the frame after the lift (the page is drawn a frame behind its scroll).
 /// Same gate as its callers below.
 #[cfg(not(target_os = "macos"))]
-fn swipe_and_lift(h: &mut Harness<'static, PdfCraftApp>) -> f32 {
+fn swipe_and_lift(h: &mut Harness<'static, OpenPDFApp>) -> f32 {
     let at = h.state().views[0].viewport_rect().center();
     h.hover_at(at);
     h.run_steps(2);
@@ -972,7 +972,7 @@ const EASED: [(bool, &str); 3] = [(false, "system"), (false, "on"), (true, "on")
 fn a_wheel_notch_scrolls_at_once_with_animation_effects_off() {
     // Eased, egui spreads a notch over about a quarter of a second. At once, the page moves the
     // notch's whole distance in one frame.
-    let notch = pdfcraft_ui_egui::scroll_speed::ScrollSpeed::default().line_points();
+    let notch = openpdf_ui_egui::scroll_speed::ScrollSpeed::default().line_points();
     for (system_reduced, effects) in AT_ONCE {
         let moved = frames_after_a_notch(system_reduced, effects, false);
         // The frame the notch arrives in scrolls; the next one draws the page where it stays.
@@ -1065,13 +1065,13 @@ fn a_zoom_gesture_zooms_to_its_end_after_its_keys_are_let_go() {
 fn page_display_commands_switch_layouts() {
     let mut h = harness(&[]);
     h.state_mut().execute("view.layout.single");
-    assert_eq!(h.state().views[0].layout, pdfcraft_ui_egui::canvas::PageLayout::Single);
+    assert_eq!(h.state().views[0].layout, openpdf_ui_egui::canvas::PageLayout::Single);
     // The cover toggle refuses outside two-page view instead of arming a hidden flag.
     assert!(!h.state().views[0].cover);
     assert!(!h.state_mut().execute("view.layout.cover"));
     assert!(!h.state().views[0].cover);
     h.state_mut().execute("view.layout.two_up");
-    assert_eq!(h.state().views[0].layout, pdfcraft_ui_egui::canvas::PageLayout::TwoUp);
+    assert_eq!(h.state().views[0].layout, openpdf_ui_egui::canvas::PageLayout::TwoUp);
     assert!(h.state_mut().execute("view.layout.cover"));
     assert!(h.state().views[0].cover, "the cover toggle flips");
     assert!(h.state_mut().execute("view.layout.cover"));
@@ -1081,9 +1081,9 @@ fn page_display_commands_switch_layouts() {
     h.state_mut().execute("view.continuous");
     h.run_steps(3);
     assert!(!h.state().views[0].continuous(), "the checkbox turns continuous scrolling off");
-    assert_eq!(h.state().views[0].layout, pdfcraft_ui_egui::canvas::PageLayout::TwoUp, "toggling scrolling leaves the base layout");
+    assert_eq!(h.state().views[0].layout, openpdf_ui_egui::canvas::PageLayout::TwoUp, "toggling scrolling leaves the base layout");
     h.state_mut().execute("view.layout.single");
-    assert_eq!(h.state().views[0].layout, pdfcraft_ui_egui::canvas::PageLayout::Single);
+    assert_eq!(h.state().views[0].layout, openpdf_ui_egui::canvas::PageLayout::Single);
     assert!(!h.state().views[0].continuous(), "switching the base layout leaves scrolling off");
 }
 
@@ -1093,7 +1093,7 @@ fn layout_option_rejects_typos() {
     assert!(h.state_mut().set_option("layout", "singel").is_err());
     assert!(h.state_mut().set_option("default-layout", "bogus").is_err());
     assert!(h.state_mut().set_option("cover", "maybe").is_err());
-    assert_eq!(h.state().views[0].layout, pdfcraft_ui_egui::canvas::PageLayout::Single);
+    assert_eq!(h.state().views[0].layout, openpdf_ui_egui::canvas::PageLayout::Single);
     assert!(h.state().views[0].continuous(), "a rejected typo leaves the default display unchanged");
     assert!(h.state_mut().set_option("cover", "on").is_err(), "cover needs two-page view first");
     h.state_mut().set_option("layout", "two-up").unwrap();
@@ -1105,20 +1105,20 @@ fn layout_option_rejects_typos() {
 
 #[test]
 fn view_options_without_a_document() {
-    let mut app = PdfCraftApp::new();
+    let mut app = OpenPDFApp::new();
     app.set_option("language", "en").unwrap();
     assert!(app.set_option("default-layout", "single").is_ok(), "the default needs no document");
-    assert_eq!(app.view_defaults.layout, pdfcraft_ui_egui::canvas::PageLayout::Single);
+    assert_eq!(app.view_defaults.layout, openpdf_ui_egui::canvas::PageLayout::Single);
     assert!(app.set_option("cover", "on").is_err(), "cover needs an open document");
     assert!(app.set_option("layout", "single").is_err(), "layout needs an open document");
 }
 
 #[test]
 fn default_page_display_is_used_for_new_documents() {
-    use pdfcraft_ui_egui::canvas::PageLayout;
+    use openpdf_ui_egui::canvas::PageLayout;
     // The factory default is single page, scrolling continuously, without snap jumps.
-    assert_eq!(PdfCraftApp::new().view_defaults.layout, PageLayout::Single);
-    assert!(PdfCraftApp::new().view_defaults.continuous);
+    assert_eq!(OpenPDFApp::new().view_defaults.layout, PageLayout::Single);
+    assert!(OpenPDFApp::new().view_defaults.continuous);
     let mut h = harness(&[]);
     h.state_mut().set_option("default-layout", "single").unwrap();
     h.state_mut().open_bytes("other.pdf", None, PAGES.to_vec()).expect("opens");
@@ -1128,7 +1128,7 @@ fn default_page_display_is_used_for_new_documents() {
     assert_eq!(h.state().views[2].layout, PageLayout::Single);
     // Persisted preferences survive a restart.
     let saved = h.state().persist();
-    let mut fresh = PdfCraftApp::new();
+    let mut fresh = OpenPDFApp::new();
     fresh.set_option("language", "en").unwrap();
     fresh.restore(&saved);
     assert_eq!(fresh.view_defaults.layout, PageLayout::Single);
@@ -1137,7 +1137,7 @@ fn default_page_display_is_used_for_new_documents() {
     assert_eq!(fresh.view_defaults.layout, PageLayout::Single);
     fresh.restore(r#"{"default_layout":"TWO-UP"}"#);
     assert_eq!(fresh.view_defaults.layout, PageLayout::TwoUp);
-    let mut legacy = PdfCraftApp::new();
+    let mut legacy = OpenPDFApp::new();
     legacy.set_option("language", "en").unwrap();
     legacy.restore("{}");
     assert_eq!(legacy.view_defaults.layout, PageLayout::Single);
@@ -1146,8 +1146,8 @@ fn default_page_display_is_used_for_new_documents() {
 
 #[test]
 fn default_zoom_is_used_for_new_documents() {
-    use pdfcraft_ui_egui::canvas::Fit;
-    let fit_zoom = |app: &PdfCraftApp, i: usize| (app.views[i].fit, app.views[i].zoom);
+    use openpdf_ui_egui::canvas::Fit;
+    let fit_zoom = |app: &OpenPDFApp, i: usize| (app.views[i].fit, app.views[i].zoom);
     let mut h = harness(&[]);
     // The factory default fits the width.
     assert_eq!(h.state().views[0].fit, Fit::Width);
@@ -1167,7 +1167,7 @@ fn default_zoom_is_used_for_new_documents() {
     }
     // Saved settings keep it, and garbage leaves it alone.
     let saved = h.state().persist();
-    let mut fresh = PdfCraftApp::new();
+    let mut fresh = OpenPDFApp::new();
     fresh.set_option("language", "en").unwrap();
     fresh.restore(&saved);
     fresh.restore(r#"{"default_zoom":"bogus"}"#);
@@ -1179,9 +1179,9 @@ fn default_zoom_is_used_for_new_documents() {
 fn the_rail_zoom_field_sets_a_typed_zoom() {
     use egui::accesskit::Role;
     use egui_kittest::kittest::Queryable;
-    use pdfcraft_ui_egui::canvas::Fit;
+    use openpdf_ui_egui::canvas::Fit;
     let mut h = harness(&[]);
-    let type_zoom = |h: &mut Harness<'static, PdfCraftApp>, typed: &str, key: Key| {
+    let type_zoom = |h: &mut Harness<'static, OpenPDFApp>, typed: &str, key: Key| {
         h.get_by_role_and_label(Role::TextInput, "Zoom").click();
         h.run_steps(2);
         h.get_by_role_and_label(Role::TextInput, "Zoom").type_text(typed);
@@ -1206,11 +1206,11 @@ fn the_rail_zoom_field_sets_a_typed_zoom() {
 
 #[test]
 fn always_use_my_default_zoom_and_page_layout_ignores_what_the_pdf_asks_for() {
-    use pdfcraft_ui_egui::canvas::{Fit, PageLayout};
+    use openpdf_ui_egui::canvas::{Fit, PageLayout};
     // Opens on page 2 at fit page, two pages side by side.
     let asks = String::from_utf8_lossy(PAGES).replace("/Pages 2 0 R >>", "/Pages 2 0 R /OpenAction [4 0 R /Fit] /PageLayout /TwoPageLeft >>");
     let open = |always: Option<&str>| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         if let Some(on) = always {
             app.set_option("always-default-view", on).unwrap();
@@ -1224,20 +1224,20 @@ fn always_use_my_default_zoom_and_page_layout_ignores_what_the_pdf_asks_for() {
     assert_eq!(open(Some("off")), (Fit::Page, PageLayout::TwoUp, false, 1));
     // On: Default zoom and Default page display; the page it opens at is still the document's.
     assert_eq!(open(Some("on")), (Fit::Width, PageLayout::Single, true, 1));
-    assert!(PdfCraftApp::new().set_option("always-default-view", "yes").is_err());
+    assert!(OpenPDFApp::new().set_option("always-default-view", "yes").is_err());
 }
 
 #[test]
 fn always_use_my_default_zoom_and_page_layout_survives_a_restart() {
-    let mut app = PdfCraftApp::new();
+    let mut app = OpenPDFApp::new();
     assert!(!app.always_default_view, "off by default");
     app.always_default_view = true;
-    let mut restarted = PdfCraftApp::new();
+    let mut restarted = OpenPDFApp::new();
     restarted.restore(&app.persist());
     assert!(restarted.always_default_view, "the choice is kept");
     restarted.restore(r#"{"always_default_view":"bogus"}"#);
     assert!(restarted.always_default_view, "garbage leaves it alone");
-    let mut legacy = PdfCraftApp::new();
+    let mut legacy = OpenPDFApp::new();
     legacy.restore("{}");
     assert!(!legacy.always_default_view, "a legacy file without the key keeps it off");
 }
@@ -1256,6 +1256,149 @@ fn preferences_turn_on_always_use_my_default_zoom_and_page_layout() {
 }
 
 #[test]
+fn preferences_turn_on_always_use_my_default_zoom_and_page_layout_updates_open_documents() {
+    use egui_kittest::kittest::Queryable;
+    let mut h = harness(&[("continuous", "off"), ("zoom", "50")]);
+    h.state_mut().open_bytes("second.pdf", None, PAGES.to_vec()).expect("opens");
+    h.state_mut().views[1].set_continuous(false);
+    h.state_mut().views[1].set_zoom(0.75);
+    assert_eq!(h.state().views.len(), 2);
+    assert!(!h.state().views[0].continuous());
+    assert_ne!(h.state().views[0].fit, openpdf_ui_egui::canvas::Fit::Width);
+    assert!(!h.state().views[1].continuous());
+    assert_ne!(h.state().views[1].fit, openpdf_ui_egui::canvas::Fit::Width);
+    assert!(h.state_mut().execute("app.preferences"));
+    h.run_steps(3);
+    h.get_by_label("Always use my default zoom and page layout").scroll_to_me();
+    h.run_steps(4);
+    h.get_by_label("Always use my default zoom and page layout").click();
+    h.run_steps(2);
+    assert!(h.state().always_default_view);
+    for (i, view) in h.state().views.iter().enumerate() {
+        assert!(view.continuous(), "continuous scrolling is applied to view {i}");
+        assert_eq!(view.fit, openpdf_ui_egui::canvas::Fit::Width, "default fit width is applied to view {i}");
+    }
+}
+
+#[test]
+fn preferences_toggle_continuous_scrolling_updates_active_document() {
+    use egui_kittest::kittest::Queryable;
+    let mut h = harness(&[("default-continuous", "off"), ("continuous", "off")]);
+    assert!(!h.state().view_defaults.continuous);
+    assert!(!h.state().views[0].continuous());
+    assert!(h.state_mut().execute("app.preferences"));
+    h.run_steps(3);
+    h.get_by_label("Continuous scrolling").scroll_to_me();
+    h.run_steps(4);
+    h.get_by_label("Continuous scrolling").click();
+    h.run_steps(2);
+    assert!(h.state().view_defaults.continuous, "defaults are updated");
+    assert!(h.state().views[0].continuous(), "active document view is updated");
+}
+
+#[test]
+fn preferences_during_full_screen_updates_saved_normal_display_and_restores_on_exit() {
+    use egui_kittest::kittest::Queryable;
+    use openpdf_ui_egui::canvas::Fit;
+
+    let mut h = harness(&[("continuous", "off"), ("zoom", "50")]);
+    let v0 = &h.state().views[0];
+    assert!(!v0.continuous());
+    assert_eq!(v0.fit, Fit::None);
+    assert_eq!(v0.zoom, 0.5);
+
+    h.state_mut().views[0].enter_presentation();
+    assert!(h.state().views[0].presenting());
+    assert!(!h.state().views[0].continuous());
+    assert_eq!(h.state().views[0].fit, Fit::Page);
+
+    assert!(h.state_mut().execute("app.preferences"));
+    h.run_steps(3);
+    h.get_by_label("Always use my default zoom and page layout").scroll_to_me();
+    h.run_steps(4);
+    h.get_by_label("Always use my default zoom and page layout").click();
+    h.run_steps(2);
+    assert!(h.state().always_default_view);
+
+    {
+        let v = &h.state().views[0];
+        assert!(v.presenting(), "presentation display is preserved");
+        assert!(!v.continuous(), "presentation display is not continuous");
+        assert_eq!(v.fit, Fit::Page, "presentation display stays fitted to page");
+        assert!(v.normal_display().continuous, "saved normal display updated to continuous");
+        assert_eq!(v.normal_display().fit, Fit::Width, "saved normal display updated to default fit width");
+    }
+
+    h.state_mut().views[0].leave_presentation();
+    {
+        let v = &h.state().views[0];
+        assert!(!v.presenting());
+        assert!(v.continuous(), "continuous scrolling restored from updated preferences");
+        assert_eq!(v.fit, Fit::Width, "fit width restored from updated preferences");
+    }
+}
+
+#[test]
+fn preferences_toggle_continuous_during_full_screen_updates_saved_normal_display() {
+    use egui_kittest::kittest::Queryable;
+    use openpdf_ui_egui::canvas::Fit;
+
+    let mut h = harness(&[("default-continuous", "off"), ("continuous", "off")]);
+    assert!(!h.state().views[0].continuous());
+
+    h.state_mut().views[0].enter_presentation();
+    assert!(h.state().views[0].presenting());
+    assert!(!h.state().views[0].continuous());
+    assert_eq!(h.state().views[0].fit, Fit::Page);
+
+    assert!(h.state_mut().execute("app.preferences"));
+    h.run_steps(3);
+    h.get_by_label("Continuous scrolling").scroll_to_me();
+    h.run_steps(4);
+    h.get_by_label("Continuous scrolling").click();
+    h.run_steps(2);
+
+    assert!(h.state().view_defaults.continuous);
+    {
+        let v = &h.state().views[0];
+        assert!(v.presenting(), "presentation display is preserved");
+        assert!(!v.continuous(), "presentation display is not continuous");
+        assert_eq!(v.fit, Fit::Page, "presentation display stays fitted to page");
+        assert!(v.normal_display().continuous, "saved normal display updated to continuous");
+    }
+
+    h.state_mut().views[0].leave_presentation();
+    {
+        let v = &h.state().views[0];
+        assert!(!v.presenting());
+        assert!(v.continuous(), "continuous scrolling restored on exit");
+    }
+}
+
+#[test]
+fn preferences_with_always_default_view_on_toggling_continuous_preserves_custom_zoom() {
+    use egui_kittest::kittest::Queryable;
+
+    let mut h = harness(&[("always-default-view", "on"), ("default-continuous", "off"), ("continuous", "off"), ("zoom", "200")]);
+    assert!(h.state().always_default_view);
+    assert!(!h.state().view_defaults.continuous);
+    assert!(!h.state().views[0].continuous());
+    assert_eq!(h.state().views[0].zoom, 2.0);
+
+    assert!(h.state_mut().execute("app.preferences"));
+    h.run_steps(3);
+    h.get_by_label("Continuous scrolling").scroll_to_me();
+    h.run_steps(4);
+    h.get_by_label("Continuous scrolling").click();
+    h.run_steps(2);
+
+    assert!(h.state().view_defaults.continuous);
+    let v = &h.state().views[0];
+    assert!(v.continuous(), "continuous scrolling is updated");
+    assert_eq!(v.zoom, 2.0, "custom zoom is preserved because fit/zoom did not change");
+}
+
+#[test]
 fn preferences_set_the_default_zoom() {
     use egui_kittest::kittest::Queryable;
     let mut h = harness(&[]);
@@ -1266,22 +1409,22 @@ fn preferences_set_the_default_zoom() {
     h.get_by_label("Zoom to page level").click();
     h.run_steps(2);
     assert!(h.state_mut().execute("create.blank"));
-    assert_eq!(h.state().views[1].fit, pdfcraft_ui_egui::canvas::Fit::Page);
+    assert_eq!(h.state().views[1].fit, openpdf_ui_egui::canvas::Fit::Page);
 }
 
 #[test]
 fn rail_page_display_menu_offers_acrobats_view_choices() {
     use egui_kittest::kittest::Queryable;
-    use pdfcraft_ui_egui::canvas::{Fit, PageLayout};
+    use openpdf_ui_egui::canvas::{Fit, PageLayout};
     let mut h = harness(&[]);
     h.run_steps(4);
-    let pick = |h: &mut Harness<'static, PdfCraftApp>, item: &str| {
+    let pick = |h: &mut Harness<'static, OpenPDFApp>, item: &str| {
         h.get_by_label_contains("Page display:").click();
         h.run_steps(3);
         h.get_by_label(item).click();
         h.run_steps(4);
     };
-    let shown = |h: &Harness<'static, PdfCraftApp>| (h.state().views[0].layout, h.state().views[0].continuous(), h.state().views[0].fit);
+    let shown = |h: &Harness<'static, OpenPDFApp>| (h.state().views[0].layout, h.state().views[0].continuous(), h.state().views[0].fit);
     pick(&mut h, "Fit one full page");
     assert_eq!(shown(&h), (PageLayout::Single, false, Fit::Page), "one full page at a time, not scrolling");
     // The whole page fits at once, so the wheel turns pages without zooming out first.
@@ -1308,7 +1451,7 @@ fn rail_page_display_button_switches_layouts() {
     h.run_steps(3);
     h.get_by_label("Single page").click();
     h.run_steps(4);
-    assert_eq!(h.state().views[0].layout, pdfcraft_ui_egui::canvas::PageLayout::Single);
+    assert_eq!(h.state().views[0].layout, openpdf_ui_egui::canvas::PageLayout::Single);
 }
 
 #[test]
@@ -1321,7 +1464,7 @@ fn view_menu_page_display_uses_the_same_commands() {
     h.run_steps(3);
     h.get_by_label("Single page").click();
     h.run_steps(4);
-    assert_eq!(h.state().views[0].layout, pdfcraft_ui_egui::canvas::PageLayout::Single);
+    assert_eq!(h.state().views[0].layout, openpdf_ui_egui::canvas::PageLayout::Single);
 }
 
 #[test]
@@ -1334,7 +1477,7 @@ fn palette_runs_page_display_commands_from_the_keyboard() {
     h.key_press(Key::Enter);
     h.run_steps(3);
     assert!(!h.state().palette_open, "Enter runs the top hit and closes the palette");
-    assert_eq!(h.state().views[0].layout, pdfcraft_ui_egui::canvas::PageLayout::Single);
+    assert_eq!(h.state().views[0].layout, openpdf_ui_egui::canvas::PageLayout::Single);
 }
 
 #[test]
@@ -1392,7 +1535,7 @@ fn single_page_fit_page_fits_the_shown_page() {
 
 #[test]
 fn pages_shorter_than_the_window_sit_in_its_middle() {
-    let centred = |h: &Harness<'static, PdfCraftApp>, r: egui::Rect| {
+    let centred = |h: &Harness<'static, OpenPDFApp>, r: egui::Rect| {
         let vp = h.state().views[0].viewport_rect();
         assert!(r.height() < vp.height(), "{r:?} is shorter than {vp:?}");
         assert!((r.center().y - vp.center().y).abs() < 1.0, "{r:?} is in the middle of {vp:?}");
@@ -1486,14 +1629,14 @@ const DESTS: &[u8] = b"%PDF-1.7
 trailer << /Root 1 0 R >>
 %%EOF";
 
-fn dests_harness() -> Harness<'static, PdfCraftApp> {
+fn dests_harness() -> Harness<'static, OpenPDFApp> {
     bookmarks_harness("dests.pdf", DESTS)
 }
 
 /// `pdf` open with the Bookmarks panel showing, once the window's layout holds still.
-fn bookmarks_harness(name: &'static str, pdf: &'static [u8]) -> Harness<'static, PdfCraftApp> {
+fn bookmarks_harness(name: &'static str, pdf: &'static [u8]) -> Harness<'static, OpenPDFApp> {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes(name, None, pdf.to_vec()).expect("opens");
         app.set_option("left", "closed").unwrap();
@@ -1516,7 +1659,7 @@ fn bookmarks_harness(name: &'static str, pdf: &'static [u8]) -> Harness<'static,
 
 /// Where the point a fraction (`fx`, `fy`) across and down `page` is on screen, relative to the
 /// viewport's top-left corner.
-fn from_viewport_corner(h: &Harness<'static, PdfCraftApp>, page: usize, fx: f32, fy: f32) -> egui::Vec2 {
+fn from_viewport_corner(h: &Harness<'static, OpenPDFApp>, page: usize, fx: f32, fy: f32) -> egui::Vec2 {
     let (r, vp) = (rect(h, page).expect("page on screen"), h.state().views[0].viewport_rect());
     egui::pos2(r.min.x + fx * r.width(), r.min.y + fy * r.height()) - vp.min
 }
@@ -1524,7 +1667,7 @@ fn from_viewport_corner(h: &Harness<'static, PdfCraftApp>, page: usize, fx: f32,
 #[test]
 fn bookmark_destinations_scroll_to_their_position() {
     use egui_kittest::kittest::Queryable;
-    use pdfcraft_ui_egui::canvas::Fit;
+    use openpdf_ui_egui::canvas::Fit;
     let mut h = dests_harness();
     // Fit width: the pages are taller than the window, so any point of them can reach its top.
     h.get_by_label("Section 1.1 Shapes").click();
@@ -1558,7 +1701,7 @@ fn bookmark_destinations_scroll_to_their_position() {
 
 #[test]
 fn link_destinations_scroll_to_their_position() {
-    use pdfcraft_ui_egui::canvas::Fit;
+    use openpdf_ui_egui::canvas::Fit;
     let mut h = dests_harness();
     h.state_mut().set_option("zoom", "100%").unwrap();
     h.run_steps(4);
@@ -1627,9 +1770,9 @@ endstream endobj
 trailer << /Root 1 0 R >>
 %%EOF";
 
-fn form_harness() -> Harness<'static, PdfCraftApp> {
+fn form_harness() -> Harness<'static, OpenPDFApp> {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("form.pdf", None, FORM.to_vec()).expect("opens");
         app.set_option("left", "closed").unwrap();
@@ -1663,7 +1806,7 @@ fn highlight_fields_tints_the_field_area() {
     let r = rect(&h, 0).expect("page 1");
     // The field spans x 50..250, y 300..330 (PDF space, y up) on a 300×400 page; sample inside it.
     let at = egui::pos2(r.min.x + r.width() * (60.0 / 300.0), r.min.y + r.height() * (1.0 - 305.0 / 400.0));
-    let pixel = |h: &mut Harness<'static, PdfCraftApp>| {
+    let pixel = |h: &mut Harness<'static, OpenPDFApp>| {
         let img = h.render().expect("renders");
         let ppp = h.ctx.pixels_per_point();
         *img.get_pixel((at.x * ppp) as u32, (at.y * ppp) as u32)
@@ -1692,7 +1835,7 @@ trailer << /Root 1 0 R >>
 #[test]
 fn highlight_fields_leaves_read_only_fields_alone() {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("locked.pdf", None, LOCKED.to_vec()).expect("opens");
         app.set_option("left", "closed").unwrap();
@@ -1723,7 +1866,7 @@ trailer << /Root 1 0 R >>
 #[test]
 fn highlight_fields_leaves_a_groups_read_only_button_alone() {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("radio.pdf", None, LOCKED_RADIO.to_vec()).expect("opens");
         app.set_option("left", "closed").unwrap();
@@ -1742,7 +1885,7 @@ fn highlight_fields_leaves_a_groups_read_only_button_alone() {
 #[test]
 fn a_groups_read_only_button_is_not_chosen_by_a_click() {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("radio.pdf", None, LOCKED_RADIO.to_vec()).expect("opens");
         app.set_option("left", "closed").unwrap();
@@ -1753,7 +1896,7 @@ fn a_groups_read_only_button_is_not_chosen_by_a_click() {
     let r = rect(&h, 0).expect("page 1");
     // The buttons' centers on the 300×400 pt page (y up).
     let at = |x: f32, y: f32| egui::pos2(r.min.x + r.width() * (x / 300.0), r.min.y + r.height() * (1.0 - y / 400.0));
-    let click = |h: &mut Harness<'static, PdfCraftApp>, pos: egui::Pos2| {
+    let click = |h: &mut Harness<'static, OpenPDFApp>, pos: egui::Pos2| {
         h.event(egui::Event::PointerMoved(pos));
         h.run_steps(1);
         h.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
@@ -1761,7 +1904,7 @@ fn a_groups_read_only_button_is_not_chosen_by_a_click() {
         h.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
         h.run_steps(4);
     };
-    let value = |h: &Harness<'static, PdfCraftApp>| {
+    let value = |h: &Harness<'static, OpenPDFApp>| {
         let s = h.state();
         s.session.get(s.views[0].id).unwrap().form.iter().find(|f| f.name == "choice").map(|f| f.value.clone()).unwrap_or_default()
     };
@@ -1788,7 +1931,7 @@ trailer << /Root 1 0 R >>
 fn required_radio_buttons_get_a_round_red_border() {
     let _gpu = gpu();
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("radios.pdf", None, RADIOS.to_vec()).expect("opens");
         app.set_option("left", "closed").unwrap();
@@ -1835,7 +1978,7 @@ trailer << /Root 1 0 R >>
 fn round_check_boxes_get_a_round_highlight() {
     let _gpu = gpu();
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("checks.pdf", None, ROUND_CHECKS.to_vec()).expect("opens");
         app.set_option("left", "closed").unwrap();
@@ -1881,7 +2024,7 @@ fn field_highlighting_is_on_by_default_and_remembered() {
     h.run_steps(4);
     assert!(!h.state().views[1].highlight_fields, "the next document opens plain");
     let saved = h.state().persist();
-    let mut next = PdfCraftApp::new();
+    let mut next = OpenPDFApp::new();
     next.set_option("language", "en").unwrap();
     next.restore(&saved);
     next.open_bytes("form.pdf", None, FORM.to_vec()).expect("opens");
@@ -1899,7 +2042,7 @@ fn stored_field_highlight_choice_wins_over_the_default() {
         (r#"{"highlight_fields": "no"}"#, true),
         (r#"{"highlight_fields": null}"#, true),
     ] {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.restore(stored);
         app.open_bytes("form.pdf", None, FORM.to_vec()).expect("opens");
@@ -1949,7 +2092,7 @@ fn the_hand_tool_moves_the_page_with_the_pointer() {
     let start = h.state().views[0].viewport_rect().center();
     h.hover_at(start);
     h.run_steps(2);
-    let page = |h: &Harness<'static, PdfCraftApp>| rect(h, 0).expect("page 1 on screen").min;
+    let page = |h: &Harness<'static, OpenPDFApp>| rect(h, 0).expect("page 1 on screen").min;
     let grabbed = page(&h);
     let click_dist = h.ctx.options(|o| o.input_options.max_click_dist);
     let button = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
@@ -1985,8 +2128,8 @@ fn required_fields_get_a_red_border_when_highlighting() {
     let mut h = form_harness();
     h.state_mut().set_option("panel", "none").unwrap();
     h.state_mut().set_option("fields", "on").unwrap();
-    let props = pdfcraft_engine::FieldProps { required: Some(true), ..Default::default() };
-    h.state_mut().apply_edit(pdfcraft_engine::Edit::SetFieldProps { name: "fullname".into(), props: Box::new(props) });
+    let props = openpdf_engine::FieldProps { required: Some(true), ..Default::default() };
+    h.state_mut().apply_edit(openpdf_engine::Edit::SetFieldProps { name: "fullname".into(), props: Box::new(props) });
     crate::support::settle(&mut h);
     let r = rect(&h, 0).expect("page 1");
     // Just inside the left edge of the field (x 50, y 300..330 on a 300×400 page).
@@ -2027,7 +2170,7 @@ trailer << /Root 1 0 R >>
     for ppp in [1.0, 2.0] {
         let bytes = pdf.clone();
         let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).with_pixels_per_point(ppp).build_eframe(move |_cc| {
-            let mut app = PdfCraftApp::new();
+            let mut app = OpenPDFApp::new();
             app.set_option("language", "en").unwrap();
             app.open_bytes("lines.pdf", None, bytes.clone()).expect("opens");
             app.set_option("left", "closed").unwrap();
@@ -2042,16 +2185,16 @@ trailer << /Root 1 0 R >>
 
 /// Mean and largest difference between page 1 on screen and the page rendered directly at the
 /// view's exact device scale, over the lined area of `page_raster_maps_one_to_one_onto_screen_pixels`.
-fn compare_page_with_raster(h: &mut Harness<'static, PdfCraftApp>, pdf: &[u8], zoom: f32) -> (f64, u8) {
+fn compare_page_with_raster(h: &mut Harness<'static, OpenPDFApp>, pdf: &[u8], zoom: f32) -> (f64, u8) {
     crate::support::settle(h);
     let ppp = h.ctx.pixels_per_point();
     let r = rect(h, 0).expect("page 1");
     let img = h.render().expect("renders");
     let scale = zoom * 96.0 / 72.0 * ppp;
-    let mut renderer = pdfcraft_render::PageRenderer::new(std::sync::Arc::new(pdf.to_vec()), pdfcraft_render::RenderConfig::default());
-    let page = renderer.render(pdfcraft_render::RenderRequest {
+    let mut renderer = openpdf_render::PageRenderer::new(std::sync::Arc::new(pdf.to_vec()), openpdf_render::RenderConfig::default());
+    let page = renderer.render(openpdf_render::RenderRequest {
         page: 0,
-        kind: pdfcraft_render::RequestKind::Pixels,
+        kind: openpdf_render::RequestKind::Pixels,
         tile: None,
         scale,
         tag: 0,
@@ -2097,9 +2240,9 @@ trailer << /Root 1 0 R >>
     .into_bytes()
 }
 
-fn grid_harness(pdf: Vec<u8>, zoom: &str) -> Harness<'static, PdfCraftApp> {
+fn grid_harness(pdf: Vec<u8>, zoom: &str) -> Harness<'static, OpenPDFApp> {
     Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_eframe(move |_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.open_bytes("grid.pdf", None, pdf.clone()).expect("opens");
         app.set_option("left", "closed").unwrap();
         app.set_option("panel", "none").unwrap();
@@ -2109,7 +2252,7 @@ fn grid_harness(pdf: Vec<u8>, zoom: &str) -> Harness<'static, PdfCraftApp> {
 }
 
 /// Detail in the middle of the window: the summed difference between neighbouring pixels.
-fn centre_detail(h: &mut Harness<'static, PdfCraftApp>) -> u64 {
+fn centre_detail(h: &mut Harness<'static, OpenPDFApp>) -> u64 {
     let img = h.render().expect("renders");
     let (cx, cy) = (img.width() / 2, img.height() / 2);
     let mut sum = 0u64;
@@ -2160,9 +2303,9 @@ fn returning_to_a_visited_zoom_reuses_its_cached_tiles() {
 
 #[test]
 fn sidebar_collapse_and_resize_preserves_scroll_position() {
-    use pdfcraft_ui_egui::canvas::Fit;
+    use openpdf_ui_egui::canvas::Fit;
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("pages.pdf", None, PAGES.to_vec()).expect("opens");
         app.set_option("left", "closed").unwrap();
@@ -2237,7 +2380,7 @@ fn final_spread_at_scroll_end(heights: &[u32], cover: bool) -> (Vec<(usize, egui
     }
     pdf += "trailer << /Root 1 0 R >>\n%%EOF";
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).with_step_dt(1.0 / 60.0).build_eframe(move |_| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("unequal-spreads.pdf", None, pdf.as_bytes().to_vec()).unwrap();
         for (key, value) in [("left", "closed"), ("panel", "none"), ("layout", "two-up"), ("zoom", "200")] {
@@ -2311,7 +2454,7 @@ fn switching_modes_keeps_the_current_page_at_fixed_zoom() {
     pdf.push_str("trailer << /Root 1 0 R >>\n%%EOF");
     let other = pdf.clone().into_bytes();
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("pages.pdf", None, pdf.into_bytes()).unwrap();
         app.set_option("zoom", "100").unwrap();
@@ -2354,7 +2497,7 @@ fn switching_modes_keeps_the_current_page_at_fixed_zoom() {
 fn long_view_menu_fits_a_short_window() {
     use egui_kittest::kittest::Queryable;
     let mut h = Harness::builder().with_size(egui::vec2(1000.0, 400.0)).build_eframe(|_cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("pages.pdf", None, PAGES.to_vec()).unwrap();
         app
@@ -2375,10 +2518,10 @@ fn long_view_menu_fits_a_short_window() {
     assert!(row.top() >= 0.0 && row.bottom() <= 400.0, "the Bookmarks submenu row is onscreen: {row:?}");
     bookmarks.click();
     h.run_steps(4);
-    assert_eq!(h.state().right, Some(pdfcraft_ui_egui::RightPanel::Bookmarks));
+    assert_eq!(h.state().right, Some(openpdf_ui_egui::RightPanel::Bookmarks));
 }
 
-fn click_with(h: &mut Harness<'static, PdfCraftApp>, pos: egui::Pos2, modifiers: Modifiers) {
+fn click_with(h: &mut Harness<'static, OpenPDFApp>, pos: egui::Pos2, modifiers: Modifiers) {
     h.hover_at(pos);
     h.run_steps(1);
     for pressed in [true, false] {
@@ -2392,7 +2535,7 @@ fn click_with(h: &mut Harness<'static, PdfCraftApp>, pos: egui::Pos2, modifiers:
 /// or ← back; Esc brings the display from before it back, at the page reached.
 #[test]
 fn full_screen_shows_one_fitted_page_and_clicks_turn_it() {
-    use pdfcraft_ui_egui::canvas::Fit;
+    use openpdf_ui_egui::canvas::Fit;
     let mut h = harness(&[("layout", "continuous"), ("zoom", "50")]);
     h.run_steps(4);
     assert!(h.state().views[0].continuous(), "continuous before");
@@ -2438,7 +2581,7 @@ fn full_screen_shows_one_fitted_page_and_clicks_turn_it() {
 /// comes back to that and full screen stays one spread at a time.
 #[test]
 fn full_screen_survives_a_reload_and_keeps_a_new_documents_own_view() {
-    use pdfcraft_ui_egui::canvas::{Fit, PageLayout};
+    use openpdf_ui_egui::canvas::{Fit, PageLayout};
     let mut h = harness(&[("layout", "continuous"), ("zoom", "50")]);
     h.run_steps(4);
     h.key_press_modifiers(Modifiers::COMMAND, Key::L);
@@ -2472,7 +2615,7 @@ fn full_screen_survives_a_reload_and_keeps_a_new_documents_own_view() {
 /// → turns the spread.
 #[test]
 fn full_screen_keeps_two_page_view_as_spreads() {
-    use pdfcraft_ui_egui::canvas::PageLayout;
+    use openpdf_ui_egui::canvas::PageLayout;
     let mut h = harness(&[("layout", "two-up")]);
     h.run_steps(4);
     h.key_press_modifiers(Modifiers::COMMAND, Key::L);
@@ -2495,7 +2638,7 @@ fn full_screen_keeps_two_page_view_as_spreads() {
 /// entering it from another tool selects Select, and leaving gives the tool back.
 #[test]
 fn full_screen_clicks_turn_pages_whatever_tool_was_on() {
-    use pdfcraft_ui_egui::QuickTool;
+    use openpdf_ui_egui::QuickTool;
     let mut h = harness(&[]);
     h.run_steps(4);
     h.state_mut().quick_tool = QuickTool::Hand;
@@ -2520,9 +2663,9 @@ fn full_screen_clicks_turn_pages_whatever_tool_was_on() {
 fn the_pages_panel_tools_act_on_the_selected_pages() {
     let mut h = harness(&[("panel", "pages")]);
     let id = h.state().views[0].id;
-    let rotations = |h: &Harness<'static, PdfCraftApp>| h.state().session.get(id).unwrap().info.pages.iter().map(|p| p.rotation).collect::<Vec<_>>();
+    let rotations = |h: &Harness<'static, OpenPDFApp>| h.state().session.get(id).unwrap().info.pages.iter().map(|p| p.rotation).collect::<Vec<_>>();
     // The panel's Page tools menu, on the right-hand side of the window.
-    let tool = |h: &mut Harness<'static, PdfCraftApp>, label: &str| {
+    let tool = |h: &mut Harness<'static, OpenPDFApp>, label: &str| {
         h.get_all_by_label("Page tools").find(|n| n.rect().left() > 1000.0).expect("Page tools in the Pages panel").click();
         h.run_steps(2);
         h.get_by_label(label).click();
@@ -2550,15 +2693,15 @@ fn the_pages_panel_tools_act_on_the_selected_pages() {
 /// opens Extract for the selection and writes it.
 #[test]
 fn the_pages_panel_tools_insert_from_a_file_and_extract() {
-    let dir = std::env::temp_dir().join(format!("pdfcraft-page-tools-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("openpdf-page-tools-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let more = dir.join("more.pdf");
     std::fs::write(&more, PAGES).unwrap();
     let mut h = harness(&[("panel", "pages")]);
     let id = h.state().views[0].id;
-    let count = |h: &Harness<'static, PdfCraftApp>| h.state().session.get(id).unwrap().info.pages.len();
-    let tool = |h: &mut Harness<'static, PdfCraftApp>, label: &str| {
+    let count = |h: &Harness<'static, OpenPDFApp>| h.state().session.get(id).unwrap().info.pages.len();
+    let tool = |h: &mut Harness<'static, OpenPDFApp>, label: &str| {
         h.get_all_by_label("Page tools").find(|n| n.rect().left() > 1000.0).expect("Page tools in the Pages panel").click();
         h.run_steps(2);
         h.get_by_label(label).click();
@@ -2576,8 +2719,8 @@ fn the_pages_panel_tools_insert_from_a_file_and_extract() {
     h.state_mut().export_dir_override = Some(out.to_string_lossy().into_owned());
     h.state_mut().views[0].select_pages(&[1, 2]);
     tool(&mut h, "Extract the selected pages…");
-    assert_eq!(h.state().dialog, Some(pdfcraft_ui_egui::Dialog::Extract), "Extract opens for the selection");
-    h.state_mut().extract_draft = pdfcraft_ui_egui::ExtractDraft { separate: true, ..Default::default() };
+    assert_eq!(h.state().dialog, Some(openpdf_ui_egui::Dialog::Extract), "Extract opens for the selection");
+    h.state_mut().extract_draft = openpdf_ui_egui::ExtractDraft { separate: true, ..Default::default() };
     h.get_all_by_label("Extract").last().unwrap().click();
     h.run_steps(3);
     assert_eq!(std::fs::read_dir(&out).unwrap().count(), 2, "the two selected pages, each a file");
@@ -2592,9 +2735,9 @@ fn the_pages_panel_tools_are_off_without_page_editing_permission() {
     let mut h = harness(&[("panel", "pages")]);
     {
         let app = h.state_mut();
-        app.apply_edit(pdfcraft_engine::Edit::Protect(pdfcraft_engine::Protection {
+        app.apply_edit(openpdf_engine::Edit::Protect(openpdf_engine::Protection {
             permissions_password: Some("owner".into()),
-            changes: pdfcraft_engine::Changes::None,
+            changes: openpdf_engine::Changes::None,
             ..Default::default()
         }));
         let bytes = app.session.save_bytes(app.views[0].id).unwrap();
@@ -2631,6 +2774,610 @@ fn a_document_press_releases_pages_keyboard_focus_without_escape() {
     assert!(h.state().views[0].selected.is_empty(), "Ctrl+A now belongs to the viewer, not page thumbnails");
 }
 
+/// Delete over the Pages panel with a menu of the menu bar open is the menu's, and the Escape that
+/// closes a thumbnail's context menu the menu's: no page is deleted, and the page selection stays.
+/// Delete deleted the selected pages, and the panel took the Escape: it dropped the selection and
+/// left the menu open. (The in-window bar takes an Escape with a menu open before the panel is
+/// drawn, and a dialog takes the panel's keyboard.)
+#[test]
+fn delete_with_a_menu_open_and_escape_closing_a_thumbnail_menu_leave_the_pages_panel() {
+    let mut h = harness(&[("panel", "pages")]);
+    h.run_steps(2);
+    // The first ⌘-click on another page picks it and the current page.
+    h.get_by_label("Page 2").click_modifiers(Modifiers::COMMAND);
+    h.run_steps(2);
+    let selected = h.state().views[0].selected.clone();
+    assert_eq!(selected.iter().copied().collect::<Vec<_>>(), [0, 1], "⌘-click picked pages 1 and 2");
+    let thumb = h.get_by_label("Page 2").rect().center();
+    crate::support::open_menu(&mut h, "View");
+    h.hover_at(thumb);
+    h.run_steps(1);
+    assert!(egui::Popup::is_any_open(&h.ctx), "the menu is open");
+    h.key_press(Key::Delete);
+    h.run_steps(3);
+    let pages = |h: &Harness<'static, OpenPDFApp>| h.state().session.get(h.state().views[0].id).unwrap().info.pages.len();
+    assert_eq!(pages(&h), 3, "Delete with a menu open deleted pages");
+    assert_eq!(h.state().views[0].selected, selected, "Delete with a menu open dropped the page selection");
+    h.key_press(Key::Escape);
+    h.run_steps(3);
+    assert!(!egui::Popup::is_any_open(&h.ctx), "Escape closed the menu");
+    // The thumbnail's own context menu, the panel keeping the keyboard: Escape closes the menu.
+    h.hover_at(thumb);
+    h.run_steps(1);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton { pos: thumb, button: egui::PointerButton::Secondary, pressed, modifiers: Modifiers::NONE });
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+    assert!(egui::Popup::is_any_open(&h.ctx), "the thumbnail's menu is open");
+    assert_eq!(h.state().views[0].selected, selected, "the right-click kept the page selection");
+    h.key_press(Key::Escape);
+    h.run_steps(3);
+    assert!(!egui::Popup::is_any_open(&h.ctx), "Escape closed the thumbnail's menu");
+    assert_eq!(h.state().views[0].selected, selected, "the Escape that closed the thumbnail's menu dropped the page selection");
+    assert_eq!(pages(&h), 3);
+}
+
+/// Full screen entered over the OCR Verify screen draws the page alone, and its keys are the
+/// pages': Escape leaves it. The hidden screen still counted as over the pages, so only ⌘L did.
+#[test]
+fn escape_leaves_full_screen_entered_over_the_ocr_verify_screen() {
+    let mut h = harness(&[]);
+    h.state_mut().ocr_verify.open = true;
+    h.run_steps(3);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::L);
+    h.run_steps(4);
+    assert!(h.state().full_screen, "⌘L entered full screen");
+    h.key_press(Key::Escape);
+    h.run_steps(4);
+    assert!(!h.state().full_screen, "Escape left full screen");
+    assert!(h.state().ocr_verify.open, "the OCR Verify screen is back");
+}
+
+/// Three 300×400 pt pages; the second comes in with a one-second Wipe and stays one second
+/// (`/Trans`, `/Dur`), the others have neither.
+const PRESENTATION: &[u8] = b"%PDF-1.7
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 /MediaBox [0 0 300 400] >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R >> endobj
+4 0 obj << /Type /Page /Parent 2 0 R /Trans << /S /Wipe /D 1 >> /Dur 1 >> endobj
+5 0 obj << /Type /Page /Parent 2 0 R >> endobj
+trailer << /Root 1 0 R >>
+%%EOF";
+
+/// The presentation document in full screen, frames a tenth of a second apart, every raster in.
+fn presenting(options: &'static [(&'static str, &'static str)]) -> Harness<'static, OpenPDFApp> {
+    presenting_pdf(PRESENTATION, options)
+}
+
+/// [`presenting`] with another document.
+fn presenting_pdf(pdf: &'static [u8], options: &'static [(&'static str, &'static str)]) -> Harness<'static, OpenPDFApp> {
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).with_step_dt(0.1).build_eframe(move |_cc| {
+        let mut app = OpenPDFApp::new();
+        app.set_option("language", "en").unwrap();
+        app.open_bytes("slides.pdf", None, pdf.to_vec()).expect("opens");
+        app.set_option("left", "closed").unwrap();
+        app.set_option("panel", "none").unwrap();
+        app.set_option("animation_effects", "on").unwrap();
+        for (k, v) in options {
+            app.set_option(k, v).unwrap();
+        }
+        app
+    });
+    h.run_steps(4);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::L);
+    h.run_steps(4);
+    assert!(h.state().full_screen);
+    settle(&mut h);
+    h
+}
+
+/// Run frames until the renderer has nothing left to deliver (bounded, in real time: the
+/// renderer's threads do not follow the harness clock).
+fn settle(h: &mut Harness<'static, OpenPDFApp>) {
+    for _ in 0..300 {
+        h.run_steps(1);
+        if !h.state().render_pending() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+/// Run frames until `done` holds (bounded), returning the number of frames it took.
+fn frames_until(h: &mut Harness<'static, OpenPDFApp>, done: impl Fn(&OpenPDFApp) -> bool) -> usize {
+    for n in 0..300 {
+        if done(h.state()) {
+            return n;
+        }
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    panic!("never happened");
+}
+
+/// #379: in full screen, a page's /Trans plays when it comes into view (from the page before,
+/// once the new one has rendered), and its /Dur turns to the next page once it is up; the last
+/// page, with no display time, stays.
+#[test]
+fn full_screen_plays_a_page_transition_and_honours_the_display_time() {
+    let mut h = presenting(&[]);
+    assert!(!h.state().views[0].presenting_a_transition(), "page 1 just shows");
+    h.key_press(Key::ArrowRight);
+    h.run_steps(1);
+    assert_eq!(h.state().views[0].current, 1);
+    assert!(h.state().views[0].presenting_a_transition(), "page 2 comes in with its Wipe");
+    // The Wipe is painted, not only timed: once page 2 has rendered, a frame shows a strip of it as
+    // tall as the page and only part of its width.
+    let wipe_strip = |h: &Harness<'static, OpenPDFApp>| {
+        h.state().views[0].page_screen_rect(1).is_some_and(|page| {
+            h.output().shapes.iter().any(|clipped| {
+                let egui::Shape::Mesh(mesh) = &clipped.shape else { return false };
+                let b = mesh.calc_bounds();
+                mesh.texture_id != egui::TextureId::default()
+                    && (b.min.x - page.min.x).abs() < 1.0
+                    && (b.min.y - page.min.y).abs() < 1.0
+                    && (b.max.y - page.max.y).abs() < 1.0
+                    && b.width() > 1.0
+                    && b.width() < page.width() - 1.0
+            })
+        })
+    };
+    let mut steps = 0;
+    while !wipe_strip(&h) && steps < 300 {
+        h.run_steps(1);
+        steps += 1;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(wipe_strip(&h), "the Wipe paints part of page 2 ({steps} frames)");
+    // Counted from the first painted strip, when page 2's raster is in and the Wipe is under way:
+    // the frames spent waiting for the raster don't count toward its second.
+    let frames = frames_until(&mut h, |a| !a.views[0].presenting_a_transition());
+    assert!(frames >= 8, "the Wipe takes its second ({frames} frames of 0.1 s after the first strip)");
+    assert_eq!(h.state().views[0].current, 1, "still page 2 when the transition ends");
+    h.run_steps(5);
+    assert_eq!(h.state().views[0].current, 1, "half of its display time");
+    h.run_steps(7);
+    assert_eq!(h.state().views[0].current, 2, "its one-second display time is up");
+    assert!(!h.state().views[0].presenting_a_transition(), "page 3 has no transition");
+    h.run_steps(30);
+    assert_eq!(h.state().views[0].current, 2, "the last page stays");
+    h.key_press(Key::Escape);
+    h.run_steps(2);
+    assert!(!h.state().views[0].presenting_a_transition());
+}
+
+/// The page changes at once where a transition can't or shouldn't play: with the Animation
+/// effects preference off, and with two-page spreads.
+#[test]
+fn full_screen_turns_at_once_without_animations_or_in_spreads() {
+    for options in [&[("animation_effects", "off")][..], &[("layout", "two-up")][..]] {
+        let mut h = presenting(options);
+        h.key_press(Key::ArrowRight);
+        h.run_steps(1);
+        assert!(!h.state().views[0].presenting_a_transition(), "{options:?}");
+    }
+}
+
+/// In full screen the pointer hides after three still seconds, and shows again when it moves.
+#[test]
+fn full_screen_hides_a_still_pointer() {
+    let mut h = presenting(&[]);
+    let centre = h.state().views[0].viewport_rect().center();
+    h.hover_at(centre);
+    h.run_steps(2);
+    assert_ne!(h.output().platform_output.cursor_icon, egui::CursorIcon::None, "just moved");
+    h.run_steps(32);
+    assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::None, "still for over three seconds");
+    h.hover_at(centre + egui::vec2(40.0, 0.0));
+    h.run_steps(1);
+    assert_ne!(h.output().platform_output.cursor_icon, egui::CursorIcon::None, "moved again");
+}
+
+/// In full screen a right-click goes back a page, as a left click goes forward (*Adobe Acrobat
+/// Help*, 2019, "Full Screen preferences", p. 69: "Left Click To Go Forward One Page; Right Click
+/// To Go Back One Page"), and no context menu opens.
+#[test]
+fn full_screen_right_click_goes_back_a_page() {
+    // A document with no display times, so no page turns by itself meanwhile.
+    let mut h = harness(&[]);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::L);
+    h.run_steps(6);
+    assert!(h.state().full_screen);
+    h.key_press(Key::ArrowRight);
+    h.run_steps(4);
+    assert_eq!(h.state().views[0].current, 1);
+    let centre = h.state().views[0].viewport_rect().center();
+    h.hover_at(centre);
+    h.run_steps(1);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton { pos: centre, button: egui::PointerButton::Secondary, pressed, modifiers: Modifiers::NONE });
+    }
+    h.run_steps(6);
+    assert_eq!(h.state().views[0].current, 0, "a right-click goes back");
+    assert!(!egui::Popup::is_any_open(&h.ctx), "no context menu in full screen");
+}
+
+/// In full screen Enter goes forward a page and Shift+Enter back (*Adobe Acrobat Help*, 2019,
+/// "Read a document in Full Screen mode", p. 66: "To go to the previous page, press Shift+Enter").
+#[test]
+fn full_screen_shift_enter_goes_back_a_page() {
+    // A document with no display times, so no page turns by itself meanwhile.
+    let mut h = harness(&[]);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::L);
+    h.run_steps(6);
+    assert!(h.state().full_screen);
+    h.key_press(Key::Enter);
+    h.run_steps(4);
+    assert_eq!(h.state().views[0].current, 1, "Enter goes forward");
+    h.key_press_modifiers(Modifiers::SHIFT, Key::Enter);
+    h.run_steps(4);
+    assert_eq!(h.state().views[0].current, 0, "Shift+Enter goes back");
+}
+
+/// A document replaced while full screen plays a transition (a reload) starts afresh: none of the
+/// old document's transition, page or timer carries over.
+#[test]
+fn full_screen_starts_afresh_when_the_document_is_replaced() {
+    let mut h = presenting(&[]);
+    h.key_press(Key::ArrowRight);
+    h.run_steps(1);
+    assert!(h.state().views[0].presenting_a_transition(), "page 2 comes in with its Wipe");
+    {
+        let app = h.state_mut();
+        let info = app.session.get(app.views[0].id).unwrap().info.clone();
+        app.views[0].document_replaced(&info);
+    }
+    assert!(!h.state().views[0].presenting_a_transition(), "the old transition is dropped");
+}
+
+/// A still pointer hides over a link too: the page's own cursor (the hand over a link) is chosen
+/// first, and full screen hides the pointer after it.
+#[test]
+fn full_screen_hides_a_still_pointer_over_a_link() {
+    let mut h = harness(&[]);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::L);
+    h.run_steps(6);
+    assert!(h.state().full_screen);
+    // Page 1's link covers x 50–250, y 300–350 of the 300×400 pt page (from its bottom).
+    let r = rect(&h, 0).expect("page 1 on screen");
+    let on_link = egui::pos2(r.left() + r.width() * 150.0 / 300.0, r.top() + r.height() * 75.0 / 400.0);
+    h.hover_at(on_link);
+    h.run_steps(1);
+    assert_ne!(h.output().platform_output.cursor_icon, egui::CursorIcon::None, "just moved, over the link");
+    h.run_steps(16);
+    assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::None, "still for over three seconds");
+}
+
+/// A text field on page 1 of three.
+const FIELD_PAGES: &[u8] = b"%PDF-1.7
+1 0 obj << /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [6 0 R] >> >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 /MediaBox [0 0 300 400] >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /Annots [6 0 R] >> endobj
+4 0 obj << /Type /Page /Parent 2 0 R >> endobj
+5 0 obj << /Type /Page /Parent 2 0 R >> endobj
+6 0 obj << /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Rect [50 100 250 140] /P 3 0 R /F 4 >> endobj
+trailer << /Root 1 0 R >>
+%%EOF";
+
+/// Full screen keeps the pointer active "so that you can click links and open notes" (*Adobe
+/// Acrobat Help*, 2019, p. 65): a click on a form field opens it for typing rather than turning
+/// the page, and a click beside it still turns.
+#[test]
+fn full_screen_click_on_a_field_fills_it_and_turns_no_page() {
+    let mut h = harness(&[]);
+    h.state_mut().open_bytes("field.pdf", None, FIELD_PAGES.to_vec()).expect("opens");
+    h.run_steps(8);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::L);
+    h.run_steps(6);
+    let n = h.state().views.len() - 1;
+    // Until page 1's raster is in, full screen veils it and a click turns the page; on a slow
+    // machine that takes more frames than the six above.
+    for _ in 0..600 {
+        if h.state().views[n].presentation_settled() {
+            break;
+        }
+        h.run_steps(1);
+    }
+    assert!(h.state().views[n].presentation_settled(), "page 1 is shown");
+    let r = h.state().views[n].page_screen_rect(0).expect("page 1 on screen");
+    let on_field = egui::pos2(r.left() + r.width() * 0.5, r.top() + r.height() * (400.0 - 120.0) / 400.0);
+    click_with(&mut h, on_field, Modifiers::NONE);
+    h.run_steps(8);
+    assert_eq!(h.state().views[n].current, 0, "no page turned");
+    assert!(h.ctx.egui_wants_keyboard_input(), "the field is open for typing");
+    click_with(&mut h, egui::pos2(r.center().x, r.top() + 20.0), Modifiers::NONE);
+    h.run_steps(4);
+    assert_eq!(h.state().views[n].current, 1, "a click beside the field turns the page");
+}
+
+/// Shift+Ctrl+Page Down or Down Arrow goes to the last page, and Shift+Ctrl+Page Up or Up Arrow
+/// to the first, as Home and End do (*Adobe Acrobat Help*, 2019, "Keys for navigating a PDF",
+/// p. 83), in full screen and out of it.
+#[test]
+fn shift_ctrl_page_keys_and_arrows_go_to_the_first_and_last_page() {
+    for full_screen in [false, true] {
+        let mut h = harness(&[("layout", "single")]);
+        if full_screen {
+            h.key_press_modifiers(Modifiers::COMMAND, Key::L);
+            h.run_steps(6);
+        }
+        let both = Modifiers::COMMAND | Modifiers::SHIFT;
+        for (k, want) in [(Key::PageDown, 2), (Key::PageUp, 0), (Key::ArrowDown, 2), (Key::ArrowUp, 0)] {
+            h.key_press_modifiers(both, k);
+            h.run_steps(6);
+            assert_eq!(h.state().views[0].current, want, "{k:?}, full screen {full_screen}");
+        }
+    }
+}
+
+/// Two pages, the second with a text field and a five-second Wipe.
+const FIELD_BEHIND_TRANSITION: &[u8] = b"%PDF-1.7
+1 0 obj << /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] >> >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 300 400] >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R >> endobj
+4 0 obj << /Type /Page /Parent 2 0 R /Annots [5 0 R] /Trans << /S /Wipe /D 5 >> >> endobj
+5 0 obj << /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Rect [50 100 250 140] /P 4 0 R /F 4 >> endobj
+trailer << /Root 1 0 R >>
+%%EOF";
+
+/// #5316 review: while full screen turns to a page (its transition playing, or its raster on the
+/// way), the page isn't the one on screen yet, so a click there opens none of its fields; once
+/// the page is in, the same click does.
+#[test]
+fn full_screen_takes_no_page_input_until_the_page_is_on_screen() {
+    let mut h = presenting_pdf(FIELD_BEHIND_TRANSITION, &[]);
+    h.key_press(Key::ArrowRight);
+    h.run_steps(1);
+    assert_eq!(h.state().views[0].current, 1);
+    assert!(h.state().views[0].presenting_a_transition(), "page 2 comes in with its Wipe");
+    let r = h.state().views[0].page_screen_rect(1).expect("page 2 on screen");
+    let on_field = egui::pos2(r.left() + r.width() * 0.5, r.top() + r.height() * (400.0 - 120.0) / 400.0);
+    click_with(&mut h, on_field, Modifiers::NONE);
+    h.run_steps(2);
+    assert!(h.state().views[0].presenting_a_transition(), "the Wipe is still playing");
+    assert!(!h.ctx.egui_wants_keyboard_input(), "the field behind the transition isn't opened");
+    frames_until(&mut h, |a| !a.views[0].presenting_a_transition());
+    h.run_steps(1);
+    click_with(&mut h, on_field, Modifiers::NONE);
+    h.run_steps(4);
+    assert!(h.ctx.egui_wants_keyboard_input(), "once page 2 is in, the field opens");
+}
+
+/// [`FIELD_BEHIND_TRANSITION`] with a Wipe of 0.3 s, shorter than a click may be held.
+const FIELD_BEHIND_SHORT_TRANSITION: &[u8] = b"%PDF-1.7
+1 0 obj << /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] >> >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 300 400] >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R >> endobj
+4 0 obj << /Type /Page /Parent 2 0 R /Annots [5 0 R] /Trans << /S /Wipe /D 0.3 >> >> endobj
+5 0 obj << /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Rect [50 100 250 140] /P 4 0 R /F 4 >> endobj
+trailer << /Root 1 0 R >>
+%%EOF";
+
+/// #5316 review: a press made while full screen turns to a page belongs to nothing on it, through
+/// its release: let go on the field just after the transition ends, within a click's time, it
+/// still opens nothing.
+#[test]
+fn full_screen_press_made_during_a_transition_opens_nothing_when_released() {
+    let mut h = presenting_pdf(FIELD_BEHIND_SHORT_TRANSITION, &[]);
+    let r = h.state().views[0].page_screen_rect(0).expect("page 1 on screen");
+    let on_field = egui::pos2(r.left() + r.width() * 0.5, r.top() + r.height() * (400.0 - 120.0) / 400.0);
+    h.hover_at(on_field);
+    h.run_steps(1);
+    // Page 2 renders ahead: once nothing is left to render, its Wipe starts with the key.
+    settle(&mut h);
+    h.key_press(Key::ArrowRight);
+    h.run_steps(1);
+    assert!(h.state().views[0].presenting_a_transition(), "page 2 comes in with its Wipe");
+    h.event(egui::Event::PointerButton { pos: on_field, button: egui::PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+    h.run_steps(1);
+    assert!(h.state().views[0].presenting_a_transition(), "pressed while the Wipe plays");
+    let frames = frames_until(&mut h, |a| !a.views[0].presenting_a_transition());
+    assert!(frames <= 4, "the Wipe ends within a click's time ({frames} frames of 0.1 s)");
+    h.event(egui::Event::PointerButton { pos: on_field, button: egui::PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+    h.run_steps(4);
+    assert!(!h.ctx.egui_wants_keyboard_input(), "released on the field once page 2 is in: nothing opens");
+}
+
+/// In full screen a double-click on a note opens its pop-up, and turns no page: the pointer stays
+/// active "so that you can click links and open notes" (*Adobe Acrobat Help*, 2019, p. 65).
+#[test]
+fn full_screen_double_click_on_a_note_opens_it_and_turns_no_page() {
+    const NOTE: &[u8] = b"%PDF-1.7
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 /MediaBox [0 0 300 400] >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /Annots [4 0 R] >> endobj
+4 0 obj << /Type /Annot /Subtype /Text /Rect [100 100 124 124] /Contents (Hello) /T (A) /F 4 >> endobj
+5 0 obj << /Type /Page /Parent 2 0 R >> endobj
+trailer << /Root 1 0 R >>
+%%EOF";
+    let mut h = harness_stepping(1.0 / 60.0, &[]);
+    h.state_mut().open_bytes("note.pdf", None, NOTE.to_vec()).expect("opens");
+    h.run_steps(8);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::L);
+    h.run_steps(6);
+    // Until the page's raster is in: before it, full screen takes no press on the page.
+    settle(&mut h);
+    let n = h.state().views.len() - 1;
+    let r = h.state().views[n].page_screen_rect(0).expect("page 1 on screen");
+    let p = egui::pos2(r.left() + r.width() * 112.0 / 300.0, r.top() + r.height() * (400.0 - 112.0) / 400.0);
+    h.hover_at(p);
+    h.run_steps(2);
+    for _ in 0..2 {
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE });
+        }
+        h.step();
+    }
+    // Past the double-click time, when a turn would have come.
+    h.run_steps(30);
+    assert_eq!(h.state().views[n].current, 0, "no page turned");
+    // A double-click on a note opens its pop-up window, as in Acrobat (comment.popups).
+    let note =
+        h.state().session.get(h.state().views[n].id).unwrap().info.annotations.iter().find(|a| a.subtype == "Text").cloned().expect("the note");
+    assert_eq!(note.popup.map(|w| w.open), Some(true), "the note's pop-up is open");
+}
+
+/// With Animation effects following the system and the system asking for no animations (Windows'
+/// Animation effects off, or another system's Reduce motion), full screen changes pages at once
+/// and still keeps the page's display time; with the system not asking, the same transition plays.
+#[test]
+fn full_screen_cuts_transitions_when_the_system_asks_for_no_animations() {
+    for reduced in [true, false] {
+        let mut h = presenting(&[("animation_effects", "system")]);
+        h.state_mut().motion.reduced = reduced;
+        h.run_steps(1);
+        h.key_press(Key::ArrowRight);
+        h.run_steps(1);
+        assert_eq!(h.state().views[0].current, 1);
+        assert_eq!(h.state().views[0].presenting_a_transition(), !reduced, "system asks for no animations: {reduced}");
+        if reduced {
+            settle(&mut h);
+            let frames = frames_until(&mut h, |a| a.views[0].current == 2);
+            assert!(frames <= 20, "page 2's one-second display time still turns it ({frames} frames of 0.1 s)");
+        }
+    }
+}
+
+/// Escape leaves full screen while a transition plays and while a display time counts, and the
+/// display time stops with it: the page reached stays.
+#[test]
+fn escape_leaves_full_screen_mid_transition_and_stops_the_display_time() {
+    for mid_transition in [true, false] {
+        let mut h = presenting(&[]);
+        h.key_press(Key::ArrowRight);
+        h.run_steps(1);
+        assert!(h.state().views[0].presenting_a_transition(), "page 2 comes in with its Wipe");
+        if !mid_transition {
+            frames_until(&mut h, |a| !a.views[0].presenting_a_transition());
+            h.run_steps(3);
+            assert_eq!(h.state().views[0].current, 1, "page 2's display time is counting");
+        }
+        h.key_press(Key::Escape);
+        h.run_steps(1);
+        assert!(!h.state().full_screen, "Escape leaves full screen (mid-transition: {mid_transition})");
+        assert!(!h.state().views[0].presenting_a_transition());
+        h.run_steps(30);
+        assert_eq!(h.state().views[0].current, 1, "no page turns by itself after leaving (mid-transition: {mid_transition})");
+    }
+}
+
+/// While a page's display time counts, the keys still turn pages at once (ISO 32000-2 §12.4.4.1,
+/// NOTE 1: "The user can advance the page manually before the specified time has expired"):
+/// → goes on before the time is up, and ← back to a page with no display time, which then stays.
+#[test]
+fn full_screen_keys_take_over_from_a_display_time() {
+    let mut h = presenting(&[("animation_effects", "off")]);
+    h.key_press(Key::ArrowRight);
+    h.run_steps(1);
+    assert_eq!(h.state().views[0].current, 1, "page 2, with its one-second display time");
+    h.key_press(Key::ArrowLeft);
+    h.run_steps(1);
+    assert_eq!(h.state().views[0].current, 0, "← goes back before the time is up");
+    h.run_steps(30);
+    assert_eq!(h.state().views[0].current, 0, "page 1 has no display time: it stays");
+    h.key_press(Key::ArrowRight);
+    h.run_steps(2);
+    h.key_press(Key::ArrowRight);
+    h.run_steps(1);
+    assert_eq!(h.state().views[0].current, 2, "→ goes on before page 2's time is up");
+}
+
+/// Every way full screen moves: forward (→, Space, Enter, Page Down, a click), back (←, Backspace,
+/// Shift+Enter, Page Up, a right-click, a Shift-click), first (Home, Shift+Ctrl+Page Up), last (End,
+/// Shift+Ctrl+Page Down) and out (Escape, Ctrl+L).
+#[test]
+fn full_screen_every_key_and_click_goes_where_it_says() {
+    #[derive(Clone, Copy, Debug)]
+    enum Input {
+        Key(Key, Modifiers),
+        Click(egui::PointerButton, Modifiers),
+    }
+    use Input::{Click, Key as K};
+    use egui::PointerButton::{Primary, Secondary};
+    let both = Modifiers::COMMAND | Modifiers::SHIFT;
+    // (input, page before, page after); a page past the end stays where it is.
+    let moves = [
+        (K(Key::ArrowRight, Modifiers::NONE), 0, 1),
+        (K(Key::Space, Modifiers::NONE), 0, 1),
+        (K(Key::Enter, Modifiers::NONE), 0, 1),
+        (K(Key::PageDown, Modifiers::NONE), 0, 1),
+        (Click(Primary, Modifiers::NONE), 0, 1),
+        (K(Key::ArrowLeft, Modifiers::NONE), 1, 0),
+        (K(Key::Backspace, Modifiers::NONE), 1, 0),
+        (K(Key::Enter, Modifiers::SHIFT), 1, 0),
+        (K(Key::PageUp, Modifiers::NONE), 1, 0),
+        (Click(Secondary, Modifiers::NONE), 1, 0),
+        (Click(Primary, Modifiers::SHIFT), 1, 0),
+        (K(Key::Home, Modifiers::NONE), 2, 0),
+        (K(Key::PageUp, both), 2, 0),
+        (K(Key::End, Modifiers::NONE), 0, 2),
+        (K(Key::PageDown, both), 0, 2),
+    ];
+    // A document with no display times, so no page turns by itself meanwhile.
+    let mut h = harness(&[]);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::L);
+    h.run_steps(6);
+    assert!(h.state().full_screen);
+    for (input, from, to) in moves {
+        h.state_mut().views[0].go_to_page(from);
+        h.run_steps(4);
+        assert_eq!(h.state().views[0].current, from, "{input:?}: on page {}", from + 1);
+        match input {
+            K(key, modifiers) => {
+                h.key_press_modifiers(modifiers, key);
+                h.run_steps(4);
+            }
+            Click(button, modifiers) => {
+                // Clear of page 1's link, which a click would follow instead.
+                let r = rect(&h, from).expect("the page is on screen");
+                let at = egui::pos2(r.center().x, r.bottom() - 20.0);
+                h.hover_at(at);
+                h.run_steps(1);
+                for pressed in [true, false] {
+                    h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
+                }
+                h.run_steps(6);
+            }
+        }
+        assert_eq!(h.state().views[0].current, to, "{input:?} from page {}", from + 1);
+        assert!(h.state().full_screen, "{input:?} stays in full screen");
+    }
+    for (key, modifiers) in [(Key::Escape, Modifiers::NONE), (Key::L, Modifiers::COMMAND)] {
+        if !h.state().full_screen {
+            h.key_press_modifiers(Modifiers::COMMAND, Key::L);
+            h.run_steps(6);
+        }
+        assert!(h.state().full_screen);
+        h.key_press_modifiers(modifiers, key);
+        h.run_steps(4);
+        assert!(!h.state().full_screen, "{key:?} leaves full screen");
+    }
+}
+
+/// A transition style the spec doesn't name (here `/Spiral`, with a five-second `/D`) is the
+/// default, Replace (ISO 32000-2 Table 164, `S`: "Default value: R"): the page changes at once, and
+/// its display time still turns it.
+#[test]
+fn full_screen_cuts_an_unknown_transition_style_and_keeps_its_display_time() {
+    const SPIRAL: &[u8] = b"%PDF-1.7
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 /MediaBox [0 0 300 400] >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R >> endobj
+4 0 obj << /Type /Page /Parent 2 0 R /Trans << /S /Spiral /D 5 >> /Dur 1 >> endobj
+5 0 obj << /Type /Page /Parent 2 0 R >> endobj
+trailer << /Root 1 0 R >>
+%%EOF";
+    let mut h = presenting_pdf(SPIRAL, &[]);
+    h.key_press(Key::ArrowRight);
+    h.run_steps(1);
+    assert_eq!(h.state().views[0].current, 1);
+    assert!(!h.state().views[0].presenting_a_transition(), "no effect for an unknown style");
+    settle(&mut h);
+    let frames = frames_until(&mut h, |a| a.views[0].current == 2);
+    assert!(frames <= 20, "its one-second display time turns it ({frames} frames of 0.1 s)");
+}
+
 /// A one-page PDF whose content inflates past the renderer's per-stream limit (#623): a window
 /// of whitespace the interpreter can never complete, so the page is cut and says so.
 fn cut_content_pdf() -> Vec<u8> {
@@ -2654,10 +3401,10 @@ fn cut_content_pdf() -> Vec<u8> {
 fn a_page_whose_content_was_cut_is_named_in_a_notice() {
     let _gpu = gpu();
     let pdf = cut_content_pdf();
-    let slot: std::sync::Arc<std::sync::Mutex<Option<pdfcraft_ui_egui::control::ControlClient>>> = Default::default();
+    let slot: std::sync::Arc<std::sync::Mutex<Option<openpdf_ui_egui::control::ControlClient>>> = Default::default();
     let s = slot.clone();
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |cc| {
-        let mut app = PdfCraftApp::new();
+        let mut app = OpenPDFApp::new();
         app.set_option("language", "en").unwrap();
         *s.lock().unwrap() = Some(app.attach_control(&cc.egui_ctx));
         app.open_bytes("cut.pdf", None, pdf).expect("opens");
@@ -2671,7 +3418,7 @@ fn a_page_whose_content_was_cut_is_named_in_a_notice() {
     h.run_steps(2);
     assert_eq!(h.state().views[0].cut_pages(), [0]);
     assert!(h.state().views[0].page_errors().is_empty(), "a cut page still draws");
-    h.get_by_label_contains("Page 1 holds more content than PdfCraft can read");
+    h.get_by_label_contains("Page 1 holds more content than OpenPDF can read");
     // Automation counts pages from 1, as the notice does (review on #2113).
     let client = slot.lock().unwrap().take().expect("the control channel");
     let rx = client.send("ui.state", serde_json::json!({}));

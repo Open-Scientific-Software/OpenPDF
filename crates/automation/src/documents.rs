@@ -104,12 +104,27 @@ impl Automation {
     }
 
     pub(crate) fn doc_open(&mut self, a: &Args) -> Result<Value> {
-        let path = self.resolve(a.str("path")?, false)?;
+        let requested = a.str("path")?;
+        // `manual.pdf#nameddest=Intro`, as a help system starts a PDF reader (#3425): the file under
+        // --root, and where it opens. A path that names a file is never split.
+        let parameters = openpdf_engine::open_parameters::split(requested, |p| self.resolve(p, false).is_ok_and(|p| p.is_file()));
+        let (requested, destination) = match &parameters {
+            Some((file, destination)) => (file.as_str(), Some(destination.clone())),
+            None => (requested, None),
+        };
+        let path = self.resolve(requested, false)?;
         let bytes = read_input(&path)?;
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let id = self.session.open(name, Some(path.to_string_lossy().into_owned()), Arc::new(bytes), a.opt_str("password")?).map_err(failed)?;
         let doc = self.session.get(id).ok_or_else(|| failed("the document vanished"))?;
-        Ok(summary(doc))
+        let mut value = summary(doc);
+        if let Some(destination) = destination {
+            let (applied, destination, warning) = crate::links::destination_report(doc, destination);
+            value["destination_applied"] = json!(applied);
+            value["destination"] = destination;
+            value["warning"] = json!(warning);
+        }
+        Ok(value)
     }
 
     pub(crate) fn doc_close(&mut self, a: &Args) -> Result<Value> {
@@ -196,7 +211,7 @@ impl Automation {
     }
 
     pub(crate) fn doc_initial_view(&mut self, a: &Args) -> Result<Value> {
-        use pdfcraft_engine::{InitialLayout as L, Magnification as M, Navigation as N};
+        use openpdf_engine::{InitialLayout as L, Magnification as M, Navigation as N};
         let bad = |m: String| ToolError::InvalidArgs(m);
         let mut v = self.doc(a)?.initial_view();
         let before = v.clone();
@@ -284,7 +299,7 @@ impl Automation {
     }
 
     pub(crate) fn doc_optimize(&mut self, a: &Args) -> Result<Value> {
-        use pdfcraft_engine::optimize::{Compatibility, Compression, ImageSettings, MonoCompression, Preset};
+        use openpdf_engine::optimize::{Compatibility, Compression, ImageSettings, MonoCompression, Preset};
         const MONO_KEYS: [&str; 4] = ["downsample", "ppi", "above_ppi", "compression"];
         let id = self.doc(a)?.id;
         let before = self.doc(a)?.bytes.len();
@@ -360,6 +375,7 @@ impl Automation {
             ("discard_thumbnails", &mut settings.discard_thumbnails),
             ("discard_alternate_images", &mut settings.discard_alternate_images),
             ("discard_tags", &mut settings.discard_tags),
+            ("discard_search_index", &mut settings.discard_search_index),
             ("discard_print_settings", &mut settings.discard_print_settings),
             ("discard_form_actions", &mut settings.discard_form_actions),
             ("flate_unencoded", &mut settings.flate_unencoded),
@@ -367,12 +383,13 @@ impl Automation {
             ("lzw_to_flate", &mut settings.lzw_to_flate),
             ("remove_invalid_links", &mut settings.remove_invalid_links),
             ("remove_unreferenced_dests", &mut settings.remove_unreferenced_dests),
+            ("discard_external_refs", &mut settings.discard_external_refs),
         ] {
             if let Some(b) = a.opt_bool(key)? {
                 *flag = b;
             }
         }
-        let discard: Vec<pdfcraft_engine::Hidden> = match a.get("discard") {
+        let discard: Vec<openpdf_engine::Hidden> = match a.get("discard") {
             None => Vec::new(),
             Some(v) => v
                 .as_array()
@@ -380,7 +397,7 @@ impl Automation {
                 .iter()
                 .map(|x| {
                     x.as_str()
-                        .and_then(pdfcraft_engine::Hidden::from_id)
+                        .and_then(openpdf_engine::Hidden::from_id)
                         .ok_or_else(|| ToolError::InvalidArgs(format!("unknown discard category {x}")))
                 })
                 .collect::<Result<_>>()?,
@@ -431,7 +448,7 @@ impl Automation {
         let catalog_version = (settings.compatibility == Compatibility::Retain)
             .then(|| {
                 let pw = self.doc(a).ok().and_then(|d| d.password.as_deref());
-                let doc = pdfcraft_cos::Document::open_with_password(bytes.clone(), pw).ok()?;
+                let doc = openpdf_cos::Document::open_with_password(bytes.clone(), pw).ok()?;
                 let root = doc.root()?;
                 // Through a reference too, as the optimizer reads it.
                 let version = doc.get(root).as_dict()?.get(b"Version")?.clone();
@@ -471,6 +488,7 @@ impl Automation {
             "image_bytes_after": o.image_bytes_after,
             "thumbnails": o.thumbnails,
             "alternate_images": o.alternate_images,
+            "search_indexes": o.search_indexes,
             "tags_removed": o.tags_removed,
             "print_settings": o.print_settings,
             "form_actions": o.form_actions,
@@ -479,6 +497,8 @@ impl Automation {
             "invalid_links": o.invalid_links,
             "invalid_bookmarks": o.invalid_bookmarks,
             "unreferenced_dests": o.unreferenced_dests,
+            "external_links": o.external_links,
+            "external_bookmarks": o.external_bookmarks,
             "unused_xobjects": o.unused_xobjects,
             "merged_objects": r.merged,
             "discarded": r.discarded.iter().map(|(h, n)| json!({ "category": h.id(), "count": n })).collect::<Vec<_>>(),
@@ -490,12 +510,12 @@ impl Automation {
     }
 
     /// A watermark or background picture: `file` (an image or a PDF) and `file_page` (1-based).
-    fn mark_file(&self, a: &Args) -> Result<Option<pdfcraft_engine::MarkFile>> {
+    fn mark_file(&self, a: &Args) -> Result<Option<openpdf_engine::MarkFile>> {
         let Some(p) = a.opt_str("file")? else { return Ok(None) };
         let path = self.resolve(p, false)?;
         let bytes = read_input(&path)?;
         let page = a.opt_int("file_page")?.unwrap_or(1).max(1) as usize - 1;
-        Ok(Some(pdfcraft_engine::MarkFile {
+        Ok(Some(openpdf_engine::MarkFile {
             name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
             bytes: Arc::new(bytes),
             page,
@@ -531,7 +551,7 @@ impl Automation {
         Ok(out)
     }
 
-    /// Pages whose own backdrop hides a background (see `pdfcraft_edit::backdrop`).
+    /// Pages whose own backdrop hides a background (see `openpdf_edit::backdrop`).
     pub(crate) fn backdrops(&mut self, a: &Args) -> Result<Value> {
         let n = self.doc(a)?.info.pages.len();
         let pages = match a.opt_ints("pages")? {
@@ -544,8 +564,8 @@ impl Automation {
             .zip(doc.page_backdrops(&pages))
             .filter_map(|(p, found)| {
                 let kind = match found? {
-                    pdfcraft_engine::Backdrop::Fill => "fill",
-                    pdfcraft_engine::Backdrop::Image => "image",
+                    openpdf_engine::Backdrop::Fill => "fill",
+                    openpdf_engine::Backdrop::Image => "image",
                 };
                 Some(json!({ "page": p + 1, "backdrop": kind }))
             })
@@ -554,7 +574,7 @@ impl Automation {
     }
 
     pub(crate) fn marks(&mut self, tool: &str, a: &Args) -> Result<Value> {
-        use pdfcraft_engine::{Background, HeaderFooter, MarkKind, Watermark};
+        use openpdf_engine::{Background, HeaderFooter, MarkKind, Watermark};
         let n = self.doc(a)?.info.pages.len();
         let pages = match a.opt_ints("pages")? {
             Some(_) => self.pages(a, "pages")?,
@@ -573,9 +593,9 @@ impl Automation {
                     hf.font_size = s;
                 }
                 hf.font = match a.opt_str("font")? {
-                    None | Some("Helvetica") => pdfcraft_engine::FontFamily::Helvetica,
-                    Some("Times") => pdfcraft_engine::FontFamily::Times,
-                    Some("Courier") => pdfcraft_engine::FontFamily::Courier,
+                    None | Some("Helvetica") => openpdf_engine::FontFamily::Helvetica,
+                    Some("Times") => openpdf_engine::FontFamily::Times,
+                    Some("Courier") => openpdf_engine::FontFamily::Courier,
                     Some(other) => {
                         return Err(ToolError::InvalidArgs(format!("font must be \"Helvetica\", \"Times\" or \"Courier\", not {other:?}")));
                     }
@@ -626,11 +646,33 @@ impl Automation {
                 replace,
                 file: self.mark_file(a)?,
             },
+            "doc_printer_marks" => {
+                use openpdf_engine::PrinterMarks;
+                let flag = |k: &str, default: bool| -> Result<bool> { Ok(a.opt_bool(k)?.unwrap_or(default)) };
+                let (y, m, d) = self.session.today();
+                let settings = PrinterMarks {
+                    trim: flag("trim", true)?,
+                    bleed: flag("bleed", true)?,
+                    registration: flag("registration", true)?,
+                    color_bars: flag("color_bars", true)?,
+                    page_info: flag("page_info", true)?,
+                    line_weight: a.opt_num("line_weight")?.unwrap_or(0.25),
+                    make_room: match a.opt_num("make_room")? {
+                        Some(r) if r < 0.0 => None,
+                        Some(r) => Some(r),
+                        None => Some(36.0),
+                    },
+                    label: a.opt_str("label")?.map(str::to_string).unwrap_or_else(|| self.doc(a).map(|d| d.name.clone()).unwrap_or_default()),
+                    date: a.opt_str("date")?.map(str::to_string).unwrap_or_else(|| format!("{y:04}-{m:02}-{d:02}")),
+                };
+                Edit::AddPrinterMarks { pages, settings, replace: a.opt_bool("replace")?.unwrap_or(true) }
+            }
             _ => {
                 let kind = match a.str("kind")? {
                     "header_footer" => MarkKind::HeaderFooter,
                     "watermark" => MarkKind::Watermark,
                     "background" => MarkKind::Background,
+                    "printer_marks" => MarkKind::PrinterMarks,
                     other => return Err(ToolError::InvalidArgs(format!("unknown kind {other:?}"))),
                 };
                 Edit::RemoveMarks { kind }
@@ -646,7 +688,7 @@ impl Automation {
             None => (0..doc.info.pages.len()).collect(),
         };
         let stem = doc.name.trim_end_matches(".pdf").trim_end_matches(".PDF").to_string();
-        let mut ex = pdfcraft_engine::export::Exporter::new(doc);
+        let mut ex = openpdf_engine::export::Exporter::new(doc);
         if tool == "doc_export_text" {
             let path = self.resolve(a.str("path")?, true)?;
             let text = ex.text_of(&pages).map_err(failed)?;
@@ -657,10 +699,10 @@ impl Automation {
         std::fs::create_dir_all(&folder).map_err(|e| failed(format!("{}: {e}", folder.display())))?;
         if tool == "doc_export_all_images" {
             let min = u32::try_from(a.opt_int("min_size")?.unwrap_or(0).max(0)).unwrap_or(u32::MAX);
-            let out = pdfcraft_engine::export::extract_images(&doc.export_source(), &pages, min).map_err(failed)?;
+            let out = openpdf_engine::export::extract_images(&doc.export_source(), &pages, min).map_err(failed)?;
             let mut files = Vec::new();
             for (k, img) in out.images.iter().enumerate() {
-                let path = child(&folder, &pdfcraft_engine::export::image_file_name(&stem, img, k + 1, doc.info.pages.len()));
+                let path = child(&folder, &openpdf_engine::export::image_file_name(&stem, img, k + 1, doc.info.pages.len()));
                 write_atomic(&path, &img.data)?;
                 files.push(json!({ "path": path.to_string_lossy(), "page": img.page + 1, "width": img.width, "height": img.height }));
             }
@@ -670,9 +712,9 @@ impl Automation {
         let dpi = a.opt_num("dpi")?.unwrap_or(150.0);
         let quality = a.opt_int("quality")?.unwrap_or(85).clamp(1, 100) as u8;
         let format = match a.opt_str("format")?.unwrap_or("png") {
-            "png" => pdfcraft_engine::export::ImageFormat::Png,
-            "jpeg" | "jpg" => pdfcraft_engine::export::ImageFormat::Jpeg { quality },
-            "tiff" | "tif" => pdfcraft_engine::export::ImageFormat::Tiff,
+            "png" => openpdf_engine::export::ImageFormat::Png,
+            "jpeg" | "jpg" => openpdf_engine::export::ImageFormat::Jpeg { quality },
+            "tiff" | "tif" => openpdf_engine::export::ImageFormat::Tiff,
             f => return Err(ToolError::InvalidArgs(format!("unknown format {f:?} (png, jpeg, tiff)"))),
         };
         let mut files = Vec::new();
@@ -708,7 +750,7 @@ impl Automation {
     }
 
     pub(crate) fn doc_protect(&mut self, a: &Args) -> Result<Value> {
-        use pdfcraft_engine::{Algorithm, Changes, Printing, Protection};
+        use openpdf_engine::{Algorithm, Changes, Printing, Protection};
         let d = Protection::default();
         // Restrictions only exist behind a permissions password (ISO 32000-2 §7.6.4.4: /P is
         // enforced against the owner password; without one everything stays allowed). Refuse a

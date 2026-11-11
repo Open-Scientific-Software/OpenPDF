@@ -14,7 +14,7 @@ pub enum Availability {
     Ready,
     /// Planned; ships in the named milestone.
     Planned(&'static str),
-    /// Cloud-only in Acrobat; PdfCraft offers an optional pluggable provider instead.
+    /// Cloud-only in Acrobat; OpenPDF offers an optional pluggable provider instead.
     Provider,
 }
 
@@ -409,9 +409,9 @@ pub static TOOL_GROUPS: &[ToolGroup] = &[
             items: &[
                 item("Output preview", "layers", "prepress.output_preview", Planned("M11")),
                 item("Preflight", "file-check", "preflight.run", Planned("M11")),
-                item("Convert colors", "palette", "prepress.convert_colors", Planned("M11")),
+                item("Convert colours", "palette", "prepress.convert_colors", Ready),
                 item("Set page boxes", "square-dashed-mouse-pointer", "page.boxes", Ready),
-                item("Add printer marks", "ruler", "prepress.marks", Planned("M11")),
+                item("Add printer marks", "ruler", "prepress.marks", Ready),
                 item("Fix hairlines", "minus", "prepress.hairlines", Ready),
             ],
         }],

@@ -1,44 +1,45 @@
 [package]
-name = "pdfcraft-engine"
-description = "PdfCraft engine façade: session, documents, command/tool catalogue"
+name = "openpdf-engine"
+description = "OpenPDF engine façade: session, documents, command/tool catalogue"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [lints]
 workspace = true
 
 [dependencies]
 craft-docpath = { workspace = true }
-pdfcraft-measure = { workspace = true }
+openpdf-measure = { workspace = true }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff"] }
-pdfcraft-render = { workspace = true }
-pdfcraft-cos = { workspace = true }
-pdfcraft-organize = { workspace = true }
-pdfcraft-annot = { workspace = true }
-pdfcraft-forms = { workspace = true }
-pdfcraft-xfa = { workspace = true }
-pdfcraft-edit = { workspace = true }
-pdfcraft-content = { workspace = true }
-pdfcraft-audit = { workspace = true }
-pdfcraft-redact = { workspace = true }
-pdfcraft-print = { workspace = true }
-pdfcraft-xfdf = { workspace = true }
-pdfcraft-sign = { workspace = true }
-pdfcraft-optimize = { workspace = true }
-pdfcraft-a11y = { workspace = true }
-pdfcraft-ocr = { workspace = true }
-pdfcraft-js = { workspace = true }
-pdfcraft-compare = { workspace = true }
-pdfcraft-preflight = { workspace = true }
-pdfcraft-export = { workspace = true }
-pdfcraft-fonts = { workspace = true }
-pdfcraft-create = { workspace = true }
-pdfcraft-model = { workspace = true }
-pdfcraft-geom = { workspace = true }
+openpdf-render = { workspace = true }
+openpdf-cos = { workspace = true }
+openpdf-organize = { workspace = true }
+openpdf-annot = { workspace = true }
+openpdf-forms = { workspace = true }
+openpdf-xfa = { workspace = true }
+openpdf-edit = { workspace = true }
+openpdf-content = { workspace = true }
+openpdf-audit = { workspace = true }
+openpdf-redact = { workspace = true }
+openpdf-print = { workspace = true }
+openpdf-xfdf = { workspace = true }
+openpdf-sign = { workspace = true }
+openpdf-optimize = { workspace = true }
+openpdf-a11y = { workspace = true }
+openpdf-ocr = { workspace = true }
+openpdf-js = { workspace = true }
+openpdf-compare = { workspace = true }
+openpdf-preflight = { workspace = true }
+openpdf-export = { workspace = true }
+openpdf-fonts = { workspace = true }
+openpdf-create = { workspace = true }
+openpdf-model = { workspace = true }
+openpdf-geom = { workspace = true }
 thiserror = { workspace = true }
 png = "0.18"
-# Already in the graph (through image and pdfcraft-create): image's TiffEncoder can't set the
+# Already in the graph (through image and openpdf-create): image's TiffEncoder can't set the
 # resolution or the compression of an exported page.
 tiff = "0.11"
 # Already in the graph (url and idna through webbrowser, icu_properties through boa): they show
@@ -58,6 +59,6 @@ getrandom = "0.4"
 getrandom = { version = "0.4", features = ["wasm_js"] }
 
 [dev-dependencies]
-pdfcraft-testkit = { workspace = true }
+openpdf-testkit = { workspace = true }
 # JBIG2 fixtures (`encode_jbig2_generic`).
-pdfcraft-filters = { workspace = true }
+openpdf-filters = { workspace = true }

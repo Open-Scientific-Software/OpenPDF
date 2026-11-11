@@ -1,8 +1,8 @@
 //! Form tools: list fields, fill them (several at once, one undo step), clear the form, and
 //! prepare a form (add fields one at a time or as a table, change and delete them).
 
-use pdfcraft_engine::form_scripts::{CalcOp, Calculate, Format, NOTATION_NOT_STORABLE, Validate, notation_storable};
-use pdfcraft_engine::{CalculationIssue, Edit, FieldProps, FieldValue, FormField, FormFieldKind, NewField, field_flags};
+use openpdf_engine::form_scripts::{CalcOp, Calculate, Format, NOTATION_NOT_STORABLE, Validate, notation_storable};
+use openpdf_engine::{CalculationIssue, Edit, FieldProps, FieldValue, FormField, FormFieldKind, NewField, field_flags};
 use serde_json::{Value, json};
 
 use crate::{Args, Automation, Result, ToolError, failed};
@@ -43,8 +43,8 @@ fn format_arg(v: &Value) -> Result<Format> {
 
 /// `{"border": "#FF0000" | "none", "fill": …, "width": 1-3, "style": "solid"|…, "text_color": …,
 /// "font": "helvetica"|"times"|"courier"}`, changing only what is given.
-fn look_arg(v: &Value) -> Result<pdfcraft_engine::FieldLookPatch> {
-    use pdfcraft_engine::{BorderStyle, FieldFont, FieldLookPatch};
+fn look_arg(v: &Value) -> Result<openpdf_engine::FieldLookPatch> {
+    use openpdf_engine::{BorderStyle, FieldFont, FieldLookPatch};
     let o = v.as_object().ok_or_else(|| bad("appearance must be an object"))?;
     for key in o.keys() {
         if !["border", "fill", "text_color", "width", "style", "font"].contains(&key.as_str()) {
@@ -176,7 +176,7 @@ fn calculate_json(f: &FormField) -> Option<Value> {
     match (&f.actions.calculate, &f.actions.scripts.calculate) {
         (Calculate::Simple { op, fields }, _) => Some(json!({ "op": op_name(*op), "fields": fields })),
         (Calculate::Notation(n), _) => Some(json!({ "notation": n })),
-        (Calculate::None, Some(js)) => Some(json!({ "script": js })),
+        (Calculate::Custom(js), _) | (Calculate::None, Some(js)) => Some(json!({ "script": js })),
         (Calculate::None, None) => None,
     }
 }
@@ -208,6 +208,24 @@ fn kind_name(k: FormFieldKind) -> &'static str {
     }
 }
 
+/// A JSON number as the radio option it names: its integer spelling when it is a whole number
+/// (`1`, `1.0` and `1e0` are all `1`; `-0` is `0`), otherwise JSON's own spelling (`1.5`), which
+/// names only an option exported as exactly that text. A whole number at or past 2^53, where a
+/// float no longer holds every integer, keeps JSON's spelling too (`1e300`), so it names no option
+/// by accident.
+fn number_option(n: &serde_json::Number) -> String {
+    // Integers as parsed (u64, i64) print exactly.
+    if n.is_u64() || n.is_i64() {
+        return n.to_string();
+    }
+    const EXACT: f64 = 9_007_199_254_740_992.0; // 2^53
+    match n.as_f64() {
+        // Finite, whole and below 2^53 in magnitude, so the cast is exact and in range.
+        Some(x) if x.is_finite() && x.fract() == 0.0 && x.abs() < EXACT => (x as i64).to_string(),
+        _ => n.to_string(),
+    }
+}
+
 /// A JSON value → the value for this field (booleans for check boxes, arrays for lists…).
 fn value_for(f: &FormField, v: &Value) -> Result<FieldValue> {
     let wrong = |what: &str| ToolError::InvalidArgs(format!("{}: {what}", f.name));
@@ -224,7 +242,24 @@ fn value_for(f: &FormField, v: &Value) -> Result<FieldValue> {
             FieldValue::Widget(i)
         }
         (FormFieldKind::Radio, Value::Null) => FieldValue::Radio(None),
-        (FormFieldKind::Radio, Value::String(s)) => FieldValue::Radio(Some(s.clone())),
+        // An option as `form_fields` lists it (an export value) names its button's on state. The
+        // export values are matched first and the on-state names after them
+        // (`Field::state_for_export`): with `/Opt [(1) (2)]` and states `/0` `/1`, `1` is the first
+        // button, not the second one's state. A value matching neither is refused when written,
+        // with the options listed.
+        (FormFieldKind::Radio, Value::String(s)) => FieldValue::Radio(Some(f.state_for_export(s).unwrap_or(s).to_owned())),
+        // A number is the same option written without quotes (`1` for the export value `1`).
+        // Below 2^53 it is compared as a number with the export values first, so `1.0` names the button
+        // exported as `1.0` (`/Opt [(1.0) (2.0)]`, states `/0 /1`) and not the one whose state is
+        // `/1`; then as text, as a string would be.
+        (FormFieldKind::Radio, Value::Number(n)) => {
+            if let Some(state) = n.as_f64().and_then(|x| f.state_for_number(x)) {
+                FieldValue::Radio(Some(state.to_owned()))
+            } else {
+                let s = number_option(n);
+                FieldValue::Radio(Some(f.state_for_export(&s).map_or_else(|| s.clone(), str::to_owned)))
+            }
+        }
         (FormFieldKind::Combo | FormFieldKind::List, Value::Array(a)) => FieldValue::Choice(
             a.iter().map(|x| x.as_str().map(str::to_owned).ok_or_else(|| wrong("list values must be strings"))).collect::<Result<_>>()?,
         ),
@@ -274,7 +309,7 @@ impl Automation {
                 }
                 if f.actions.format != Format::None {
                     o.insert("format".into(), format_json(&f.actions.format));
-                    o.insert("display".into(), json!(f.value.first().map(|v| pdfcraft_engine::form_scripts::format_value(&f.actions.format, v))));
+                    o.insert("display".into(), json!(f.value.first().map(|v| openpdf_engine::form_scripts::format_value(&f.actions.format, v))));
                 }
                 if let Validate::Range { min, max } = &f.actions.validate {
                     o.insert("validate".into(), json!({ "min": min, "max": max }));
@@ -310,8 +345,35 @@ impl Automation {
                             json!((0..f.widgets.len()).filter(|&i| f.widget_on(i)).map(|i| i.saturating_add(1)).collect::<Vec<_>>()),
                         );
                     }
+                    // A check box whose kids have different on states (ISO 32000-2 §12.7.5.2.3):
+                    // which one is ticked, and the names form_fill takes to tick each. One option
+                    // per distinct on state: kids sharing a state tick together (EXAMPLE 2), so
+                    // their `/Opt` exports are not separate choices. Exports name the options
+                    // unless two states share one (Table 230 allows it) or an export would tick
+                    // another state (form_fill reads a name as an on state first); then the
+                    // states do.
+                    FormFieldKind::CheckBox => {
+                        let mut seen = std::collections::HashSet::new();
+                        let states: Vec<&str> = f.widgets.iter().filter_map(|w| w.on_state.as_deref()).filter(|s| seen.insert(*s)).collect();
+                        if states.len() > 1 {
+                            let mut exports = std::collections::HashSet::new();
+                            let by_export = states.iter().all(|s| {
+                                let e = f.export_for_state(s);
+                                exports.insert(e) && f.state_for(e) == Some(*s)
+                            });
+                            let name = |s: &str| if by_export { f.export_for_state(s).to_owned() } else { s.to_owned() };
+                            // The ticked kid is the one whose `/AS` is its on state: §12.7.5.2.3
+                            // makes `/AS` decide where it and `/V` differ.
+                            let on = (0..f.widgets.len()).find(|&i| f.widget_on(i)).and_then(|i| f.widgets.get(i)?.on_state.as_deref());
+                            o.insert("options".into(), json!(states.iter().map(|s| name(s)).collect::<Vec<_>>()));
+                            o.insert("checked".into(), json!(on.map(name)));
+                        }
+                    }
                     FormFieldKind::Combo | FormFieldKind::List => {
                         o.insert("options".into(), f.options.iter().map(|(e, d)| json!({ "value": e, "label": d })).collect());
+                        // The selected options as 1-based positions in `options`: two options can share
+                        // an export value, and `value` alone does not tell them apart.
+                        o.insert("selected".into(), json!(f.selected.iter().map(|i| i.saturating_add(1)).collect::<Vec<_>>()));
                         o.insert("multi_select".into(), json!(f.has(field_flags::MULTI_SELECT)));
                         o.insert("editable".into(), json!(f.has(field_flags::EDIT)));
                     }
@@ -420,7 +482,7 @@ impl Automation {
     /// A table of text fields: `rect` (points from the top-left of the displayed page) divided
     /// into rows and columns, one field per cell, as one undo step.
     pub(crate) fn form_add_field_table(&mut self, a: &Args) -> Result<Value> {
-        use pdfcraft_engine::field_table::{self, FieldTable, MAX_COLUMNS, TableColumn, TableError};
+        use openpdf_engine::field_table::{self, FieldTable, MAX_COLUMNS, TableColumn, TableError};
         let page = self.page(a)?;
         let rect = a
             .get("rect")
@@ -539,7 +601,7 @@ impl Automation {
             // argument (trimmed, kept under its parent's prefix).
             let own =
                 names.first().and_then(|n| before.iter().find(|f| &f.name == n)).and_then(|f| after.iter().find(|g| g.obj == f.obj)).map(|g| &g.name);
-            let mut updated = pdfcraft_engine::form_calculations_changed(&before, after);
+            let mut updated = openpdf_engine::form_calculations_changed(&before, after);
             updated.retain(|f| Some(f) != own);
             out["formulas_updated"] = json!(updated);
         }
@@ -583,6 +645,7 @@ impl Automation {
                     Ok((wi, caption.to_owned()))
                 })
                 .transpose()?,
+            caption_all: None,
             read_only: a.opt_bool("read_only")?,
             required: a.opt_bool("required")?,
             multiline: a.opt_bool("multiline")?,
@@ -595,7 +658,7 @@ impl Automation {
             options: a.get("options").map(|_| a.strs("options")).transpose()?.map(|v| v.into_iter().map(str::to_owned).collect()),
             font_size: a.opt_num("font_size")?,
             look: None,
-            appearance: a.get("appearance").map(look_arg).transpose()?.filter(|p| *p != pdfcraft_engine::FieldLookPatch::default()),
+            appearance: a.get("appearance").map(look_arg).transpose()?.filter(|p| *p != openpdf_engine::FieldLookPatch::default()),
             format: a.get("format").map(format_arg).transpose()?,
             validate: a.get("validate").map(validate_arg).transpose()?,
             calculate: a.get("calculate").map(calculate_arg).transpose()?,
@@ -611,7 +674,7 @@ impl Automation {
             flags: match a.get("flags") {
                 None => Vec::new(),
                 Some(v) => {
-                    use pdfcraft_engine::field_flags as ff;
+                    use openpdf_engine::field_flags as ff;
                     let obj = v.as_object().ok_or_else(|| bad("flags must be an object of booleans"))?;
                     let mut out = Vec::new();
                     for (k, on) in obj {
@@ -646,7 +709,7 @@ impl Automation {
             check_style: match a.opt_str("check_style")? {
                 None => None,
                 Some(s) => Some(
-                    pdfcraft_engine::CheckStyle::ALL
+                    openpdf_engine::CheckStyle::ALL
                         .into_iter()
                         .find(|c| c.label().eq_ignore_ascii_case(s))
                         .ok_or_else(|| bad(format!("unknown check style {s:?} (check, circle, cross, diamond, square, star)")))?,
@@ -675,10 +738,10 @@ impl Automation {
         }
         let order = match a.opt_str("order")? {
             None => None,
-            Some("row" | "rows") => Some(pdfcraft_engine::TabOrder::Row),
-            Some("column" | "columns") => Some(pdfcraft_engine::TabOrder::Column),
-            Some("structure") => Some(pdfcraft_engine::TabOrder::Structure),
-            Some("annotations" | "unspecified") => Some(pdfcraft_engine::TabOrder::Annotations),
+            Some("row" | "rows") => Some(openpdf_engine::TabOrder::Row),
+            Some("column" | "columns") => Some(openpdf_engine::TabOrder::Column),
+            Some("structure") => Some(openpdf_engine::TabOrder::Structure),
+            Some("annotations" | "unspecified") => Some(openpdf_engine::TabOrder::Annotations),
             Some(o) => return Err(bad(format!("unknown order {o:?} (row, column, structure, annotations)"))),
         };
         let mut out = match order {
@@ -767,10 +830,10 @@ impl Automation {
             .tab_orders()
             .into_iter()
             .map(|o| match o {
-                pdfcraft_engine::TabOrder::Row => "row",
-                pdfcraft_engine::TabOrder::Column => "column",
-                pdfcraft_engine::TabOrder::Structure => "structure",
-                pdfcraft_engine::TabOrder::Annotations => "annotations",
+                openpdf_engine::TabOrder::Row => "row",
+                openpdf_engine::TabOrder::Column => "column",
+                openpdf_engine::TabOrder::Structure => "structure",
+                openpdf_engine::TabOrder::Annotations => "annotations",
             })
             .collect();
         Ok(json!(names))
@@ -796,14 +859,14 @@ impl Automation {
         let path = self.resolve(a.str("path")?, true)?;
         let ext = path.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
         let format =
-            pdfcraft_engine::DataFormat::from_extension(&ext).ok_or_else(|| bad("the path must end in .xfdf, .fdf, .xml, .xdp, .csv or .txt"))?;
+            openpdf_engine::DataFormat::from_extension(&ext).ok_or_else(|| bad("the path must end in .xfdf, .fdf, .xml, .xdp, .csv or .txt"))?;
         let (comments, fields) = match a.opt_str("what")?.unwrap_or("all") {
             "all" => (true, true),
             "comments" => (true, false),
             "fields" => (false, true),
             w => return Err(bad(format!("unknown what {w:?} (all, comments, fields)"))),
         };
-        if comments && !matches!(format, pdfcraft_engine::DataFormat::Xfdf | pdfcraft_engine::DataFormat::Fdf) {
+        if comments && !matches!(format, openpdf_engine::DataFormat::Xfdf | openpdf_engine::DataFormat::Fdf) {
             return Err(bad("comments travel as .xfdf or .fdf; .xml, .csv and .txt hold form data (use what: fields)"));
         }
         let bytes = self.session.export_data(id, format, comments, fields).map_err(failed)?;

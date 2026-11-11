@@ -6,8 +6,8 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
 use crate::RecoveryStore;
-use pdfcraft_engine::{OpenContext, PreparedDocument, SourceKind};
-use pdfcraft_render::OpenError;
+use openpdf_engine::{OpenContext, PreparedDocument, SourceKind};
+use openpdf_render::OpenError;
 
 pub(crate) const MAX_QUEUED_OPENS: usize = 16;
 
@@ -37,7 +37,7 @@ struct Job {
     context: OpenContext,
     name: String,
     path: Option<String>,
-    password: Option<String>,
+    password: Option<zeroize::Zeroizing<String>>,
     input: Input,
     reply: Sender<ResultMessage>,
     #[cfg(test)]
@@ -60,7 +60,7 @@ impl OpenWorker {
     pub fn new(#[cfg(test)] gate: Option<Arc<PrepareGate>>) -> std::io::Result<Self> {
         let queue = Arc::new((Mutex::new(Queue { jobs: VecDeque::new(), shutdown: false, repaint: None }), Condvar::new()));
         let worker_queue = queue.clone();
-        std::thread::Builder::new().name("pdfcraft-open".into()).spawn(move || run(worker_queue))?;
+        std::thread::Builder::new().name("openpdf-open".into()).spawn(move || run(worker_queue))?;
         Ok(Self {
             queue,
             #[cfg(test)]
@@ -80,32 +80,70 @@ impl OpenWorker {
         context: OpenContext,
         name: String,
         path: Option<String>,
-        password: Option<String>,
+        password: Option<zeroize::Zeroizing<String>>,
         input: Input,
     ) -> Result<Receiver<ResultMessage>, String> {
+        let (job, receiver) = self.build_job(token, context, name, path, password, input);
+        self.enqueue(job, false)?;
+        Ok(receiver)
+    }
+
+    pub fn submit_priority(
+        &self,
+        token: u64,
+        context: OpenContext,
+        name: String,
+        path: Option<String>,
+        password: Option<zeroize::Zeroizing<String>>,
+        input: Input,
+    ) -> Result<Receiver<ResultMessage>, String> {
+        let (job, receiver) = self.build_job(token, context, name, path, password, input);
+        self.enqueue(job, true)?;
+        Ok(receiver)
+    }
+
+    fn build_job(
+        &self,
+        token: u64,
+        context: OpenContext,
+        name: String,
+        path: Option<String>,
+        password: Option<zeroize::Zeroizing<String>>,
+        input: Input,
+    ) -> (Job, Receiver<ResultMessage>) {
         let (reply, receiver) = mpsc::channel();
-        let job = Job {
-            token,
-            context,
-            name,
-            path,
-            password,
-            input,
-            reply,
-            #[cfg(test)]
-            gate: self.gate.clone(),
-        };
+        (
+            Job {
+                token,
+                context,
+                name,
+                path,
+                password,
+                input,
+                reply,
+                #[cfg(test)]
+                gate: self.gate.clone(),
+            },
+            receiver,
+        )
+    }
+
+    fn enqueue(&self, job: Job, priority: bool) -> Result<(), String> {
         let (lock, ready) = &*self.queue;
         let mut queue = lock.lock().unwrap_or_else(PoisonError::into_inner);
         if queue.shutdown {
             return Err("the document-open worker has stopped".into());
         }
-        if queue.jobs.len() >= MAX_QUEUED_OPENS {
+        if !priority && queue.jobs.len() >= MAX_QUEUED_OPENS {
             return Err("too many documents are waiting to open".into());
         }
-        queue.jobs.push_back(job);
+        if priority {
+            queue.jobs.push_front(job);
+        } else {
+            queue.jobs.push_back(job);
+        }
         ready.notify_one();
-        Ok(receiver)
+        Ok(())
     }
 }
 
@@ -165,7 +203,7 @@ fn prepare(job: Job) -> ResultKind {
             Ok(bytes) => Arc::new(bytes),
             Err(error) => return ResultKind::ReadFailed(error.to_string()),
         },
-        Input::RemotePath(path) => match pdfcraft_engine::read_remote_document(path) {
+        Input::RemotePath(path) => match openpdf_engine::read_remote_document(path) {
             Ok(bytes) => Arc::new(bytes),
             Err(error) => return ResultKind::RemoteFailed(error.to_string()),
         },
@@ -175,10 +213,10 @@ fn prepare(job: Job) -> ResultKind {
         },
         Input::Bytes(bytes) => bytes.clone(),
     };
-    if matches!(pdfcraft_engine::source_kind(&job.name, &bytes), Some(SourceKind::Image | SourceKind::Text)) {
+    if matches!(openpdf_engine::source_kind(&job.name, &bytes), Some(SourceKind::Image | SourceKind::Text)) {
         return ResultKind::Conversion(bytes);
     }
-    let result = job.context.prepare_open(job.name, job.path, bytes.clone(), job.password.as_deref());
+    let result = job.context.prepare_open(job.name, job.path, bytes.clone(), job.password.as_deref().map(String::as_str));
     ResultKind::Prepared { bytes, result: Box::new(result) }
 }
 

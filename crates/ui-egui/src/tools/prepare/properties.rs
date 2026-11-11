@@ -161,17 +161,12 @@ pub(crate) fn body(ui: &mut egui::Ui, d: &mut FieldDraft, t: &crate::theme::Toke
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     let l = ui.label(tl!("Rotation:"));
-                    let before = d.rotation;
+                    // The field keeps its place and size: the rotation turns its content (#4296).
                     craft_ui::ComboBox::from_id_salt("field-rotation")
                         .selected_text(format!("{}°", d.rotation))
                         .show_ui(ui, |ui| {
                             for r in [0, 90, 180, 270] {
-                                if ui.selectable_value(&mut d.rotation, r, format!("{r}°")).changed() && (before % 180 == 0) != (r % 180 == 0) {
-                                    // Keep the same center. set_props skips its own swap when the rect changed too.
-                                    let [x, y, w, h] = d.position;
-                                    let (cx, cy) = (x + w / 2.0, y + h / 2.0);
-                                    d.position = [cx - h / 2.0, cy - w / 2.0, h, w];
-                                }
+                                ui.selectable_value(&mut d.rotation, r, format!("{r}°"));
                             }
                         })
                         .response
@@ -190,7 +185,7 @@ pub(crate) fn body(ui: &mut egui::Ui, d: &mut FieldDraft, t: &crate::theme::Toke
                     });
                 }
                 FormFieldKind::Text => {
-                    use pdfcraft_engine::field_flags as ff;
+                    use openpdf_engine::field_flags as ff;
                     egui::Grid::new("text-options").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
                         alignment(ui, &mut d.quadding);
                         ui.end_row();
@@ -225,7 +220,7 @@ pub(crate) fn body(ui: &mut egui::Ui, d: &mut FieldDraft, t: &crate::theme::Toke
                     });
                 }
                 FormFieldKind::CheckBox | FormFieldKind::Radio => {
-                    use pdfcraft_engine::field_flags as ff;
+                    use openpdf_engine::field_flags as ff;
                     let on = d.on_state.clone();
                     ui.horizontal(|ui| {
                         let label = ui.label(tl!("Export value"));
@@ -243,7 +238,7 @@ pub(crate) fn body(ui: &mut egui::Ui, d: &mut FieldDraft, t: &crate::theme::Toke
                             craft_ui::ComboBox::from_id_salt("check-style")
                                 .selected_text(tl!(style.label()))
                                 .show_ui(ui, |ui| {
-                                    for s in pdfcraft_engine::CheckStyle::ALL {
+                                    for s in openpdf_engine::CheckStyle::ALL {
                                         ui.selectable_value(style, s, tl!(s.label()));
                                     }
                                 })
@@ -295,7 +290,7 @@ pub(crate) fn body(ui: &mut egui::Ui, d: &mut FieldDraft, t: &crate::theme::Toke
                     if d.options.is_empty() {
                         ui.label(egui::RichText::new(tl!("Add the choices people pick from.")).color(t.text_muted));
                     }
-                    use pdfcraft_engine::field_flags as ff;
+                    use openpdf_engine::field_flags as ff;
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
                         ui.label(tl!("Default:"));

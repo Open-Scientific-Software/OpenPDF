@@ -1,6 +1,6 @@
 [package]
-name = "pdfcraft-platform"
-description = "Operating-system services shared by the PdfCraft desktop app and automation tools"
+name = "openpdf-platform"
+description = "Operating-system services shared by the OpenPDF desktop app and automation tools"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+log = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # `write_atomically`: a volume that refuses F_FULLFSYNC gets a plain fsync.

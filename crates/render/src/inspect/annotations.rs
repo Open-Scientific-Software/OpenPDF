@@ -1,6 +1,7 @@
 use super::core::{limited_pdf_string, pretty_date, spend};
 use super::model::{
-    Annotation, AttachmentSource, DestView, Field, FieldKind, LayerOp, Link, LinkTarget, RemoteDestination, link_replies, state_or_default,
+    Annotation, AttachmentSource, DestView, Field, FieldKind, LayerOp, Link, LinkTarget, Popup, RemoteDestination, fill_group_text, link_replies,
+    state_or_default,
 };
 use super::navigation::text_string;
 use super::{Dictionary, DocInfo, Entry, HashMap, HashSet, Inspector, Object, ObjectId};
@@ -17,14 +18,16 @@ const MAX_REMOTE_DESTINATION_NAME_BYTES: usize = 1024;
 /// are not listed: real comments stay far below, many small ones sharing one long string do not.
 pub(super) const MAX_ANNOTATION_BYTES: usize = 64 << 20;
 
-/// Web-address text the bookmark and link listings, and name, description and embedded-file key
-/// text the attachment listing, keep together. Many bookmarks, links or attachments can share one
-/// long string, which each would otherwise copy. Past it, a bookmark or link to a web address lists
-/// as a URI action without its address, an attachment under its generic name without a
-/// description, and an embedded file whose key does not fit is not listed.
+/// Web-address text and `/QuadPoints` geometry the bookmark and link listings, and name,
+/// description and embedded-file key text the attachment listing, keep together. Many bookmarks,
+/// links or attachments can share one long string or array, which each would otherwise copy. Past
+/// it, a bookmark or link to a web address lists as a URI action without its address (or a link
+/// keeps a relative address unresolved against the document's base), a link is active over its
+/// whole `/Rect`, an attachment is listed under its generic name without a description, and an
+/// embedded file whose key does not fit is not listed.
 pub(super) const MAX_LINK_ATTACHMENT_TEXT_BYTES: usize = 16 << 20;
 
-/// A colour array as RGB, read as pdfcraft-annot's appearance builder reads it (`appearance::color`
+/// A colour array as RGB, read as openpdf-annot's appearance builder reads it (`appearance::color`
 /// and `drawn_color`): one entry is grey, three RGB, four CMYK; among four entries a non-number is
 /// 0 but a reference is unreadable, otherwise every entry must be a number. `None` for anything
 /// else, an empty array or a value out of range; each component is clamped to 0..=1.
@@ -45,7 +48,7 @@ fn drawn_color(c: &[Object]) -> Option<[f32; 3]> {
         [c, m, y, k] => [(1.0 - c) * (1.0 - k), (1.0 - m) * (1.0 - k), (1.0 - y) * (1.0 - k)],
         _ => return None,
     };
-    // pdfcraft-annot's `finite`: finite and below 1e7 in magnitude.
+    // openpdf-annot's `finite`: finite and below 1e7 in magnitude.
     rgb.iter().all(|x| x.is_finite() && x.abs() < 1e7).then(|| rgb.map(|x| x.clamp(0.0, 1.0)))
 }
 
@@ -65,7 +68,7 @@ pub(super) fn retained(a: &Annotation) -> usize {
 
 impl<'a> Inspector<'a> {
     /// Whether an annotation is a Fill & Sign mark. Keep in step with
-    /// `pdfcraft_annot::is_fill_sign`, which the engine's comment list uses.
+    /// `openpdf_annot::is_fill_sign`, which the engine's comment list uses.
     fn is_fill_sign(&self, d: &Dictionary, subtype: &str) -> bool {
         let yes = |key: &[u8]| matches!(d.get(key).map(|o| self.resolve(o)), Ok(Object::Boolean(true)));
         if yes(b"PCFillSign") {
@@ -87,6 +90,9 @@ impl<'a> Inspector<'a> {
 
     /// `text_budget` is what is left of [`MAX_LINK_ATTACHMENT_TEXT_BYTES`].
     pub(super) fn annotations(&self, info: &mut DocInfo, text_budget: &mut usize) {
+        // Indirect `/QuadPoints` arrays whose quadrilaterals did not fit what was left of the budget:
+        // the budget only shrinks, so they are not read again (review on #4474).
+        let mut unfit_quads: HashSet<ObjectId> = HashSet::new();
         let mut pages: Vec<(ObjectId, usize)> = self.page_index.iter().map(|(&id, &page)| (id, page)).collect();
         pages.sort_unstable_by_key(|&(_, page)| page);
         // An annotation, or a whole `/Annots` array, that several entries or pages list is on the
@@ -138,7 +144,7 @@ impl<'a> Inspector<'a> {
                 info.attachments.push(self.attachment(fs, AttachmentSource::Annotation { page, index }, text_budget, fallback));
             }
             if subtype == "Link" {
-                if let Some(link) = self.link(page, index, d, text_budget) {
+                if let Some(link) = self.link(page, index, d, info.uri_base.as_deref(), text_budget, &mut unfit_quads) {
                     if matches!(&link.target, LinkTarget::Other(s) if s == "JavaScript") {
                         info.has_javascript = true;
                     }
@@ -148,7 +154,7 @@ impl<'a> Inspector<'a> {
             }
             // Not comments: form widgets, pop-ups and non-markup annotations such as the
             // Screen annotation that drives a LaTeX `animate` player (keep in step with
-            // `pdfcraft_annot::is_comment_subtype`).
+            // `openpdf_annot::is_comment_subtype`).
             if matches!(subtype.as_str(), "Widget" | "Popup" | "Screen" | "Movie" | "RichMedia" | "3D" | "PrinterMark" | "TrapNet" | "Watermark") {
                 continue;
             }
@@ -165,7 +171,7 @@ impl<'a> Inspector<'a> {
                 let f = |i: usize| c.get(i).map_or(0.0, |o| self.resolve(o).as_float().unwrap_or(0.0));
                 [f(0), f(1), f(2)]
             });
-            // Other comments list the stroke colour as pdfcraft-annot draws it and lists it
+            // Other comments list the stroke colour as openpdf-annot draws it and lists it
             // (`summaries`): grey, CMYK, a non-number among four entries read as 0.
             let mut color = if subtype == "FreeText" { rgb } else { c.and_then(|c| drawn_color(c)).or(rgb) };
             // A text box's /C is its background; its text colour is in /DA.
@@ -181,18 +187,18 @@ impl<'a> Inspector<'a> {
                 }
             }
             // Only usable quads, by the rule redaction apply reads them with (keep in step with
-            // `pdfcraft_annot::summaries`): a malformed one is not drawn as zeros.
+            // `openpdf_annot::summaries`): a malformed one is not drawn as zeros.
             let quads = match d.get(b"QuadPoints").map(|o| self.resolve(o)) {
                 Ok(Object::Array(q)) => {
                     let entries = q.iter().map(|o| self.resolve(o).as_float().ok().map(f64::from));
-                    pdfcraft_geom::quad_points::usable_quads(entries).into_iter().map(|quad| quad.map(|v| v as f32)).collect()
+                    openpdf_geom::quad_points::usable_quads(entries).into_iter().map(|quad| quad.map(|v| v as f32)).collect()
                 }
                 _ => Vec::new(),
             };
             let in_reply_to = d.get(b"IRT").ok().and_then(|o| self.dict(o)).and_then(|p| self.text(p, b"NM"));
             let parent = d.get(b"IRT").ok().and_then(|o| self.resolved_id(o)).and_then(|r| slots.get(&r).copied());
             let fill_sign = self.is_fill_sign(d, &subtype);
-            // Keep in step with `pdfcraft_annot::summaries`.
+            // Keep in step with `openpdf_annot::summaries`.
             let key: &[u8] = if subtype == "Line" { b"L" } else { b"Vertices" };
             let points = match d.get(key).map(|o| self.resolve(o)) {
                 Ok(Object::Array(v)) if matches!(subtype.as_str(), "Line" | "PolyLine" | "Polygon") => {
@@ -202,12 +208,41 @@ impl<'a> Inspector<'a> {
                 }
                 _ => Vec::new(),
             };
+            // A callout: its arrow point and knee, and its text box (keep in step with
+            // `openpdf_annot::summaries`).
+            let (points, text_box) = match self.callout(d, rect) {
+                Some((lead, text_box)) if subtype == "FreeText" => (lead, Some(text_box)),
+                _ => (points, None),
+            };
+            // Only the comment's own pop-up: a pop-up annotation whose /Parent, if any, is a
+            // reference to this comment (keep in step with `openpdf_annot::summaries`).
+            let own = self.resolved_id(a);
+            let is_own = |p: &&Dictionary| {
+                self.name(p, b"Subtype").as_deref() == Some("Popup")
+                    && p.get(b"Parent")
+                        .map_or(true, |parent| parent.as_reference().is_ok() && self.resolved_id(parent).is_some_and(|id| Some(id) == own))
+            };
+            // A pop-up without a `/Rect` of four numbers finite as `f32` is none, as
+            // `openpdf_annot::summaries` reads it: both lists of the comments agree. Its corners
+            // may come in any order.
+            let popup = d.get(b"Popup").ok().and_then(|o| self.dict(o)).filter(is_own).and_then(|p| {
+                let rect = self.resolve(p.get(b"Rect").ok()?).as_array().ok()?;
+                let nums: Vec<f32> = rect.iter().filter_map(|v| self.resolve(v).as_float().ok()).collect();
+                let [x0, y0, x1, y1] = nums[..] else { return None };
+                if !nums.iter().all(|v| v.is_finite()) {
+                    return None;
+                }
+                Some(Popup {
+                    rect: [x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)],
+                    open: p.get(b"Open").ok().and_then(|o| self.resolve(o).as_bool().ok()).unwrap_or(false),
+                })
+            });
             let annotation = Annotation {
                 page,
                 subtype,
                 author: self.text(d, b"T"),
                 // Acrobat ends lines with CR, which the interface would draw as nothing (keep
-                // in step with `pdfcraft_annot::summaries`).
+                // in step with `openpdf_annot::summaries`).
                 contents: self.text(d, b"Contents").map(|s| s.replace("\r\n", "\n").replace('\r', "\n")),
                 modified: self.text(d, b"M").map(|m| pretty_date(&m)),
                 name: self.text(d, b"NM"),
@@ -224,6 +259,8 @@ impl<'a> Inspector<'a> {
                 fill_sign,
                 no_rotate: d.get(b"F").is_ok_and(|f| draw_flags(self.resolve(f)) & 16 != 0),
                 points,
+                text_box,
+                popup,
             };
             kept = kept.saturating_add(retained(&annotation));
             if kept > MAX_ANNOTATION_BYTES {
@@ -234,20 +271,89 @@ impl<'a> Inspector<'a> {
         }
         info.annotations.sort_by(|a, b| a.page.cmp(&b.page).then(b.rect[3].total_cmp(&a.rect[3])));
         link_replies(&mut info.annotations);
+        fill_group_text(&mut info.annotations);
+    }
+
+    /// A callout's arrow point and knee (`/CL`, four or six numbers, without the end that meets
+    /// the text box) and its text box (`/Rect`, here `rect`, inset by `/RD`); ISO 32000-2
+    /// Table 177. `None` when either is missing or unusable.
+    fn callout(&self, d: &Dictionary, rect: [f32; 4]) -> Option<(Vec<[f32; 2]>, [f32; 4])> {
+        let nums = |key: &[u8]| -> Option<Vec<f32>> {
+            match self.resolve(d.get(key).ok()?) {
+                Object::Array(v) => v.iter().map(|o| self.resolve(o).as_float().ok()).collect(),
+                _ => None,
+            }
+        };
+        let cl = nums(b"CL").filter(|l| matches!(l.len(), 4 | 6) && l.iter().all(|x| x.is_finite()))?;
+        let rd = nums(b"RD").filter(|v| v.len() == 4 && v.iter().all(|x| x.is_finite() && *x >= 0.0))?;
+        let tb = [rect[0] + rd[0], rect[1] + rd[1], rect[2] - rd[2], rect[3] - rd[3]];
+        if tb[2] - tb[0] < 1.0 || tb[3] - tb[1] < 1.0 {
+            return None;
+        }
+        let (_, lead) = cl.as_chunks::<2>().0.split_last()?;
+        Some((lead.to_vec(), tb))
     }
 
     /// The link annotation `d`, at position `index` of page `page`'s `/Annots`: where its `/Dest`
     /// goes, else what its action `/A` does ([`Self::action_target`]). `None` when it has no
-    /// rectangle, or a destination or action that leads nowhere.
-    fn link(&self, page: usize, index: usize, d: &Dictionary, text_budget: &mut usize) -> Option<Link> {
+    /// rectangle, or a destination or action that leads nowhere. `base` is the catalog's
+    /// `/URI /Base`, which a relative URI action is resolved against. `unfit_quads` holds the
+    /// indirect `/QuadPoints` arrays already found too large for the budget.
+    fn link(
+        &self,
+        page: usize,
+        index: usize,
+        d: &Dictionary,
+        base: Option<&str>,
+        text_budget: &mut usize,
+        unfit_quads: &mut HashSet<ObjectId>,
+    ) -> Option<Link> {
         let rect = rect4(self.resolve(d.get(b"Rect").ok()?));
         let target = if let Ok(dest) = d.get(b"Dest") {
             let (page, view) = self.dest(dest, 0)?;
             LinkTarget::Page(page, view)
         } else {
-            self.action_target(d.get(b"A").ok().and_then(|a| self.dict(a))?, text_budget)?
+            match self.action_target(d.get(b"A").ok().and_then(|a| self.dict(a))?, text_budget)? {
+                LinkTarget::Uri(uri) => match crate::resolve_uri(base, &uri) {
+                    // The raw address is spent already. What the base adds is spent too, or the
+                    // link keeps the raw address.
+                    Some(resolved) if resolved.len().saturating_sub(uri.len()) <= *text_budget => {
+                        *text_budget = text_budget.saturating_sub(resolved.len().saturating_sub(uri.len()));
+                        LinkTarget::Uri(resolved)
+                    }
+                    _ => LinkTarget::Uri(uri),
+                },
+                other => other,
+            }
         };
-        Some(Link { page, index, rect, target })
+        // Not read at all once no quadrilateral would fit what is left of the budget, or when this
+        // shared array already did not fit: many links can share one long array, and reading it
+        // again for each would cost its length every time (review on #4474).
+        let shared = d.get(b"QuadPoints").ok().and_then(|o| o.as_reference().ok());
+        let readable = *text_budget >= std::mem::size_of::<[f32; 8]>() && shared.is_none_or(|id| !unfit_quads.contains(&id));
+        let quads = match d.get(b"QuadPoints").map(|o| self.resolve(o)) {
+            // Read no further than one value past the cap: a longer array isn't used.
+            Ok(Object::Array(q)) if readable && q.len() <= crate::MAX_LINK_QUADS.saturating_mul(8) => {
+                #[cfg(test)]
+                QUAD_ARRAYS_READ.with(|n| n.set(n.get() + 1));
+                let values: Vec<Option<f32>> = q.iter().map(|o| self.resolve(o).as_float().ok()).collect();
+                let quads = crate::link_quads(&values, rect);
+                // Many links can share one long array, which each would otherwise copy. Past the
+                // budget a link is active over its whole `/Rect`.
+                let bytes = std::mem::size_of_val(quads.as_slice());
+                if bytes <= *text_budget {
+                    *text_budget = text_budget.saturating_sub(bytes);
+                    quads
+                } else {
+                    if let Some(id) = shared {
+                        unfit_quads.insert(id);
+                    }
+                    Vec::new()
+                }
+            }
+            _ => Vec::new(),
+        };
+        Some(Link { page, index, rect, quads, target })
     }
 
     /// What an action does when a link or a bookmark runs it. Only a go-to's `/D` is a place in
@@ -642,4 +748,10 @@ fn rect4(o: &Object) -> [f32; 4] {
         }
         _ => [0.0; 4],
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// `/QuadPoints` arrays whose values were read.
+    pub(super) static QUAD_ARRAYS_READ: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }

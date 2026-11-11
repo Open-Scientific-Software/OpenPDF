@@ -6,8 +6,9 @@ use std::collections::BTreeSet;
 use egui::FontId;
 use egui::epaint::text::{Fonts, TextOptions};
 use egui_kittest::Harness;
-use pdfcraft_ui_egui::{PdfCraftApp, i18n, theme};
+use openpdf_ui_egui::{OpenPDFApp, i18n, theme};
 
+pub mod fixtures;
 pub mod input;
 
 /// Step frames until `ready` holds or 30 seconds pass, and say whether it held. For background work
@@ -15,7 +16,7 @@ pub mod input;
 /// not a time, and a busy runner may not have finished the work within one. Sleeps briefly between
 /// frames so the worker threads get the CPU.
 #[must_use]
-pub fn step_until(h: &mut Harness<'static, PdfCraftApp>, mut ready: impl FnMut(&mut Harness<'static, PdfCraftApp>) -> bool) -> bool {
+pub fn step_until(h: &mut Harness<'static, OpenPDFApp>, mut ready: impl FnMut(&mut Harness<'static, OpenPDFApp>) -> bool) -> bool {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
         h.step();
@@ -31,7 +32,7 @@ pub fn step_until(h: &mut Harness<'static, PdfCraftApp>, mut ready: impl FnMut(&
 
 /// Step frames until nothing is waiting to be rendered, and fail the test if that takes over 30
 /// seconds: what a test checks next is on the rendered page.
-pub fn settle(h: &mut Harness<'static, PdfCraftApp>) {
+pub fn settle(h: &mut Harness<'static, OpenPDFApp>) {
     let settled = step_until(h, |h| {
         h.run_steps(1);
         !h.state().render_pending()
@@ -39,7 +40,7 @@ pub fn settle(h: &mut Harness<'static, PdfCraftApp>) {
     assert!(settled, "pages rendered");
 }
 
-pub fn wait_until(h: &mut Harness<'static, PdfCraftApp>, what: &str, ready: impl Fn(&PdfCraftApp) -> bool) {
+pub fn wait_until(h: &mut Harness<'static, OpenPDFApp>, what: &str, ready: impl Fn(&OpenPDFApp) -> bool) {
     let held = step_until(h, |h| ready(h.state()));
     assert!(
         held,
@@ -52,21 +53,26 @@ pub fn wait_until(h: &mut Harness<'static, PdfCraftApp>, what: &str, ready: impl
 }
 
 /// Open the in-window menu bar's `title` menu (File, Edit, View…).
-pub fn open_menu(h: &mut Harness<'static, PdfCraftApp>, title: &str) {
+pub fn open_menu(h: &mut Harness<'static, OpenPDFApp>, title: &str) {
     use egui_kittest::kittest::Queryable;
     h.get_by(|n| n.role() == egui::accesskit::Role::MenuItem && n.label().as_deref() == Some(title)).click();
     h.run_steps(2);
 }
 
+/// Whether the last frame asked the platform for the clipboard (`RequestPaste`, Edit ▸ Paste's).
+pub fn asked_for_the_clipboard(h: &Harness<'static, OpenPDFApp>) -> bool {
+    h.output().viewport_output.values().any(|v| v.commands.contains(&egui::ViewportCommand::RequestPaste))
+}
+
 /// The menu row labelled `label` in an open menu.
-pub fn menu_row<'h>(h: &'h Harness<'static, PdfCraftApp>, label: &str) -> egui_kittest::Node<'h> {
+pub fn menu_row<'h>(h: &'h Harness<'static, OpenPDFApp>, label: &str) -> egui_kittest::Node<'h> {
     use egui_kittest::kittest::Queryable;
     let label = label.to_owned();
     h.get_by(move |n| n.role() == egui::accesskit::Role::MenuItem && n.label().as_deref() == Some(label.as_str()))
 }
 
 /// The widget labelled `label` outside the menu bar, whose titles (File, Edit, Sign…) may share it.
-pub fn outside_menus<'h>(h: &'h Harness<'static, PdfCraftApp>, label: &str) -> egui_kittest::Node<'h> {
+pub fn outside_menus<'h>(h: &'h Harness<'static, OpenPDFApp>, label: &str) -> egui_kittest::Node<'h> {
     use egui_kittest::kittest::Queryable;
     let label = label.to_owned();
     h.get_by(move |n| n.role() != egui::accesskit::Role::MenuItem && n.label().as_deref() == Some(label.as_str()))
@@ -106,9 +112,19 @@ pub fn skip_without_glyphs(name: &str, language: &str, text: &str) -> bool {
 
 /// Whether `name` is skipped because the build embeds no craft-i18n catalogs (English only).
 pub fn skip_without_catalogs(name: &str) -> bool {
-    let skip = !pdfcraft_ui_egui::i18n::catalogs_embedded();
+    let skip = !openpdf_ui_egui::i18n::catalogs_embedded();
     if skip {
         eprintln!("skipping {name}: built without craft-i18n (set CRAFT_I18N_DIR to a craft-i18n checkout)");
     }
     skip
+}
+
+/// Open Help ▸ Keyboard shortcuts with a click, as a user would, so whatever had the keyboard loses
+/// it as it does then.
+pub fn open_shortcuts_from_the_help_menu(h: &mut Harness<'static, OpenPDFApp>) {
+    use egui_kittest::kittest::Queryable;
+    open_menu(h, "Help");
+    h.get_by(|n| n.role() == egui::accesskit::Role::MenuItem && n.label().is_some_and(|l| l.starts_with("Keyboard shortcuts"))).click();
+    h.run_steps(4);
+    assert!(h.state().dialog.is_some(), "Keyboard shortcuts is open");
 }
