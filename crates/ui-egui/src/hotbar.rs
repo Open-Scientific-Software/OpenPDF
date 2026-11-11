@@ -305,12 +305,10 @@ fn core_tool_buttons(ui: &mut egui::Ui, app: &mut OpenPDFApp, cell: f32, popup_a
     });
 }
 
-fn controls_divider(ui: &mut egui::Ui, t: &Tokens, vertical: bool) {
-    let (r, _) = if vertical {
-        ui.allocate_exact_size(vec2(crate::canvas::bars::QUICK_BAR_WIDTH, 9.0), Sense::hover())
-    } else {
-        ui.allocate_exact_size(vec2(9.0, crate::canvas::bars::QUICK_BAR_WIDTH), Sense::hover())
-    };
+fn controls_divider(ui: &mut egui::Ui, t: &Tokens, vertical: bool, cell: f32) {
+    // The divider lives inside the button column; the outer bar width includes margins.
+    let (r, _) =
+        if vertical { ui.allocate_exact_size(vec2(cell, 9.0), Sense::hover()) } else { ui.allocate_exact_size(vec2(9.0, cell), Sense::hover()) };
     if vertical {
         ui.painter().hline(r.x_range().shrink(6.0), r.center().y, Stroke::new(1.0, t.divider));
     } else {
@@ -438,13 +436,13 @@ fn fill_text_border_controls(ui: &mut egui::Ui, app: &mut OpenPDFApp, picked: Op
 }
 
 /// Extra controls rendered below/beside the buttons when a comment or fill tool is active.
-fn active_tool_controls(ui: &mut egui::Ui, app: &mut OpenPDFApp, t: &Tokens, vertical: bool) {
+fn active_tool_controls(ui: &mut egui::Ui, app: &mut OpenPDFApp, t: &Tokens, vertical: bool, cell: f32) {
     let current_fill = match app.quick_tool {
         QuickTool::Fill(f) => Some(f),
         _ => None,
     };
     if matches!(current_fill, Some(crate::fill_sign::FillTool::Text | crate::fill_sign::FillTool::Date)) {
-        controls_divider(ui, t, vertical);
+        controls_divider(ui, t, vertical, cell);
         if let Some(color) = comments::quick_bar_colour(ui, app.fill_text_color) {
             app.fill_text_color = color;
             if let Some((page, index)) = selected_fill_text(app) {
@@ -483,7 +481,7 @@ fn active_tool_controls(ui: &mut egui::Ui, app: &mut OpenPDFApp, t: &Tokens, ver
         fill_text_border_controls(ui, app, selected_fill_text(app), vertical);
     }
     if let QuickTool::Comment(tool) = app.quick_tool {
-        controls_divider(ui, t, vertical);
+        controls_divider(ui, t, vertical, cell);
         // Text boxes and callouts: the border's own colour, for new ones and the selected one
         // this tool made (not a locked one). With one selected the button shows its colours
         // (Comment Properties may have changed them), else the tool's.
@@ -623,7 +621,7 @@ pub(crate) fn show(app: &mut OpenPDFApp, area: Rect, page_left: Option<f32>, ui:
                         egui::ScrollArea::vertical().max_height(remaining).show(ui, |ui| {
                             ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
                                 core_tool_buttons(ui, app, cell, popup_align, &t);
-                                active_tool_controls(ui, app, &t, true);
+                                active_tool_controls(ui, app, &t, true, cell);
                                 if !bar.tools.is_empty() {
                                     ui.separator();
                                     tool_buttons(ui, app, &bar.tools, cell, &mut run, &mut remove);
@@ -639,7 +637,7 @@ pub(crate) fn show(app: &mut OpenPDFApp, area: Rect, page_left: Option<f32>, ui:
                         egui::ScrollArea::horizontal().max_height(cell).max_width(remaining).show(ui, |ui| {
                             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                                 core_tool_buttons(ui, app, cell, popup_align, &t);
-                                active_tool_controls(ui, app, &t, false);
+                                active_tool_controls(ui, app, &t, false, cell);
                                 if !bar.tools.is_empty() {
                                     ui.separator();
                                     tool_buttons(ui, app, &bar.tools, cell, &mut run, &mut remove);
@@ -681,7 +679,7 @@ pub(crate) fn show(app: &mut OpenPDFApp, area: Rect, page_left: Option<f32>, ui:
                         egui::ScrollArea::vertical().max_height(max_tools_length).show(ui, |ui| {
                             ui.with_layout(layout, |ui| {
                                 core_tool_buttons(ui, app, cell, popup_align, &t);
-                                active_tool_controls(ui, app, &t, true);
+                                active_tool_controls(ui, app, &t, true, cell);
                                 if !bar.tools.is_empty() {
                                     ui.separator();
                                     tool_buttons(ui, app, &bar.tools, cell, &mut run, &mut remove);
@@ -691,7 +689,7 @@ pub(crate) fn show(app: &mut OpenPDFApp, area: Rect, page_left: Option<f32>, ui:
                         settings_clicked |= settings_button(ui, cell, &mut picker_open);
                     } else {
                         core_tool_buttons(ui, app, cell, popup_align, &t);
-                        active_tool_controls(ui, app, &t, false);
+                        active_tool_controls(ui, app, &t, false, cell);
                         if !bar.tools.is_empty() {
                             ui.separator();
                             let scroll_max = (bounds.width() - cell - 50.0).max(cell);

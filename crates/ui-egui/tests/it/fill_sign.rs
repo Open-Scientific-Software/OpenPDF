@@ -2936,3 +2936,35 @@ fn vertical_border_popup_keeps_the_tool_column_compact() {
     assert_eq!(h.query_all_by_label("1 pt").count(), 0);
     assert_eq!(h.get_by_role_and_label(egui::accesskit::Role::Button, "Border:").rect(), button);
 }
+
+#[test]
+fn text_and_cross_share_the_same_toolbar_width_and_alignment() {
+    for size in [32, 40, 48] {
+        let mut h = harness();
+        h.state_mut().set_option("hotbar-size", &size.to_string()).unwrap();
+        h.state_mut().execute("sign.fill.cross");
+        h.run_steps(12);
+        let frame = |h: &Harness<'static, OpenPDFApp>| {
+            fn find(shape: &egui::Shape, grip: egui::Rect) -> Option<egui::Rect> {
+                match shape {
+                    egui::Shape::Rect(r) if r.rect.contains_rect(grip) && r.rect.height() > 200.0 && r.rect.width() < 100.0 => Some(r.rect),
+                    egui::Shape::Vec(shapes) => shapes.iter().find_map(|s| find(s, grip)),
+                    _ => None,
+                }
+            }
+            let grip = h.get_by_label("Drag hotbar").rect();
+            h.output().shapes.iter().find_map(|s| find(&s.shape, grip)).expect("the floating toolbar frame")
+        };
+        let cross = frame(&h);
+        for tool in ["sign.fill.text", "sign.fill.date", "sign.fill.cross"] {
+            h.state_mut().execute(tool);
+            h.run_steps(12);
+            let text = frame(&h);
+            assert!((text.width() - cross.width()).abs() < 0.5, "{tool}, {size}: {text:?} vs {cross:?}");
+            let grip = h.get_by_label("Drag hotbar").rect();
+            let gear = h.get_by_label("Hotbar settings").rect();
+            assert!((grip.center().x - gear.center().x).abs() < 0.5, "settings must stay in the tool column");
+            assert!((text.center().x - grip.center().x).abs() < 0.5, "the tool column must be centred in the panel");
+        }
+    }
+}
