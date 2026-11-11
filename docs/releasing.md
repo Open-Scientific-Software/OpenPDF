@@ -1,11 +1,17 @@
 # Releasing OpenPDF
 
 Every push to the `release` branch runs `.github/workflows/release.yml`. It builds installers for
-macOS, Windows, Linux, FreeBSD and the web, signs the ones it has certificates for, and creates or
+macOS, Windows, Linux, FreeBSD and the web, and creates or
 updates a **draft** GitHub Release named `OpenPDF v<version>`. Nobody sees a draft until a
 maintainer publishes it.
 
-The pipeline was ported from PhotoCraft's. User-facing names say **OpenPDF**; files, binaries and
+The unsigned pipeline is maintained in OpenPDF under the owner-authorized exception in
+`AGENTS.md`. It passes no signing secrets: Windows and Linux packages are unsigned; macOS
+packages are ad-hoc signed and **not notarized**. Operating systems may warn about or block
+installation. The draft notes identify this explicitly. Checksums verify file integrity, not
+publisher identity.
+
+User-facing names say **OpenPDF**; files, binaries and
 ids stay lowercase (`openpdf-<version>-<platform>-<arch>.<ext>`, `io.github.openscientificsoftware.openpdf`).
 
 OpenPDF checks its fork's releases for updates. macOS app bundles and Flatpak bundles use
@@ -24,25 +30,26 @@ release page until the shared updater supports independent application IDs.
 
    Commit the change through the normal review flow (see the `Release: OpenPDF v0.2.1` PR).
 2. **Merge `main` into `release`** (or fast-forward it) and push. The workflow starts by itself.
-3. **Wait for the draft.** When every job has finished (notarization is the slow part), the
+3. **Wait for the draft.** When every build and package check has finished, the
    Releases page has a draft `OpenPDF v0.3.0` targeting the pushed commit, with every artifact
-   and `SHA256SUMS.txt`. The notes are generated from the merged PRs.
-4. **Check it.** Download an installer or two and read the job summaries. A `::warning::` there
-   means a signing secret was missing and that artifact is unsigned.
+   and `SHA256SUMS.txt`. The draft includes an unsigned-build notice; review and complete its release notes.
+4. **Check it.** Download and smoke-test installers, verify their checksums, and read the job summaries.
+   Signing warnings are expected for this intentionally unsigned pipeline.
 5. **Publish** the draft in the GitHub UI. Publishing creates the `v0.3.0` tag. Versions with a
    pre-release suffix (`-rc.1`) are marked as pre-releases.
 
 Pushing to `release` again before you publish rebuilds the same draft and replaces its assets.
 Once the draft is published, the workflow refuses to touch that version again, so bump it first.
 
-**Test runs:** *Actions ▸ Release ▸ Run workflow* runs the whole pipeline by hand. The optional
-`version` input (such as `0.3.0-rc.1`) overrides `Cargo.toml` for that run only; each job applies it
-with `cargo xtask version set` before building, so the binaries report it too. The signing jobs
-(macOS, Windows) and the draft-release job use the `release` environment, so pick the `release`
-branch in the dialog for a full run. On any other branch the same dispatch is a **dry run**: the
-Linux, Flatpak, FreeBSD and web jobs build and check everything, the signing jobs are refused by the
-environment's branch rule, and the draft-release job (which needs them) is skipped, so nothing is
-published (`gh workflow run release.yml --ref <branch>`).
+**Test runs:** *Actions ▸ Release ▸ Run workflow* builds the version committed in
+`Cargo.toml`. A dispatch on any branch other than `release` uploads build artifacts only;
+it does not create a GitHub Release or tag. There is no version override: bump the version
+through a PR so the manifest, lockfile, binaries and release agree.
+
+The final job requires every build to pass and all 26 expected package files to be present
+and nonempty before computing `SHA256SUMS.txt` and creating the draft. It cannot overwrite
+an already published version. Only this final job has `contents: write`; no signing secrets
+or `release` environment are needed.
 
 ## What gets built
 
@@ -57,19 +64,19 @@ published (`gh workflow run release.yml --ref <branch>`).
 | Linux riscv64 | `openpdf-<v>-linux-riscv64.tar.gz`, `openpdf-cli-<v>-linux-riscv64.tar.gz` (glibc 2.39+) | `ubuntu-24.04` (cross-compiled; CLI smoke-tested under QEMU) |
 | Flatpak x86_64 | `openpdf-<v>-linux-x86_64.flatpak` | `ubuntu-24.04` (repackages the Linux tarball) |
 | Flatpak aarch64 | `openpdf-<v>-linux-aarch64.flatpak` | `ubuntu-24.04-arm` (repackages the Linux tarball) |
-| FreeBSD 14 x86_64 | `openpdf-<v>-freebsd-x86_64.tar.gz` | FreeBSD VM on `ubuntu-latest` |
-| Web | `openpdf-web-<v>.zip` (a static site; see [`packaging/web/README.md`](../packaging/web/README.md)) | `ubuntu-latest` |
+| FreeBSD 14 x86_64 | `openpdf-<v>-freebsd-x86_64.tar.gz` | FreeBSD 14.3 VM on `ubuntu-24.04` |
+| Web | `openpdf-web-<v>.zip` (a static site; see [`packaging/web/README.md`](../packaging/web/README.md)) | `ubuntu-24.04` |
 
-The ARM64 Windows build is cross-compiled on the x64 runner, so signing and WiX work as for the
+The ARM64 Windows build is cross-compiled on the x64 runner, so WiX works as for the
 other Windows builds; `.github/workflows/windows-arm64.yml` installs and runs it on ARM64 hardware.
 
 Every binary reports its version (`openpdf --version`, `openpdf-cli --version`, *Help ▸ About*).
-The workflow sets `OPENPDF_BUILD_SHA` and `OPENPDF_BUILD_DATE` (`packaging/env.sh` fills them in
-for local builds): the commit is recorded in the macOS `Info.plist` (`OpenPDFBuildCommit`) and the
+The workflow sets `OPENPDF_BUILD_SHA`; packaging records `OPENPDF_BUILD_DATE` in UTC
+(`packaging/env.sh` fills both in for local builds): the commit is recorded in the macOS `Info.plist` (`OpenPDFBuildCommit`) and the
 date in the AppStream metadata. The binaries don't embed the commit yet.
 
 **Fonts:** every job checks out [craft-fonts](https://github.com/storytold/craft-fonts) at the commit
-pinned in `release.yml` and builds with `CRAFT_FONTS_DIR` and `CRAFT_FONTS_REQUIRED=1`, so releases
+pinned in `.github/actions/release-inputs/action.yml` and builds with `CRAFT_FONTS_DIR` and `CRAFT_FONTS_REQUIRED=1`, so releases
 embed its Japanese fonts and fail rather than ship without them (`AGENTS.md` §1.4). Bump the pin
 deliberately.
 
@@ -235,23 +242,18 @@ binaries; check the tarball against `SHA256SUMS.txt`.
 with sample `_headers` and `.htaccess` files. Hosting (MIME types, compression, caching, iframes) is
 covered in [`packaging/web/README.md`](../packaging/web/README.md).
 
-## Secrets
+## Signing
 
-The signing secrets live in the repository's **`release` environment** (*Settings ▸ Environments ▸
-release*), restricted to the `release` branch; every job in `release.yml` declares
-`environment: release`. Each secret is optional: if one is missing, that platform's artifacts are
-unsigned and the run shows a warning.
+This pipeline deliberately passes no signing credentials. macOS uses an ad-hoc signature
+(`MACOS_SIGN_IDENTITY=-`) and skips notarization; Windows packaging warns and leaves its
+binaries and installers unsigned. Linux packages and the checksum file are unsigned too.
 
-| Secret | Used for |
-|---|---|
-| `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD` | base64 Developer ID Application `.p12` and its password |
-| `KEYCHAIN_PASSWORD` | the temporary CI keychain (random if unset) |
-| `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | `notarytool` (an app-specific password) |
-| `WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_PASSWORD` | base64 `.pfx` code-signing certificate and its password |
-| `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | service principal for Azure Trusted Signing (instead of a `.pfx`) |
-| `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT`, `AZURE_CERT_PROFILE` | Trusted Signing endpoint, account and certificate profile |
+To introduce trusted signing later, make a separate OpenPDF CI change and configure the
+appropriate credentials directly in GitHub Secrets. Do not put credentials in source or
+release notes. The packaging scripts retain their existing signing support.
 
-`GITHUB_TOKEN` creates the release; only the final job gets `contents: write`.
+`GITHUB_TOKEN` creates the draft; only the final job gets `contents: write`. Publishing the
+reviewed draft remains a separate maintainer action.
 
 ## Checks
 
