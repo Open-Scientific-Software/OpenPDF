@@ -99,8 +99,8 @@
       <string>Editor</string>
       <key>LSHandlerRank</key>
       <string>Alternate</string>
-      <key>CFBundleTypeIconFile</key>
-      <string>OpenPDF</string>
+      <!-- Do not supply a document icon: choosing OpenPDF as the PDF opener must not
+           replace the existing PDF icons. CFBundleIconFile above is the app icon only. -->
       <key>LSItemContentTypes</key>
       <array><string>com.adobe.pdf</string></array>
       <key>CFBundleTypeExtensions</key>

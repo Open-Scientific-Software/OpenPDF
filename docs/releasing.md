@@ -103,6 +103,11 @@ as a document type with rank Alternate, so OpenPDF is offered under Open With wi
 from Preview). Files opened from Finder arrive as Apple events, which
 `apps/openpdf/src/apple_events.rs` receives.
 
+The bundle keeps its application icon but does not declare a PDF document icon. Choosing
+OpenPDF as the default PDF opener therefore leaves document-icon selection to macOS rather
+than replacing PDF icons with the OpenPDF app icon. Keep `CFBundleTypeIconFile` absent from
+the PDF document declaration; the packaging regression test checks this policy.
+
 - **Signing** uses the hardened runtime and a secure timestamp, executable first, then the bundle.
   `packaging/macos/import-cert.sh` puts the certificate in a temporary keychain, deleted at the end
   of the job.
