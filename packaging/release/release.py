@@ -85,6 +85,16 @@ def existing_release(tag):
     return bool(matches)
 
 
+def validate_tag(tag, sha):
+    refs = json.loads(gh("api", f"repos/{REPOSITORY}/git/matching-refs/tags/{tag}"))
+    for ref in refs:
+        if ref["ref"] == f"refs/tags/{tag}":
+            # GitHub ignores --target when the tag already exists. Reject mismatches rather
+            # than publishing source archives for a different build or moving a user's tag.
+            if ref["object"]["type"] != "commit" or ref["object"]["sha"] != sha:
+                raise ValueError(f"existing {tag} does not point directly to build commit {sha}; resolve the tag explicitly before releasing")
+
+
 def draft(root):
     if os.environ.get("GITHUB_REPOSITORY") != REPOSITORY or os.environ.get("GITHUB_REF") != "refs/heads/release":
         raise ValueError("draft creation is restricted to OpenPDF's release branch")
@@ -94,6 +104,7 @@ def draft(root):
     v = version(root)
     assets = checksums(root / "dist/release", v)
     tag = f"v{v}"
+    validate_tag(tag, sha)
     exists = existing_release(tag)
     notes = (
         f"# OpenPDF {v}\n\n"
