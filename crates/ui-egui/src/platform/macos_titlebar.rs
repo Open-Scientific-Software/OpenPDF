@@ -4,7 +4,7 @@
 use objc2_app_kit::{NSApplication, NSWindowButton, NSWindowStyleMask};
 use objc2_foundation::NSPoint;
 
-pub(crate) fn align_controls(ctx: &egui::Context, row_height: f32) {
+pub(crate) fn align_controls(ctx: &egui::Context, row_height: f32, mirrored: bool) {
     let Some(mtm) = objc2::MainThreadMarker::new() else { return };
     let Some(window) = NSApplication::sharedApplication(mtm).mainWindow() else { return };
     let style = window.styleMask();
@@ -34,7 +34,9 @@ pub(crate) fn align_controls(ctx: &egui::Context, row_height: f32) {
         }
         // Preserve the native horizontal group at small interface sizes. Chrome reserves
         // at least its normal physical clearance, independently of egui's scale.
-        let target = NSPoint::new(20.5 + index as f64 * 22.0, window_height - centre);
+        let inset = 20.5 + index as f64 * 22.0;
+        let x = if mirrored { window.frame().size.width - inset } else { inset };
+        let target = NSPoint::new(x, window_height - centre);
         let local = parent.convertPoint_fromView(target, None);
         let origin = NSPoint::new(local.x - frame.size.width / 2.0, local.y - frame.size.height / 2.0);
         if origin.x.is_finite() && origin.y.is_finite() && ((origin.x - frame.origin.x).abs() > 0.01 || (origin.y - frame.origin.y).abs() > 0.01) {

@@ -1,7 +1,7 @@
 //! `model_render`: a page's 3D model (ISO 32000-2 §13.6) drawn to a PNG, without a viewer.
 
+use craft_prc::PrcFile;
 use openpdf_engine::model3d::Model3dKind;
-use openpdf_prc::PrcFile;
 use openpdf_prc_render::nav::{Axis, NamedView, Orbit, Upright, reach};
 use openpdf_prc_render::{Bounds, Camera, RenderOptions, WorldMesh, assemble, render};
 use serde_json::Value;

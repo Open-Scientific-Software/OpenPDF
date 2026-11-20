@@ -19,6 +19,7 @@ allow = [
     "Unicode-3.0",
     "BSL-1.0",
     "CC0-1.0",
+    "IJG",
 ]
 
 [licenses.private]
@@ -45,6 +46,10 @@ allow-git = [
 [advisories]
 yanked = "warn"
 ignore = [
+    # The Rust house rules require chrono for dates. craft-update and lopdf also depend on it.
+    # Revisit when the house rules permit migration and the dependency graph can drop chrono,
+    # or when the advisory identifies a maintained release.
+    { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained and required for date handling" },
     # Marvin (RSA private-key timing side channel, no fixed `rsa` release). openpdf-sign uses
     # `rsa` only for public-key signature verification, which the advisory does not affect; RSA
     # private-key operations use aws-lc-rs on native targets and are refused in the browser

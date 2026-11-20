@@ -20,6 +20,7 @@
 use openpdf_content::Matrix;
 use openpdf_cos::{DecodeBudget, Dict, Document, ObjRef, Object, SaveOptions, Stream, write_full};
 
+pub mod colour;
 mod font_names;
 pub mod range;
 pub mod spool;

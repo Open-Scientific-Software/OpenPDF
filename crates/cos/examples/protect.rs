@@ -22,7 +22,8 @@ fn main() {
         _ => openpdf_cos::Algorithm::Aes256,
     };
     let mut doc = openpdf_cos::Document::open(std::sync::Arc::new(std::fs::read(input).unwrap())).unwrap();
-    doc.set_encryption(&openpdf_cos::NewEncryption {
+    // `rc4-40` and `rc4-128` are the legacy schemes, which `set_encryption` refuses.
+    doc.set_encryption_legacy(&openpdf_cos::NewEncryption {
         algorithm,
         user_password: user,
         owner_password: owner,

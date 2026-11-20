@@ -158,13 +158,25 @@ impl Automation {
         }
         // The engines are built (and named if they cannot be) before the first file is read.
         let recognizers = openpdf_engine::ocr::recognizers(&settings).map_err(failed)?;
+        // Each file opens in its own session; it keeps this one's JavaScript preference.
+        let javascript = self.session.javascript();
         let mut out = Vec::new();
         let (mut ok, mut skipped_files, mut words) = (0usize, 0usize, 0usize);
         for p in paths {
             let name = input_file_name(p);
             let result =
                 self.resolve(p, false).map_err(|e| e.to_string()).and_then(|src| crate::read_input_bytes(&src).map_err(|e| e.to_string())).and_then(
-                    |bytes| openpdf_engine::ocr::recognize_file(&name, std::sync::Arc::new(bytes), None, settings.clone(), &recognizers, |_, _| true),
+                    |bytes| {
+                        openpdf_engine::ocr::recognize_file(
+                            &name,
+                            std::sync::Arc::new(bytes),
+                            None,
+                            settings.clone(),
+                            &recognizers,
+                            javascript,
+                            |_, _| true,
+                        )
+                    },
                 );
             match result {
                 Ok(r) => {
