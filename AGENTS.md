@@ -183,6 +183,11 @@ OpenPDF opens files from strangers, and people trust it with their work. A malfo
 - `plan/` is an optional gitignored notebook. Do not ask for it and do not stop when it is absent. Public status is [`ROADMAP.md`](ROADMAP.md), [`docs/gaps.md`](docs/gaps.md) and [`docs/roadmap.md`](docs/roadmap.md). "Shipped" in `parity/` means exists and tested, not parity with Acrobat.
 - `cargo run -p openpdf -- <file.pdf>` opens the app. `openpdf-cli run` drives the engine headlessly. `cargo xtask fuzz` findings stay in `fuzz-out/` and become synthetic tests. For UI work, look at a screenshot from `--control` or the `shot` example.
 
+## Maintaining the OpenPDF fork
+
+- Preserve the outcomes recorded in [OpenPDF customizations](docs/customizations.md) across upstream integrations, refactors and releases. Review affected entries even when Git merges cleanly. Update the record and its checks in the same change when the owner adds, revises or retires a customization. Obtain the owner's decision before dropping or changing a recorded outcome.
+- At each upstream integration and whenever a subsystem changes ownership, review the resulting architecture. Identify which layer owns each affected behavior, check dependency direction, and look for duplicate implementations or adapters whose original purpose has gone away. Use the simplest design that preserves the recorded behavior and the repository's layering and fidelity guarantees. In the PR, explain material design decisions, name the customization checks run, and record any deferred structural work with its scope and rationale.
+
 ## Upstream authorization
 
 - Work requested for OpenPDF authorizes work in this fork only. Before contacting upstream maintainers or making any externally visible change involving an upstream repository, obtain the user's explicit authorization for the named repository and action.
