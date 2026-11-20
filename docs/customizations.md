@@ -8,6 +8,8 @@ This is the fork's record of product and distribution decisions. Use the checks 
 - Keep the original upright document icon with its centered PDF lettering. Use the [vector master](../assets/app-icon/openpdf.svg) for platform exports and the fork's [installer artwork](../packaging/macos/dmg/README.md) for the macOS disk image. Inspect the mounted installer and the app in Finder and the Dock after launch. Check provenance through the asset audit.
 - On macOS, users can choose OpenPDF as their default PDF reader while macOS retains control of PDF document icons. Check that the packaged app declares its own icon and PDF-opening support and that its PDF document type omits the document-icon override. See the [bundle template](../packaging/macos/Info.plist.in) and [packaging checks](../xtask/src/gates.rs).
 
+Keep the PDF/A output intent byte-compatible with the OpenPDF 0.20.1 sRGB v2.1 profile, including its embedded OpenPDF description. The preflight test `output_intent_matches_the_original_openpdf_profile` checks the complete profile.
+
 ## Desktop layout
 
 | Preserve | How to check |

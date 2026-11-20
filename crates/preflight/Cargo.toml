@@ -11,7 +11,6 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-craft-cms-v2 = { package = "craft-cms", version = "0.1.0", git = "https://github.com/storytold/craft-libs", rev = "8503f24cb845268f47f97e829491114fe9ad1bfa" }
 craft-xml = { workspace = true }
 openpdf-content = { workspace = true }
 openpdf-cos = { workspace = true }
@@ -19,3 +18,4 @@ openpdf-model = { workspace = true }
 
 [dev-dependencies]
 flate2 = { workspace = true }
+sha2 = "0.11"
