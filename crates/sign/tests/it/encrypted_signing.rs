@@ -71,7 +71,7 @@ fn protected(alg: openpdf_cos::Algorithm, permissions: i32) -> Vec<u8> {
 /// `fixture()` protected with the user password `user` and an owner password, then saved.
 fn protected_with(alg: openpdf_cos::Algorithm, user: &str, permissions: i32) -> Vec<u8> {
     let mut doc = open(&fixture());
-    doc.set_encryption(&openpdf_cos::NewEncryption {
+    doc.set_encryption_legacy(&openpdf_cos::NewEncryption {
         algorithm: alg,
         user_password: user,
         owner_password: "owner",

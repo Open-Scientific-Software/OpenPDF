@@ -1,6 +1,7 @@
 //! A small sRGB ICC profile (version 2, display class, matrix/TRC), written from the published
 //! sRGB primaries (IEC 61966-2-1) adapted to D50, with the sRGB tone curve sampled at 1024
-//! points. Used as the PDF/A output intent's destination profile.
+//! points. Used as the PDF/A output intent's destination profile. The shared v2 generator fixes
+//! the description to PdfCraft. Keep this writer until it accepts the OpenPDF description.
 
 fn s15f16(v: f64) -> [u8; 4] {
     ((v * 65536.0).round() as i32).to_be_bytes()
@@ -110,6 +111,18 @@ pub fn srgb() -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn output_intent_matches_the_original_openpdf_profile() {
+        use sha2::{Digest, Sha256};
+
+        // Digest of the complete v2.1 profile shipped by OpenPDF 0.20.1.
+        let expected = [
+            0xea, 0x5a, 0xe1, 0x51, 0x64, 0x06, 0xc4, 0x35, 0x92, 0x1c, 0x6c, 0x41, 0xfd, 0x65, 0xea, 0xfd, 0xd7, 0xf5, 0x2d, 0xd7, 0x9b, 0x26, 0x53,
+            0x56, 0x33, 0x2e, 0xad, 0xb3, 0x0b, 0xe1, 0x9e, 0xb5,
+        ];
+        assert_eq!(Sha256::digest(super::srgb()).as_slice(), expected);
+    }
+
     #[test]
     fn profile_is_well_formed() {
         let p = super::srgb();

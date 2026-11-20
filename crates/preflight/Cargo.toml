@@ -11,10 +11,11 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+craft-xml = { workspace = true }
 openpdf-content = { workspace = true }
 openpdf-cos = { workspace = true }
 openpdf-model = { workspace = true }
-roxmltree = "0.21"
 
 [dev-dependencies]
 flate2 = { workspace = true }
+sha2 = "0.11"

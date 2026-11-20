@@ -646,7 +646,14 @@ mod tests {
         assert!(pdf.contains("<string>com.adobe.pdf</string>"), "claim PDFs by UTI, not just extension/MIME");
         assert!(pdf.contains("<string>Editor</string>"), "PDF role stays Editor");
         assert!(pdf.contains("<string>Alternate</string>"), "rank stays Alternate: offered without taking over Preview");
-        assert!(pdf.contains("<key>CFBundleTypeIconFile</key>"), "declares document icon file for Finder");
+    }
+
+    #[test]
+    fn macos_bundle_preserves_pdf_document_icons() {
+        let pdf = pdf_document_type();
+        assert!(!pdf.contains("<key>CFBundleTypeIconFile</key>"), "becoming the PDF opener must not override document icons");
+        let plist = read("packaging/macos/Info.plist.in");
+        assert!(plist.contains("<key>CFBundleIconFile</key>\n  <string>OpenPDF</string>"), "keep the application icon");
     }
 
     // The bundle id must match the app id the binary uses; renames change both (#174).

@@ -1,9 +1,9 @@
 # openpdf-prc-render
 
-A headless CPU renderer for PRC 3D models read by `openpdf-prc`: placed meshes in world space, a fitted camera, a
+A headless CPU renderer for PRC 3D models read by `craft-prc`: placed meshes in world space, a fitted camera, a
 depth-buffered triangle fill and headlight shading, into a straight-RGBA image.
 
-- **Layer:** L3. Depends on `openpdf-prc` only.
+- **Layer:** L3. Depends on `craft-prc` only.
 - **Licence:** MIT OR Apache-2.0.
 - `#![forbid(unsafe_code)]`. Never panics on input: image size, triangle count and every index are checked, and
   damage returns `RenderError`.

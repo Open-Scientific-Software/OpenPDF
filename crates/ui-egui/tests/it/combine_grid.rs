@@ -75,7 +75,7 @@ fn protected(user: &str, owner: &str) -> Vec<u8> {
 
 fn protected_with(algorithm: openpdf_cos::Algorithm, user: &str, owner: &str) -> Vec<u8> {
     let mut doc = openpdf_cos::Document::open(std::sync::Arc::new(fixture(2))).unwrap();
-    doc.set_encryption(&openpdf_cos::NewEncryption {
+    doc.set_encryption_legacy(&openpdf_cos::NewEncryption {
         algorithm,
         user_password: user,
         owner_password: owner,
