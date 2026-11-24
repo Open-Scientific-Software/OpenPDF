@@ -188,6 +188,22 @@ OpenPDF opens files from strangers, and people trust it with their work. A malfo
 - Preserve the outcomes recorded in [OpenPDF customizations](docs/customizations.md) across upstream integrations, refactors and releases. Review affected entries even when Git merges cleanly. Update the record and its checks in the same change when the owner adds, revises or retires a customization. Obtain the owner's decision before dropping or changing a recorded outcome.
 - At each upstream integration and whenever a subsystem changes ownership, review the resulting architecture. Identify which layer owns each affected behavior, check dependency direction, and look for duplicate implementations or adapters whose original purpose has gone away. Use the simplest design that preserves the recorded behavior and the repository's layering and fidelity guarantees. In the PR, explain material design decisions, name the customization checks run, and record any deferred structural work with its scope and rationale.
 
+### Upstream integration procedure
+
+An instruction such as “Integrate the latest upstream into OpenPDF, open a fork PR, and take it through CI” covers the steps below. Leave the verified PR ready for the owner's merge decision.
+
+1. **Establish the baseline.** Fetch the existing fork and upstream remotes. Record the fork tip, target upstream commit and common ancestor. Check recent fork commits, relevant issues and their comments, and open PRs for overlapping work. Follow the fork's issue-claim procedure. Summarize the upstream changes by user-visible effect and identify affected entries in the [customization record](docs/customizations.md).
+2. **Merge in isolation.** Start a clean worktree and an `update/upstream-YYYY-MM-DD` branch from the current `origin/main`. Inspect the expected conflicts and merge the pinned upstream commit, preserving its ancestry for the next integration.
+3. **Resolve by behavior and ownership.** Prefer upstream's implementation when it preserves the recorded OpenPDF behavior. Identify the owning layer, check dependency direction, and remove redundant fork code once the replacement is verified. Inspect newly added and cleanly merged files for stale crate names, branding, paths, packaging and assets. Check dependency licenses and attribution against fork policy. Handle workflow changes in a separate CI PR.
+4. **Verify the integrated product.** Run the relevant checks in the customization record. Exercise affected engine behavior through the CLI and desktop interactions through the app's opt-in control channel. Compare generated output with a known-good fork release when fidelity matters. For example, [PR #14](https://github.com/Open-Scientific-Software/OpenPDF/pull/14) needed a regression test for the color profile embedded in PDF/A exports. Demonstrate that each regression test fails before its fix and passes afterward. Run the repository quality gates above and record what actually ran.
+5. **Verify the fork PR.** Review the full diff, refresh the branch if fork main has advanced, and rerun affected checks. In the PR, summarize user-visible changes, customization checks, architecture decisions and any deferred work. Follow CI through completion, diagnose failures and verify the updated commit. Report mergeability, check results and any remaining gaps.
+
+Resolve routine conflicts, architecture choices and recoverable failures within the integration. Ask the owner before changing a recorded customization, accepting licensing outside the allowlist, contacting upstream, or taking another action requiring approval under the repository rules. Explain the user-visible tradeoff and recommend an option.
+
+After merge, a release is a separate task. Check existing fork tags and the integrated upstream version before recommending a version. When a release build is requested, verify draft packages and checksums. Obtain explicit authorization for publication and installation. For a macOS installation, capture the default PDF handler and Finder document icon before updating and verify both afterward.
+
+Keep integration-specific decisions and validation results in the fork PR. Use the optional gitignored `plan/` directory for local working notes.
+
 ## Upstream authorization
 
 - Work requested for OpenPDF authorizes work in this fork only. Before contacting upstream maintainers or making any externally visible change involving an upstream repository, obtain the user's explicit authorization for the named repository and action.
